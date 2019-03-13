@@ -1,0 +1,4 @@
+*.dat
+*.o
+**/Makefile.deps
+**/kernel
