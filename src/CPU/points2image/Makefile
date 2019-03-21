@@ -3,6 +3,7 @@
 -include Makefile.deps
 
 CFLAGS = -O3
+CPPFLAGS=-std=c++11
 
 kernel: ../common/main.o kernel.o 
 	$(CXX) $^ -o $@

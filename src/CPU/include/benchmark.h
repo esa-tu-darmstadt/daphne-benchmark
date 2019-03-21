@@ -5,32 +5,48 @@
 
 class kernel {
 public:
-  // performs necessary pre-run initialisation. Usually this 
-  // reads the necessary input data from a file (or has them in a static array)
-  virtual void init() = 0;
-  
-  // executes the testcase, in blocks of p at a time
-  virtual void run(int p = 1) = 0;
-  
-  // compares the computed output with the golden reference output
-  // output can be read from a file or in a static array
-  // for floating point results a given error constant should be given
-  virtual bool check_output() = 0;
-  
-  // number of testcase available for this kernel (there should be at least 1)
-  uint32_t testcases = 1;
-  
-  // sets the functions which should be called to pause and unpause the timer
-  void set_timer_functions(void (*pause_function)(),
-		            void (*unpause_function)()) {
-     unpause_func = unpause_function;
-     pause_func = pause_function;
-   }
-  
+	// the number of testcase available for this kernel (there should be at least 1)
+	uint32_t testcases = 1;
+	
+	/**
+	* Performs necessary pre-run initialisation. It usually
+	* reads the necessary input data from a file.
+	*/
+	virtual void init() = 0;
+
+	/*
+	* Executes the testcase, in blocks of p at a time.
+	* p: the number of testcases to process
+	*/
+	virtual void run(int p = 1) = 0;
+
+	/**
+	* Compares the computed output with the reference data.
+	*/
+	virtual bool check_output() = 0;
+
+	/* 
+	* Sets the functions to call for pausing and resuming runtime measurement.
+	*/
+	void set_timer_functions(
+		void (*pause_function)(),
+		void (*unpause_function)()) {
+		unpause_func = unpause_function;
+		pause_func = pause_function;
+	}
+
 protected:
-  void (*unpause_func)();
-  void (*pause_func)();
-  virtual int read_next_testcases(int count) = 0;
+	// the function to call for resuming runtime measurement
+	void (*unpause_func)();
+	// the function to call for pausing runtime measurement
+	void (*pause_func)();
+	
+	/**
+	 * Reads the next testcases.
+	 * count: the number of testcases to read
+	 * return: the number of testcases actually read
+	 */
+	virtual int read_next_testcases(int count) = 0;
 };
 
 #endif
