@@ -10,6 +10,15 @@
 #define MAX_EPS 0.001
 
 class points2image : public kernel {
+private:
+	// the number of testcases read
+	int read_testcases = 0;
+	// testcase and reference data streams
+	std::ifstream input_file, output_file;
+	// whether critical deviation from the reference data has been detected
+	bool error_so_far = false;
+	// deviation from the reference data
+	double max_delta = 0.0;
 public:
 	/*
 	 * Initializes the kernel. Must be called before run().
@@ -48,16 +57,11 @@ protected:
 	 * count: the number of testcases processed 
 	 */
 	virtual void check_next_outputs(int count);
+	/**
+	 * Reads the number of testcases in the data set.
+	 */
+	int read_number_testcases(std::ifstream& input_file);
 	
-	int  read_number_testcases(std::ifstream& input_file);
-	// the number of testcases read
-	int read_testcases = 0;
-	// testcase and reference data streams
-	std::ifstream input_file, output_file;
-	// whether critical deviation from the reference data has been detected
-	bool error_so_far;
-	// deviation from the reference data
-	double max_delta;
 };
 /**
  * Parses the next point cloud from the input stream.
@@ -250,22 +254,21 @@ void points2image::init() {
 	std::cout << "done\n" << std::endl;
 }
 /**
-   This code is extracted from Autoware, file:
-   ~/Autoware/ros/src/sensing/fusion/packages/points2image/lib/points_image/points_image.cpp
-   It uses the test data that has been read before and applies the linked algorithm.
-   pointcloud2: cloud of points to transform
-   cameraExtrinsicMat: camera matrix used for transformation
-   cameraMat: camera matrix used for transformation
-   distCoeff: distance coefficients for cloud transformation
-   imageSize: the size of the resulting image
-   returns: the two dimensional image of transformed points
-   
-*/
-PointsImage
-pointcloud2_to_image(const PointCloud2& pointcloud2,
-                     const Mat44& cameraExtrinsicMat,
-                     const Mat33& cameraMat, const Vec5& distCoeff,
-                     const ImageSize& imageSize)
+ * This code is extracted from Autoware, file:
+ * ~/Autoware/ros/src/sensing/fusion/packages/points2image/lib/points_image/points_image.cpp
+ * It uses the test data that has been read before and applies the linked algorithm.
+ * pointcloud2: cloud of points to transform
+ * cameraExtrinsicMat: camera matrix used for transformation
+ * cameraMat: camera matrix used for transformation
+ * distCoeff: distance coefficients for cloud transformation
+ * imageSize: the size of the resulting image
+ * returns: the two dimensional image of transformed points
+ */
+PointsImage pointcloud2_to_image(
+	const PointCloud2& pointcloud2,
+	const Mat44& cameraExtrinsicMat,
+	const Mat33& cameraMat, const Vec5& distCoeff,
+	const ImageSize& imageSize)
 {
 	// initialize the resulting image data structure
 	int w = imageSize.width;
