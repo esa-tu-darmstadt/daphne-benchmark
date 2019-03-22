@@ -1,10 +1,8 @@
 .DEFAULT_GOAL := kernel
 
 
-CXXFLAGS=-std=c++11 -O3  -arch compute_62 
+CXXFLAGS=-std c++11 -O3 -arch compute_62 
 CXX=nvcc
-#CXXFLAGS=-std=gnu++11 -O3
-
 
 -include Makefile.deps
 
@@ -22,5 +20,5 @@ clean:
 	rm -f kernel kernel.o ../common/main.o Makefile.deps
 
 Makefile.deps:
-	$(CXX) $(CFLAGS) $(CPPFLAGS)  -I../include -MM ../common/main.cpp *.cu > Makefile.deps
+	g++ $(CFLAGS) $(CPPFLAGS)  -I../include -MM ../common/main.cpp *.cu > Makefile.deps
 

@@ -8,7 +8,7 @@
 #include "benchmark.h"
 #include "datatypes.h"
 
-// constants, defined in the original code
+// ndt parameters
 const int _cluster_size_min = 20;
 const int _cluster_size_max = 100000;
 const bool _pose_estimation = true;
@@ -17,48 +17,58 @@ const bool _pose_estimation = true;
 #define MAX_EPS 0.001
 
 class euclidean_clustering : public kernel {
+private:
+	/**
+	 * Reads the number of testcases in the data set.
+	 */
+	int read_number_testcases(std::ifstream& input_file);
+	// input point cloud
+	PointCloud *in_cloud_ptr;
+	// colored point cloud
+	PointCloudRGB *out_cloud_ptr;
+	// bounding boxes of the input cloud
+	BoundingboxArray *out_boundingbox_array;
+	// detected centroids
+	Centroid *out_centroids;
+	// the number of testcases that have been read
+	int read_testcases = 0;
+	// testcase and reference data streams
+	std::ifstream input_file, output_file;
+	// indicates an size related error
+	bool error_so_far;
+	// the measured maximum deviation from the reference data
+	double max_delta;
 public:
 	virtual void init();
 	virtual void run(int p = 1);
 	virtual bool check_output();
 protected:
-    void clusterAndColor(const PointCloud *in_cloud_ptr,
-		    PointCloudRGB *out_cloud_ptr,
-		    BoundingboxArray *in_out_boundingbox_array,
-		    Centroid *in_out_centroids,
-		    double in_max_cluster_distance);
+	void clusterAndColor(const PointCloud *in_cloud_ptr,
+		PointCloudRGB *out_cloud_ptr,
+		BoundingboxArray *in_out_boundingbox_array,
+		Centroid *in_out_centroids,
+		double in_max_cluster_distance);
 	/**
-	 * Cluster the point cloud according to the pairwise point distances.
-	 * Clustering of the same input data is performed multiple times with different thresholds
-	 * so that points farther away in the cloud also get assigned to a cluster.
-	 */
-    void segmentByDistance(const PointCloud *in_cloud_ptr,
-			   PointCloudRGB *out_cloud_ptr,
-			   BoundingboxArray *in_out_boundingbox_array,
-			   Centroid *in_out_centroids,
-			   double in_max_cluster_distance);
-    virtual int read_next_testcases(int count);
-    virtual void check_next_outputs(int count);
+	* Cluster the point cloud according to the pairwise point distances.
+	* Clustering of the same input data is performed multiple times with different thresholds
+	* so that points farther away in the cloud also get assigned to a cluster.
+	*/
+	void segmentByDistance(const PointCloud *in_cloud_ptr,
+		PointCloudRGB *out_cloud_ptr,
+		BoundingboxArray *in_out_boundingbox_array,
+		Centroid *in_out_centroids,
+		double in_max_cluster_distance);
 	/**
-	 * Reads the number of testcases in the data set.
+	 * Reads the next testcase input data structures.
+	 * count: number of testcase datasets to read
+	 * return: the number of testcases datasets actually read
 	 */
-    int read_number_testcases(std::ifstream& input_file);
-	// input point cloud
-    PointCloud *in_cloud_ptr;
-	// colored point cloud
-    PointCloudRGB *out_cloud_ptr;
-	// bounding boxes of the input cloud
-    BoundingboxArray *out_boundingbox_array;
-	// detected centroids
-    Centroid *out_centroids;
-	// the number of testcases that have been read
-    int read_testcases = 0;
-	// testcase and reference data streams
-    std::ifstream input_file, output_file;
-	// indicates an size related error
-    bool error_so_far;
-	// the measured maximum deviation from the reference data
-    double max_delta;
+	virtual int read_next_testcases(int count);
+	/**
+	 * Reads and compares algorithm outputs with the reference result.
+	 * count: the number of outputs to compare
+	 */
+	virtual void check_next_outputs(int count);
 };
 
 int euclidean_clustering::read_number_testcases(std::ifstream& input_file)
@@ -487,7 +497,7 @@ float minAreaRectAngle(std::vector<Point2D>& points)
 }
 
 /**
- * Computes the squared pairwise distances. Results are stored in a matrix.
+ * Computes the pairwise squared distances. Results are stored in a matrix.
  * An entry of that matrix indicates whether the distance of the two described points 
  * is less or equal to the reference distance.
  * points: points for which we need pairwise distances with size N
@@ -537,8 +547,6 @@ int radiusSearch(
 }
 
 /**
- * Heavily modified euclidean cluster extraction from the pcl library.
- * 
  * Finds all clusters in the given point cloud that are conformant to the given parameters.
  * cloud: point cloud to cluster
  * tolerance: search radius around a single point
@@ -616,7 +624,9 @@ inline bool comparePointClusters (const PointIndices &a, const PointIndices &b)
 	return (a.indices.size () < b.indices.size ());
 }
 
-
+/**
+ * Computes euclidean clustering and sorts the resulting clusters.
+ */
 void extract (const PointCloud *input_, std::vector<PointIndices> &clusters, double cluster_tolerance_)
 {
 	if (input_->empty())
@@ -738,10 +748,8 @@ void euclidean_clustering::clusterAndColor(
 			in_out_centroids->points.push_back(centroid);
 		}
 		out_cloud_ptr->insert(out_cloud_ptr->end(), current_cluster->begin(), current_cluster->end());
-
 		j++; k++;
 	}
-
 }
 /**
  * Segments the cloud into categories representing distance ranges from the origin
@@ -808,16 +816,17 @@ void parsePointCloud(std::ifstream& input_file, PointCloud *cloud)
 	input_file.read((char*)&(size), sizeof(int));
 	try {
 		for (int i = 0; i < size; i++)
-			{
+		{
 			input_file.read((char*)&p.x, sizeof(float));
 			input_file.read((char*)&p.y, sizeof(float));
 			input_file.read((char*)&p.z, sizeof(float));
 			cloud->push_back(p);
-			}
-	} catch (std::ifstream::failure e) {
+		}
+	} catch (std::ifstream::failure) {
 		throw std::ios_base::failure("Error reading point cloud");
 	}
 }
+
 /**
  * Reads the next reference cloud result.
  */
@@ -842,6 +851,7 @@ void parseOutCloud(std::ifstream& input_file, PointCloudRGB *cloud)
 		throw std::ios_base::failure("Error reading reference cloud");
     } 
 }
+
 /**
  * Reads the next reference bounding boxes.
  */
@@ -868,6 +878,7 @@ void parseBoundingboxArray(std::ifstream& input_file, BoundingboxArray *bb_array
 		throw std::ios_base::failure("Error reading reference bounding boxes");
     }
 }
+
 /*
  * Reads the next reference centroids.
  */
@@ -889,11 +900,6 @@ void parseCentroids(std::ifstream& input_file, Centroid *centroids)
 	}
 }
 
-/**
- * Reads the next testcase input data structures.
- * count: number of testcase datasets to read
- * return: the number of testcases datasets actually read
- */
 int euclidean_clustering::read_next_testcases(int count)
 {
 	int i;
@@ -907,7 +913,7 @@ int euclidean_clustering::read_next_testcases(int count)
 	out_cloud_ptr = new PointCloudRGB[count];
 	out_boundingbox_array = new BoundingboxArray[count];
 	out_centroids = new Centroid[count];
-
+	// read the testcase data
 	for (i = 0; (i < count) && (read_testcases < testcases); i++,read_testcases++)
 	{
 		try {
@@ -947,10 +953,10 @@ void euclidean_clustering::init() {
 	// prepare for the first iteration
 	error_so_far = false;
 	max_delta = 0.0;
-	in_cloud_ptr = NULL;
-	out_cloud_ptr = NULL;
-	out_boundingbox_array = NULL;
-	out_centroids = NULL;
+	in_cloud_ptr = nullptr;
+	out_cloud_ptr = nullptr;
+	out_boundingbox_array = nullptr;
+	out_centroids = nullptr;
 
 	std::cout << "done\n" << std::endl;
 }
@@ -982,8 +988,7 @@ void euclidean_clustering::run(int p) {
 /**
  * Helper function for point comparison
  */
-inline bool 
-compareRGBPoints (const PointRGB &a, const PointRGB &b)
+inline bool compareRGBPoints (const PointRGB &a, const PointRGB &b)
 {
     if (a.x != b.x)
 		return (a.x < b.x);
@@ -997,8 +1002,7 @@ compareRGBPoints (const PointRGB &a, const PointRGB &b)
 /**
  * Helper function for point comparison
  */
-inline bool 
-comparePoints (const PointDouble &a, const PointDouble &b)
+inline bool comparePoints (const PointDouble &a, const PointDouble &b)
 {
 	if (a.x != b.x)
 		return (a.x < b.x);
@@ -1013,8 +1017,7 @@ comparePoints (const PointDouble &a, const PointDouble &b)
 /**
  * Helper function for bounding box comparison
  */
-inline bool 
-compareBBs (const Boundingbox &a, const Boundingbox &b)
+inline bool compareBBs (const Boundingbox &a, const Boundingbox &b)
 {
 	if (a.position.x != b.position.x)
 		return (a.position.x < b.position.x);
@@ -1103,13 +1106,13 @@ bool euclidean_clustering::check_output()
 {
 	std::cout << "checking output \n";
 
-	// act as complement to init()
+	// acts as complement to init()
 	input_file.close();
 	output_file.close();
 	std::cout << "max delta: " << max_delta << "\n";
 	if ((max_delta > MAX_EPS) || error_so_far)
 	{
-			return false;
+		return false;
 	} else 
 	{
 		return true;
