@@ -1,5 +1,5 @@
-#ifndef benchmark_h
-#define benchmark_h
+#ifndef BENCHMARK_H
+#define BENCHMARK_H
 
 #include <iostream>
 
@@ -9,25 +9,25 @@ public:
 	uint32_t testcases = 1;
 	
 	/**
-	* Performs necessary pre-run initialisation. It usually
-	* reads the necessary input data from a file.
-	*/
+	 * Performs necessary pre-run initialisation. It usually
+	 * reads the necessary input data from a file.
+	 */
 	virtual void init() = 0;
 
-	/*
-	* Executes the testcase, in blocks of p at a time.
-	* p: the number of testcases to process
-	*/
+	/**
+	 * Executes the testcase, in blocks of p at a time.
+	 * p: the number of testcases to process
+	 */
 	virtual void run(int p = 1) = 0;
 
 	/**
-	* Compares the computed output with the reference data.
-	*/
+	 * Compares the computed output with the reference data.
+	 */
 	virtual bool check_output() = 0;
 
 	/* 
-	* Sets the functions to call for pausing and resuming runtime measurement.
-	*/
+	 * Sets the functions to call for pausing and resuming runtime measurement.
+	 */
 	void set_timer_functions(
 		void (*pause_function)(),
 		void (*unpause_function)()) {

@@ -6,7 +6,6 @@
 #include <limits>
 #include <cstring>
 #include <chrono>
-#include <cstdlib>
 
 // maximum allowed deviation from reference
 #define MAX_TRANSLATION_EPS 0.001
@@ -23,9 +22,9 @@ private:
 	// testcase and result stream
 	std::ifstream input_file, output_file;
 	// whether an abnormal deviation has been detected
-	bool error_so_far;
+	bool error_so_far = false;
 	// maximum deviation from the reference data so far
-	double max_delta;
+	double max_delta = 0.0;
 	// ndt parameters
 	double outlier_ratio_ = 0.55;
 	float resolution_ = 1.0;
@@ -33,8 +32,8 @@ private:
 	double step_size_ = 0.1; // Step size
 	int iter = 30;  // Maximum iterations
 	Matrix4f final_transformation_, transformation_, previous_transformation_;
-	bool converged_;
-	int nr_iterations_;
+	bool converged_ = false;
+	int nr_iterations_ = 0;
 	Vec3 h_ang_a2_, h_ang_a3_,
 	h_ang_b2_, h_ang_b3_,
 	h_ang_c2_, h_ang_c3_,
@@ -47,10 +46,10 @@ private:
 	double gauss_d1_, gauss_d2_;
 	double trans_probability_;
 	double transformation_epsilon_ = 0.1;
-	int max_iterations_;
+	int max_iterations_ = 0;
 	// point clouds
-	PointCloud* input_;
-	PointCloud* target_;
+	PointCloud* input_ = nullptr;
+	PointCloud* target_ = nullptr;
 	// voxel grid spanning over all points
 	VoxelGrid target_cells_;
 	// voxel grid extend
@@ -125,18 +124,18 @@ protected:
 	 */
 	int voxelRadiusSearch(
 		VoxelGrid &grid, const PointXYZI& point, double radius,
-		std::vector<TargetGridLeafConstPtr> & indices,
+		std::vector<Voxel> & indices,
 		std::vector<float> distances);
 };
+
 
 int ndt_mapping::read_number_testcases(std::ifstream& input_file)
 {
 	int32_t number;
 	try {
 		input_file.read((char*)&(number), sizeof(int32_t));
-	} catch (std::ifstream::failure e) {
-		std::cerr << "Error reading file\n";
-		exit(-3);
+	} catch (std::ifstream::failure) {
+		throw std::ios_base::failure("Error reading number of test cases");
 	}
 	return number;
 }
@@ -158,9 +157,8 @@ void  parseFilteredScan(std::ifstream& input_file, PointCloud* pointcloud) {
 			input_file.read((char*)&p.data[3], sizeof(float));
 			pointcloud->push_back(p);
 		}
-	}  catch (std::ifstream::failure e) {
-		std::cerr << "Error reading file\n";
-		exit(-3);
+	}  catch (std::ifstream::failure) {
+		throw std::ios_base::failure("Error reading filtered scan");
 	}
 }
 
@@ -172,9 +170,8 @@ void  parseInitGuess(std::ifstream& input_file, Matrix4f* initGuess) {
 	for (int h = 0; h < 4; h++)
 		for (int w = 0; w < 4; w++)
 			input_file.read((char*)&(initGuess->data[h][w]),sizeof(float));
-	}  catch (std::ifstream::failure e) {
-		std::cerr << "Error reading file\n";
-		exit(-3);
+	}  catch (std::ifstream::failure) {
+		throw std::ios_base::failure("Error reading initial guess");
 	}
 }
 
@@ -190,9 +187,8 @@ void parseResult(std::ifstream& output_file, CallbackResult* goldenResult) {
 			}
 		output_file.read((char*)&(goldenResult->fitness_score), sizeof(double));
 		output_file.read((char*)&(goldenResult->converged), sizeof(bool));
-	}  catch (std::ifstream::failure e) {
-		std::cerr << "Error reading file\n";
-		exit(-3);
+	}  catch (std::ifstream::failure) {
+		throw std::ios_base::failure("Error reading reference result");		
 	}
 }
 
@@ -211,9 +207,14 @@ int ndt_mapping::read_next_testcases(int count)
 	// parse the test cases
 	for (i = 0; (i < count) && (read_testcases < testcases); i++,read_testcases++)
 	{
-		parseInitGuess(input_file, init_guess + i);
-		parseFilteredScan(input_file, filtered_scan_ptr + i);
-		parseFilteredScan(input_file, maps + i);
+		try {
+			parseInitGuess(input_file, init_guess + i);
+			parseFilteredScan(input_file, filtered_scan_ptr + i);
+			parseFilteredScan(input_file, maps + i);
+		} catch (std::ios_base::failure& e) {
+			std::cerr << e.what() << std::endl;
+			exit(-3);
+		}
 	}
 	return i;
 }
@@ -235,7 +236,7 @@ inline int ndt_mapping::linearizeCoord(const float x, const float y, const float
 }
 
 int ndt_mapping::voxelRadiusSearch(VoxelGrid &grid, const PointXYZI& point, double radius,
-	std::vector<TargetGridLeafConstPtr> & indices,
+	std::vector<Voxel> & indices,
 	std::vector<float> distances)
 {
 	int result = 0;
@@ -350,7 +351,12 @@ void ndt_mapping::init() {
 		exit(-3);
 	}
 	// consume the number of testcases from the testcase file
-	testcases = read_number_testcases(input_file);
+	try {
+		testcases = read_number_testcases(input_file);
+	} catch (std::ios_base::failure& e) {
+		std::cerr << e.what() << std::endl;
+		exit(-3);
+	}
 	// prepare the first iteration
 	error_so_far = false;
 	max_delta = 0.0;
@@ -551,7 +557,7 @@ void ndt_mapping::computeHessian(
 	// temporary data structures
 	PointXYZI  x_pt, x_trans_pt; // Original Point and Transformed Point
 	Vec3 x, x_trans; // Original Point and Transformed Point
-	TargetGridLeafConstPtr cell; // Occupied Voxel
+	Voxel cell; // Occupied Voxel
 	Mat33 c_inv; // Inverse Covariance of Occupied Voxel
 	memset(&(hessian.data[0][0]), 0, sizeof(double) * 6 * 6);
 	// Update hessian for each point, line 17 in Algorithm 2 [Magnusson 2009]
@@ -559,7 +565,7 @@ void ndt_mapping::computeHessian(
 	{
 		x_trans_pt = trans_cloud[idx];
 		// Find neighbors
-		std::vector<TargetGridLeafConstPtr> neighborhood;
+		std::vector<Voxel> neighborhood;
 		std::vector<float> distances;
 		voxelRadiusSearch (target_cells_, x_trans_pt, resolution_, neighborhood, distances);
 		// execute for each neighbor
@@ -645,7 +651,7 @@ double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 	// Original Point and Transformed Point (for math)
 	Vec3 x, x_trans;
 	// Occupied Voxel
-	TargetGridLeafConstPtr cell;
+	Voxel cell;
 	// Inverse Covariance of Occupied Voxel
 	Mat33 c_inv;
 	// initialization to 0
@@ -662,7 +668,7 @@ double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 		x_trans_pt = trans_cloud[idx];
 
 		// Find nieghbors (Radius search has been experimentally faster than direct neighbor checking.
-		std::vector<TargetGridLeafConstPtr> neighborhood;
+		std::vector<Voxel> neighborhood;
 		std::vector<float> distances;
 		voxelRadiusSearch (target_cells_, x_trans_pt, resolution_, neighborhood, distances);
 		
@@ -696,7 +702,7 @@ void ndt_mapping::computeAngleDerivatives (Vec6 &p, bool compute_hessian)
 {
 	// Simplified math for near 0 angles
 	double cx, cy, cz, sx, sy, sz;
-	if (fabs (p[3]) < 10e-5)
+	if (std::fabs (p[3]) < 10e-5)
 	{
 		//p(3) = 0;
 		cx = 1.0;
@@ -707,7 +713,7 @@ void ndt_mapping::computeAngleDerivatives (Vec6 &p, bool compute_hessian)
 		cx = cos (p[3]);
 		sx = sin (p[3]);
 	}
-	if (fabs (p[4]) < 10e-5)
+	if (std::fabs (p[4]) < 10e-5)
 	{
 		//p(4) = 0;
 		cy = 1.0;
@@ -719,7 +725,7 @@ void ndt_mapping::computeAngleDerivatives (Vec6 &p, bool compute_hessian)
 		sy = sin (p[4]);
 	}
 
-	if (fabs (p[5]) < 10e-5)
+	if (std::fabs (p[5]) < 10e-5)
 	{
 		//p(5) = 0;
 		cz = 1.0;
@@ -870,7 +876,7 @@ double ndt_mapping::trialValueSelectionMT (double a_l, double f_l, double g_l,
 		// Equation 2.4.2 [Sun, Yuan 2006]
 		double a_q = a_l - 0.5 * (a_l - a_t) * g_l / (g_l - (f_l - f_t) / (a_l - a_t));
 
-		if (fabs (a_c - a_l) < fabs (a_q - a_l))
+		if (std::fabs (a_c - a_l) < std::fabs (a_q - a_l))
 			return (a_c);
 		else
 			return (0.5 * (a_q + a_c));
@@ -890,14 +896,14 @@ double ndt_mapping::trialValueSelectionMT (double a_l, double f_l, double g_l,
 		// Equation 2.4.5 [Sun, Yuan 2006]
 		double a_s = a_l - (a_l - a_t) / (g_l - g_t) * g_l;
 
-		if (fabs (a_c - a_t) >= fabs (a_s - a_t))
+		if (std::fabs (a_c - a_t) >= std::fabs (a_s - a_t))
 			return (a_c);
 		else
 			return (a_s);
 	}
 	// Case 3 in Trial Value Selection [More, Thuente 1994]
 	else
-	if (fabs (g_t) <= fabs (g_l))
+	if (std::fabs (g_t) <= std::fabs (g_l))
 	{
 		// Calculate the minimizer of the cubic that interpolates f_l, f_t, g_l and g_t
 		// Equation 2.4.52 [Sun, Yuan 2006]
@@ -911,7 +917,7 @@ double ndt_mapping::trialValueSelectionMT (double a_l, double f_l, double g_l,
 
 		double a_t_next;
 
-		if (fabs (a_c - a_t) < fabs (a_s - a_t))
+		if (std::fabs (a_c - a_t) < std::fabs (a_s - a_t))
 			a_t_next = a_c;
 		else
 			a_t_next = a_s;
@@ -1248,7 +1254,7 @@ void ndt_mapping::computeTransformation(PointCloud &output, const Matrix4f &gues
 		p[5] = p[5] + delta_p[5];		    
 
 		if (nr_iterations_ > max_iterations_ ||
-			(nr_iterations_ && (fabs (delta_p_norm) < transformation_epsilon_)))
+			(nr_iterations_ && (std::fabs (delta_p_norm) < transformation_epsilon_)))
 		{
 			converged_ = true;
 		}
@@ -1425,7 +1431,12 @@ void ndt_mapping::check_next_outputs(int count)
 	CallbackResult reference;
 	for (int i = 0; i < count; i++)
 	{
-		parseResult(output_file, &reference);
+		try {
+			parseResult(output_file, &reference);
+		} catch (std::ios_base::failure& e) {
+			std::cerr << e.what() << std::endl;
+			exit(-3);
+		}
 		if (results[i].converged != reference.converged)
 		{
 			error_so_far = true;
@@ -1460,6 +1471,7 @@ bool ndt_mapping::check_output() {
 	std::cout << "max delta: " << max_delta << "\n";
 	return !error_so_far;
 }
+
 // set the kernel used in main()
 ndt_mapping a = ndt_mapping();
 kernel& myKernel = a;
