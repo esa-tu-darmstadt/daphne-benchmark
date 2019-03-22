@@ -66,9 +66,8 @@ int euclidean_clustering::read_number_testcases(std::ifstream& input_file)
 	int32_t number;
 	try {
 		input_file.read((char*)&(number), sizeof(int32_t));
-	} catch (std::ifstream::failure e) {
-		std::cerr << "Error reading file\n";
-		exit(-3);
+	} catch (std::ifstream::failure) {
+		throw std::ios_base::failure("Error reading the number of testcases");
 	}
 	return number;
 }
@@ -816,8 +815,7 @@ void parsePointCloud(std::ifstream& input_file, PointCloud *cloud)
 			cloud->push_back(p);
 			}
 	} catch (std::ifstream::failure e) {
-		std::cerr << "Error reading file\n";
-		exit(-3);
+		throw std::ios_base::failure("Error reading point cloud");
 	}
 }
 /**
@@ -840,9 +838,8 @@ void parseOutCloud(std::ifstream& input_file, PointCloudRGB *cloud)
 		input_file.read((char*)&p.b, sizeof(uint8_t));				    
 		cloud->push_back(p);
 	    }
-    }  catch (std::ifstream::failure e) {
-	std::cerr << "Error reading file\n";
-	exit(-3);
+    }  catch (std::ifstream::failure) {
+		throw std::ios_base::failure("Error reading reference cloud");
     } 
 }
 /**
@@ -867,9 +864,8 @@ void parseBoundingboxArray(std::ifstream& input_file, BoundingboxArray *bb_array
 		input_file.read((char*)&bba.dimensions.y, sizeof(double));
 		bb_array->boxes.push_back(bba);
 	    }
-    }  catch (std::ifstream::failure e) {
-		std::cerr << "Error reading file\n";
-		exit(-3);
+    }  catch (std::ifstream::failure) {
+		throw std::ios_base::failure("Error reading reference bounding boxes");
     }
 }
 /*
@@ -888,9 +884,8 @@ void parseCentroids(std::ifstream& input_file, Centroid *centroids)
 			input_file.read((char*)&p.z, sizeof(double));
 			centroids->points.push_back(p);
 		}
-	} catch (std::ifstream::failure e) {
-		std::cerr << "Error reading file\n";
-		exit(-3);
+	} catch (std::ifstream::failure) {
+		throw std::ios_base::failure("Error reading reference centroids");
 	}
 }
 
@@ -915,7 +910,12 @@ int euclidean_clustering::read_next_testcases(int count)
 
 	for (i = 0; (i < count) && (read_testcases < testcases); i++,read_testcases++)
 	{
-		parsePointCloud(input_file, in_cloud_ptr + i);
+		try {
+			parsePointCloud(input_file, in_cloud_ptr + i);
+		} catch (std::ios_base::failure& e) {
+			std::cerr << e.what() << std::endl;
+			exit(-3);
+		}
 	}
 	return i;
 }
@@ -938,7 +938,12 @@ void euclidean_clustering::init() {
 		exit(-3);
 	}
 	// consume the number of testcases from the input file
-	testcases = read_number_testcases(input_file);
+	try {
+		testcases = read_number_testcases(input_file);
+	} catch (std::ios_base::failure& e) {
+		std::cerr << e.what() << std::endl;
+		exit(-3);
+	}
 	// prepare for the first iteration
 	error_so_far = false;
 	max_delta = 0.0;
@@ -1032,9 +1037,14 @@ void euclidean_clustering::check_next_outputs(int count)
 	for (int i = 0; i < count; i++)
 	{
 		// read the reference result
-		parseOutCloud(output_file, &reference_out_cloud);
-		parseBoundingboxArray(output_file, &reference_bb_array);
-		parseCentroids(output_file, &reference_centroids);
+		try {
+			parseOutCloud(output_file, &reference_out_cloud);
+			parseBoundingboxArray(output_file, &reference_bb_array);
+			parseCentroids(output_file, &reference_centroids);
+		} catch (std::ios_base::failure& e) {
+			std::cerr << e.what() << std::endl;
+			exit(-3);
+		}
 
 		// as the result is still right when points/boxes/centroids are in different order,
 		// we sort the result and reference to normalize it and we can compare it
