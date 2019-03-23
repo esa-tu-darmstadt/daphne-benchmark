@@ -1,5 +1,5 @@
-#ifndef datatypes_h
-#define datatypes_h
+#ifndef DATATYPES_H
+#define DATATYPES_H
 
 #include <vector>
 

@@ -3,6 +3,8 @@
 -include Makefile.deps
 -include Configuration.cfg
 
+CPPFLAGS += -std=c++11
+
 kernel: ../common/main.o kernel.o 
 	$(CXX) -O3 -fopenmp $^ -o $@
 

@@ -19,6 +19,18 @@ private:
 	bool error_so_far = false;
 	// deviation from the reference data
 	double max_delta = 0.0;
+	// the point clouds to process in one iteration
+	PointCloud2* pointcloud2 = nullptr;
+	// the associated camera extrinsic matrices
+	Mat44* cameraExtrinsicMat = nullptr;
+	// the associated camera intrinsic matrices
+	Mat33* cameraMat = nullptr;
+	// distance coefficients for the current iteration
+	Vec5* distCoeff = nullptr;
+	// image sizes for the current iteration
+	ImageSize* imageSize = nullptr;
+	// Algorithm results for the current iteration
+	PointsImage* results = nullptr;
 public:
 	/*
 	 * Initializes the kernel. Must be called before run().
@@ -33,18 +45,7 @@ public:
 	 * Finally checks whether all input data has been processed successfully.
 	 */
 	virtual bool check_output();
-	// the point clouds to process in one iteration
-	PointCloud2* pointcloud2 = NULL;
-	// the associated camera extrinsic matrices
-	Mat44* cameraExtrinsicMat = NULL;
-	// the associated camera intrinsic matrices
-	Mat33* cameraMat = NULL;
-	// distance coefficients for the current iteration
-	Vec5* distCoeff = NULL;
-	// image sizes for the current iteration
-	ImageSize* imageSize = NULL;
-	// Algorithm results for the current iteration
-	PointsImage* results = NULL;
+	
 protected:
 	/**
 	* Reads the next test cases.
@@ -244,12 +245,12 @@ void points2image::init() {
 	// prepare the first iteration
 	error_so_far = false;
 	max_delta = 0.0;
-	pointcloud2 = NULL;
-	cameraExtrinsicMat = NULL;
-	cameraMat = NULL;
-	distCoeff = NULL;
-	imageSize = NULL;
-	results = NULL;
+	pointcloud2 = nullptr;
+	cameraExtrinsicMat = nullptr;
+	cameraMat = nullptr;
+	distCoeff = nullptr;
+	imageSize = nullptr;
+	results = nullptr;
 
 	std::cout << "done\n" << std::endl;
 }
@@ -450,7 +451,7 @@ void points2image::check_next_outputs(int count)
 		delete [] reference.max_height;
 	}
 }
-  
+
 bool points2image::check_output() {
 	std::cout << "checking output \n";
 	// complement to init()
