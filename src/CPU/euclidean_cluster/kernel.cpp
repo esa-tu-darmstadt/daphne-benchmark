@@ -8,7 +8,7 @@
 #include "benchmark.h"
 #include "datatypes.h"
 
-// ndt parameters
+// algorithm parameters
 const int _cluster_size_min = 20;
 const int _cluster_size_max = 100000;
 const bool _pose_estimation = true;
@@ -18,26 +18,22 @@ const bool _pose_estimation = true;
 
 class euclidean_clustering : public kernel {
 private:
-	/**
-	 * Reads the number of testcases in the data set.
-	 */
-	int read_number_testcases(std::ifstream& input_file);
 	// input point cloud
-	PointCloud *in_cloud_ptr;
+	PointCloud *in_cloud_ptr = nullptr;
 	// colored point cloud
-	PointCloudRGB *out_cloud_ptr;
+	PointCloudRGB *out_cloud_ptr = nullptr;
 	// bounding boxes of the input cloud
-	BoundingboxArray *out_boundingbox_array;
+	BoundingboxArray *out_boundingbox_array = nullptr;
 	// detected centroids
-	Centroid *out_centroids;
+	Centroid *out_centroids = nullptr;
 	// the number of testcases that have been read
 	int read_testcases = 0;
 	// testcase and reference data streams
 	std::ifstream input_file, output_file;
 	// indicates an size related error
-	bool error_so_far;
+	bool error_so_far = false;
 	// the measured maximum deviation from the reference data
-	double max_delta;
+	double max_delta = 0.0;
 public:
 	virtual void init();
 	virtual void run(int p = 1);
@@ -58,6 +54,10 @@ protected:
 		BoundingboxArray *in_out_boundingbox_array,
 		Centroid *in_out_centroids,
 		double in_max_cluster_distance);
+	/**
+	 * Reads the number of testcases in the data set.
+	 */
+	int read_number_testcases(std::ifstream& input_file);
 	/**
 	 * Reads the next testcase input data structures.
 	 * count: number of testcase datasets to read
@@ -640,7 +640,6 @@ void extract (const PointCloud *input_, std::vector<PointIndices> &clusters, dou
 	// Sort the clusters based on their size (largest one first)
 	std::sort (clusters.rbegin (), clusters.rend (), comparePointClusters);
 }
-
 
 /**
  * Performs clustering and coloring on a point cloud

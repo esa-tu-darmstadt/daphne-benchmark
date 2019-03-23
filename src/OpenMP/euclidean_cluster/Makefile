@@ -2,7 +2,8 @@
 
 -include Makefile.deps
 
-CXXFLAGS=-O3  
+CXXFLAGS=-O3
+CPPFLAGS += -std=c++11
 
 kernel: ../common/main.o kernel.o 
 	$(CXX) -fopenmp $^ -o $@
