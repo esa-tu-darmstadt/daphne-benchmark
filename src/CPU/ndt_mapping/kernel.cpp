@@ -129,17 +129,6 @@ protected:
 };
 
 
-int ndt_mapping::read_number_testcases(std::ifstream& input_file)
-{
-	int32_t number;
-	try {
-		input_file.read((char*)&(number), sizeof(int32_t));
-	} catch (std::ifstream::failure) {
-		throw std::ios_base::failure("Error reading number of test cases");
-	}
-	return number;
-}
-
 /**
  * Reads the next point cloud.
  */
@@ -219,6 +208,17 @@ int ndt_mapping::read_next_testcases(int count)
 	return i;
 }
 
+
+int ndt_mapping::read_number_testcases(std::ifstream& input_file)
+{
+	int32_t number;
+	try {
+		input_file.read((char*)&(number), sizeof(int32_t));
+	} catch (std::ifstream::failure) {
+		throw std::ios_base::failure("Error reading number of test cases");
+	}
+	return number;
+}
 
 inline int ndt_mapping::linearizeAddr(const int x, const int y, const int z)
 {
@@ -425,7 +425,6 @@ inline double auxilaryFunction_PsiMT (double a, double f_a, double f_0, double g
 {
     return (f_a - f_0 - mu * g_0 * a);
 }
-
 
 double ndt_mapping::updateDerivatives (Vec6 &score_gradient,
 	Mat66 &hessian,
@@ -1136,7 +1135,6 @@ double ndt_mapping::computeStepLengthMT (const Vec6 &x, Vec6 &step_dir, double s
 		computeHessian (hessian, trans_cloud, x_t);
 	return a_t;
 }
-
 
 void ndt_mapping::eulerAngles(Matrix4f trans, Vec3 &result)
 {
