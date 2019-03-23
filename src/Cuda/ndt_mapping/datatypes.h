@@ -1,5 +1,5 @@
-#ifndef datatypes_h
-#define datatypes_h
+#ifndef DATATYPES_H
+#define DATATYPES_H
 
 #include <vector>
 
@@ -51,19 +51,24 @@ typedef struct CallbackResult {
     double fitness_score;
 } CallbackResult;
 
-typedef struct TargetGridLeafConstPtr {
+typedef struct Voxel {
     Mat33 invCovariance;
     Vec3 mean;
     int numberPoints;
     int voxel_x;
     int voxel_y;
     int voxel_z;
-} TargetGridLeadConstPtr;
+} Voxel;
 
 
-typedef TargetGridLeafConstPtr* VoxelGrid;
+typedef Voxel* VoxelGrid;
 
-Matrix4f Matrix4f_Identity = { .data = {{1.0, 0.0, 0.0, 0.0}, {0.0, 1.0, 0.0, 0.0}, {0.0, 0.0, 1.0, 0.0}, {0.0, 0.0, 0.0, 1.0}} };
+Matrix4f Matrix4f_Identity = {
+	{{1.0, 0.0, 0.0, 0.0},
+	 {0.0, 1.0, 0.0, 0.0},
+	 {0.0, 0.0, 1.0, 0.0},
+	 {0.0, 0.0, 0.0, 1.0}}
+};
 
 #define PI 3.1415926535897932384626433832795
 

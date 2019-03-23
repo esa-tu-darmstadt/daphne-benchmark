@@ -71,9 +71,9 @@ protected:
 	*/
 	virtual int read_next_testcases(int count);
 	/**
-	* Reads and compares algorithm results with the respective reference.
-	* count: number of testcase results to compare
-	*/
+	 * Reads and compares algorithm results with the respective reference.
+	 * count: number of testcase results to compare
+	 */
 	virtual void check_next_outputs(int count);
 	/**
 	 * Reduces a multi dimensional voxel grid index to one dimension.
@@ -1165,7 +1165,6 @@ void ndt_mapping::eulerAngles(Matrix4f trans, Vec3 &result)
 	result[0] = -res[0];
 	result[1] = -res[1];
 	result[2] = -res[2];
-    
 }
 
 void ndt_mapping::computeTransformation(PointCloud &output, const Matrix4f &guess)
@@ -1191,9 +1190,10 @@ void ndt_mapping::computeTransformation(PointCloud &output, const Matrix4f &gues
 	memset(point_hessian_.data, 0, sizeof(double) * 18 * 6);
 	// Convert initial guess matrix to 6 element transformation vector
 	Vec6 p, delta_p, score_gradient;
-	p[0] = final_transformation_.data[0][4];
-	p[1] = final_transformation_.data[1][4];
-	p[2] = final_transformation_.data[2][4];
+	// TODO: index 4 or 3 ? - original is 4, though nvcc reports out of range on that
+	p[0] = final_transformation_.data[0][3];
+	p[1] = final_transformation_.data[1][3];
+	p[2] = final_transformation_.data[2][3];
 	Vec3 ea;
 	eulerAngles(final_transformation_, ea);
 	p[3] = ea[0];
@@ -1290,8 +1290,8 @@ void invertMatrix(Mat33 &m)
 	temp.data[2][2] = m.data[1][1] * m.data[0][0] - m.data[1][0] * m.data[0][1];
 
 	for (int row = 0; row < 3; row++)
-	for (int col = 0; col < 3; col++)
-		m.data[row][col] = temp.data[row][col] * invDet;
+		for (int col = 0; col < 3; col++)
+			m.data[row][col] = temp.data[row][col] * invDet;
 }
 
 void ndt_mapping::initCompute()
@@ -1407,7 +1407,7 @@ CallbackResult ndt_mapping::partial_points_callback(PointCloud &input_cloud, Mat
 }
 
 void ndt_mapping::run(int p) {
-	// prepare reading the first data set
+	// prepare to read the first data set
 	pause_func();
 	while (read_testcases < testcases)
 	{
@@ -1461,7 +1461,7 @@ void ndt_mapping::check_next_outputs(int count)
 			}
 	}
 }
-  
+
 bool ndt_mapping::check_output() {
 	std::cout << "checking output \n";
 	// complement to init()
