@@ -68,7 +68,7 @@ protected:
 	 * Reads the next testcases.
 	 * count: number of datasets to read
 	 * return: number of data sets actually read.
-	*/
+	 */
 	virtual int read_next_testcases(int count);
 	/**
 	 * Reads and compares algorithm results with the respective reference.

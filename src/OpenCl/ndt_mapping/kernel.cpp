@@ -1,14 +1,14 @@
 #include "benchmark.h"
 #include "datatypes.h"
-#include <math.h>
+#include <cmath>
 #include <iostream>
 #include <fstream>
 #include <limits>
 #include <cstring>
 #include <chrono>
+#include <stdexcept>
 #include <stdlib.h>
 
-#if defined (OPENCL_EPHOS)
 #include "ocl_ephos.h"
 #include "stringify.h"
 
@@ -16,345 +16,317 @@
 #define STRINGIZE(s) STRINGIZE2(s)
 #define NUMWORKITEMS_PER_WORKGROUP_STRING STRINGIZE(NUMWORKITEMS_PER_WORKGROUP) 
 
-/*
-OCL_Struct OCL_objs;
-*/
-#include <cstring>
-
-#endif
-
-// due to gimbal lock problem (rotation of a thing in opposite direction, is it +180° or -180°?)
-// rotation matrix value can differ up to two
+// maximum allowed deviation from reference
 #define MAX_EPS 2.0
+#define MAX_TRANSLATION_EPS 0.001
+#define MAX_ROTATION_EPS 0.9
 
 class ndt_mapping : public kernel {
-public:
-    virtual void init();
-    virtual void run(int p = 1);
-    virtual bool check_output();
-    PointCloud* filtered_scan_ptr = NULL;
-    Matrix4f* init_guess = NULL;
-    CallbackResult* results = NULL;
-    PointCloud* maps = NULL;
-protected:    
-    virtual int read_next_testcases(int count);
-    virtual void check_next_outputs(int count);
-    int read_testcases = 0;
-    std::ifstream input_file, output_file;
-    bool error_so_far;
-    #if defined (DOUBLE_FP)
-    double max_delta;
-    #else
-    float max_delta;
-    #endif
+private:
+	// the number of testcases read
+	int read_testcases = 0;
+	std::ifstream input_file, output_file;
+	// indicates a discrete deviation
+	bool error_so_far = false;
+	// continuous deviation from the reference
+	#if defined (DOUBLE_FP)
+	double max_delta;
+	#else
+	float max_delta;
+	#endif
+	// ndt parameters
+	#if defined (DOUBLE_FP)
+	double outlier_ratio_ = 0.55;
+	float  resolution_    = 1.0;
+	double trans_eps      = 0.01; //Transformation epsilon
+	double step_size_     = 0.1;  // Step size
+	#else
+	float outlier_ratio_  = 0.55;
+	float resolution_     = 1.0;
+	float trans_eps       = 0.01; //Transformation epsilon
+	float step_size_      = 0.1;  // Step size
+	#endif
 
-    // some magic numbers for ndt
-    #if defined (DOUBLE_FP)
-    double outlier_ratio_ = 0.55;
-    float  resolution_    = 1.0;
-    double trans_eps      = 0.01; //Transformation epsilon
-    double step_size_     = 0.1;  // Step size
-    #else
-    float outlier_ratio_  = 0.55;
-    float resolution_     = 1.0;
-    float trans_eps       = 0.01; //Transformation epsilon
-    float step_size_      = 0.1;  // Step size
-    #endif
-
-    int iter = 30;  // Maximum iterations
-    Matrix4f final_transformation_, transformation_, previous_transformation_;
-    bool converged_;
-    int nr_iterations_;
-    Vec3 h_ang_a2_, h_ang_a3_,
+	int iter = 30;  // Maximum iterations
+	Matrix4f final_transformation_, transformation_, previous_transformation_;
+	bool converged_;
+	int nr_iterations_;
+	Vec3 h_ang_a2_, h_ang_a3_,
 	h_ang_b2_, h_ang_b3_,
 	h_ang_c2_, h_ang_c3_,
 	h_ang_d1_, h_ang_d2_, h_ang_d3_,
 	h_ang_e1_, h_ang_e2_, h_ang_e3_,
 	h_ang_f1_, h_ang_f2_, h_ang_f3_;
-    Vec3 j_ang_a_, j_ang_b_, j_ang_c_, j_ang_d_, j_ang_e_, j_ang_f_, j_ang_g_, j_ang_h_;
-    Mat36 point_gradient_;
-    Mat186 point_hessian_;
+	Vec3 j_ang_a_, j_ang_b_, j_ang_c_, j_ang_d_, j_ang_e_, j_ang_f_, j_ang_g_, j_ang_h_;
+	Mat36 point_gradient_;
+	Mat186 point_hessian_;
 
-    #if defined (DOUBLE_FP)
-    double gauss_d1_, gauss_d2_;
-    double trans_probability_;
-    double transformation_epsilon_ = 0.1;
-    #else
-    float gauss_d1_, gauss_d2_;
-    float trans_probability_;
-    float transformation_epsilon_ = 0.1;
-    #endif
+	#if defined (DOUBLE_FP)
+	double gauss_d1_, gauss_d2_;
+	double trans_probability_;
+	double transformation_epsilon_ = 0.1;
+	#else
+	float gauss_d1_, gauss_d2_;
+	float trans_probability_;
+	float transformation_epsilon_ = 0.1;
+	#endif
+	int max_iterations_;
 
-    int max_iterations_;
-    PointCloud* input_;
-    PointCloud* target_;
-    VoxelGrid target_cells_;
-    PointXYZI minVoxel, maxVoxel;
-    int voxelDimension[3];
-    inline int linearizeAddr(const int x, const int y, const int z);
-    inline int linearizeCoord(const float x, const float y, const float z);
+	// point clouds
+	PointCloud* input_ = nullptr;
+	PointCloud* target_ = nullptr;
+	PointCloud* filtered_scan_ptr = nullptr;
+	PointCloud* maps = nullptr;
+	// voxel grid spanning over the cloud
+	VoxelGrid target_cells_;
+	// voxel grid extends
+	PointXYZI minVoxel, maxVoxel;
+	int voxelDimension[3];
+	// starting transformation matrix
+	Matrix4f* init_guess = nullptr;
+	// algorithm results
+	CallbackResult* results = nullptr;
+public:
+	virtual void init();
+	virtual void run(int p = 1);
+	virtual bool check_output();
+protected:
+	/**
+	 * Reads the number of testcases in the data file
+	 */
+	int read_number_testcases(std::ifstream& input_file);
+	/**
+	 * Reads the next testcases.
+	 * count: number of datasets to read
+	 * return: number of data sets actually read.
+	 */
+    virtual int read_next_testcases(int count);
+	/**
+	 * Reads and compares algorithm results with the respective reference.
+	 * count: number of testcase results to compare
+	 */
+	virtual void check_next_outputs(int count);
+	/**
+	 * Reduces a multi dimensional voxel grid index to one dimension.
+	 */
+	inline int linearizeAddr(const int x, const int y, const int z);
+	/**
+	 * Reduces a coordinate to a voxel grid index.
+	 */
+	inline int linearizeCoord(const float x, const float y, const float z);
 
-    #if defined (DOUBLE_FP)
-    double updateDerivatives (Vec6 &score_gradient,
-					   Mat66 &hessian,
-					   Vec3 &x_trans, Mat33 &c_inv,
-					   bool compute_hessian = true);
-    #else
-    float updateDerivatives (Vec6 &score_gradient,
-					   Mat66 &hessian,
-					   Vec3 &x_trans, Mat33 &c_inv,
-					   bool compute_hessian = true);
-    #endif
+	#if defined (DOUBLE_FP)
+	double updateDerivatives (Vec6 &score_gradient,
+						Mat66 &hessian,
+						Vec3 &x_trans, Mat33 &c_inv,
+						bool compute_hessian = true);
+	#else
+	float updateDerivatives (Vec6 &score_gradient,
+						Mat66 &hessian,
+						Vec3 &x_trans, Mat33 &c_inv,
+						bool compute_hessian = true);
+	#endif
 
-    void computePointDerivatives (Vec3 &x, bool compute_hessian = true);
-    void computeHessian (Mat66 &hessian,
-			 PointCloudSource &trans_cloud, Vec6 &);
-    void updateHessian (Mat66 &hessian, Vec3 &x_trans, Mat33 &c_inv);
+	void computePointDerivatives (Vec3 &x, bool compute_hessian = true);
+	void computeHessian (Mat66 &hessian,
+				PointCloudSource &trans_cloud, Vec6 &);
+	void updateHessian (Mat66 &hessian, Vec3 &x_trans, Mat33 &c_inv);
 
-    #if defined (DOUBLE_FP)
-    double computeDerivatives (Vec6 &score_gradient,
-					    Mat66 &hessian,
-					    PointCloudSource &trans_cloud,
-					    Vec6 &p,
-					    bool compute_hessian = true );
-    #else
-    float computeDerivatives (Vec6 &score_gradient,
-					    Mat66 &hessian,
-					    PointCloudSource &trans_cloud,
-					    Vec6 &p,
-					    bool compute_hessian = true );
-    #endif
+	#if defined (DOUBLE_FP)
+	double computeDerivatives (Vec6 &score_gradient,
+						Mat66 &hessian,
+						PointCloudSource &trans_cloud,
+						Vec6 &p,
+						bool compute_hessian = true );
+	#else
+	float computeDerivatives (Vec6 &score_gradient,
+						Mat66 &hessian,
+						PointCloudSource &trans_cloud,
+						Vec6 &p,
+						bool compute_hessian = true );
+	#endif
 
-    #if defined (DOUBLE_FP)
-    bool updateIntervalMT (double &a_l, double &f_l, double &g_l,
+	#if defined (DOUBLE_FP)
+	bool updateIntervalMT (double &a_l, double &f_l, double &g_l,
 					double &a_u, double &f_u, double &g_u,
 					double a_t, double f_t, double g_t);
-    double trialValueSelectionMT (double a_l, double f_l, double g_l,
-					       double a_u, double f_u, double g_u,
-					       double a_t, double f_t, double g_t);
-    double computeStepLengthMT (const Vec6 &x, Vec6 &step_dir, double step_init, double step_max,
+	double trialValueSelectionMT (double a_l, double f_l, double g_l,
+							double a_u, double f_u, double g_u,
+							double a_t, double f_t, double g_t);
+	double computeStepLengthMT (const Vec6 &x, Vec6 &step_dir, double step_init, double step_max,
 				double step_min, double &score, Vec6 &score_gradient, Mat66 &hessian,
 				PointCloudSource &trans_cloud);
-    #else
-    bool updateIntervalMT (float &a_l, float &f_l, float &g_l,
+	#else
+	bool updateIntervalMT (float &a_l, float &f_l, float &g_l,
 					float &a_u, float &f_u, float &g_u,
 					float a_t, float f_t, float g_t);
-    float trialValueSelectionMT (float a_l, float f_l, float g_l,
-					       float a_u, float f_u, float g_u,
-					       float a_t, float f_t, float g_t);
-    float computeStepLengthMT (const Vec6 &x, Vec6 &step_dir, float step_init, float step_max,
+	float trialValueSelectionMT (float a_l, float f_l, float g_l,
+							float a_u, float f_u, float g_u,
+							float a_t, float f_t, float g_t);
+	float computeStepLengthMT (const Vec6 &x, Vec6 &step_dir, float step_init, float step_max,
 				float step_min, float &score, Vec6 &score_gradient, Mat66 &hessian,
 				PointCloudSource &trans_cloud);
-    #endif
+	#endif
 
-    void computeTransformation(PointCloud &output, const Matrix4f &guess);
-    void computeAngleDerivatives (Vec6 &p, bool compute_hessian = true);
+	void computeTransformation(PointCloud &output, const Matrix4f &guess);
+	void computeAngleDerivatives (Vec6 &p, bool compute_hessian = true);
 
-    void ndt_align (
-                    #if defined (OPENCL_EPHOS)
-                    OCL_Struct* OCL_objs,
-                    #endif
-                    const Matrix4f& guess
-                   );
+	void ndt_align (OCL_Struct* OCL_objs, const Matrix4f& guess);
+	/**
+	 * Performs point cloud specific voxel grid initialization.
+	 */
+	void initCompute(OCL_Struct* OCL_objs);
 
-    void initCompute(
-                    #if defined (OPENCL_EPHOS)
-                    OCL_Struct* OCL_objs
-                    #endif
-                    );
+	void buildTransformationMatrix(Matrix4f &matrix, Vec6 transform);
 
-    void deinitCompute();
-    void buildTransformationMatrix(Matrix4f &matrix, Vec6 transform);
+	#if defined (DOUBLE_FP)
+	inline double ndt_getFitnessScore ();
+	#else
+	inline float ndt_getFitnessScore ();
+	#endif  
+	/**
+	 * Computes the eulerangles from an rotation matrix.
+	 */
+	void eulerAngles(Matrix4f transform, Vec3 &result);
 
-    #if defined (DOUBLE_FP)
-    inline double ndt_getFitnessScore ();
-    #else
-    inline float ndt_getFitnessScore ();
-    #endif  
+	CallbackResult partial_points_callback(
+		OCL_Struct* OCL_objs,
+		PointCloud &input_cloud,
+		Matrix4f &init_guess,
+		PointCloud& target_cloud
+	);
 
-    void eulerAngles(Matrix4f transform, Vec3 &result);
-
-    CallbackResult partial_points_callback(
-                                           #if defined (OPENCL_EPHOS)
-                                           OCL_Struct* OCL_objs,
-                                           #endif
-                                           PointCloud &input_cloud,
-                                           Matrix4f &init_guess,
-                                           PointCloud& target_cloud
-                                          );
-
-    int read_number_testcases(std::ifstream& input_file);
-    #if defined (DOUBLE_FP)
-    int voxelRadiusSearch(VoxelGrid &grid, const PointXYZI& point, double radius,
-			  std::vector<TargetGridLeafConstPtr> & indices,
-			  std::vector<float> distances);
-    inline double findNearest(PointXYZI &p);
-    inline double findNearest2(PointXYZI &p);
-    inline double findMinInVoxel(int idx, PointXYZI &p);
-    #else
-    int voxelRadiusSearch(VoxelGrid &grid, const PointXYZI& point, float radius,
-			  std::vector<TargetGridLeafConstPtr> & indices,
-			  std::vector<float> distances);
-    inline float findNearest(PointXYZI &p);
-    inline float findNearest2(PointXYZI &p);
-    inline float findMinInVoxel(int idx, PointXYZI &p);
-    #endif   
-
-    inline void linearCoord2Addr(const float x, const float y, const float z, int &xr, int &yr, int &zr);
+	/**
+	 * Helper function to select near voxels.
+	 */
+	#if defined (DOUBLE_FP)
+	int voxelRadiusSearch(VoxelGrid &grid, const PointXYZI& point, double radius,
+		std::vector<Voxel> & indices,
+		std::vector<float> distances);
+	#else
+	int voxelRadiusSearch(VoxelGrid &grid, const PointXYZI& point, float radius,
+		std::vector<Voxel> & indices,
+		std::vector<float> distances);
+	#endif
 };
+
+/**
+ * Reads the next point cloud.
+ */
+void  parseFilteredScan(std::ifstream& input_file, PointCloud* pointcloud) {
+	int32_t size;
+	try {
+		input_file.read((char*)&(size), sizeof(int32_t));
+		pointcloud->clear();
+		for (int i = 0; i < size; i++)
+		{
+			PointXYZI p;
+			input_file.read((char*)&p.data[0], sizeof(float));
+			input_file.read((char*)&p.data[1], sizeof(float));
+			input_file.read((char*)&p.data[2], sizeof(float));
+			input_file.read((char*)&p.data[3], sizeof(float));
+			pointcloud->push_back(p);
+		}
+	}  catch (std::ifstream::failure) {
+		throw std::ios_base::failure("Error reading filtered scan");
+	}
+}
+
+/**
+ * Reads the next initilization matrix.
+ */
+void  parseInitGuess(std::ifstream& input_file, Matrix4f* initGuess) {
+	try {
+	for (int h = 0; h < 4; h++)
+		for (int w = 0; w < 4; w++)
+			input_file.read((char*)&(initGuess->data[h][w]),sizeof(float));
+	}  catch (std::ifstream::failure) {
+		throw std::ios_base::failure("Error reading initial guess");
+	}
+}
+
+/**
+ * Reads the next reference matrix.
+ */
+void parseResult(std::ifstream& output_file, CallbackResult* goldenResult) {
+	try {
+		for (int h = 0; h < 4; h++)
+			for (int w = 0; w < 4; w++)
+			{
+				output_file.read((char*)&(goldenResult->final_transformation.data[h][w]), sizeof(float));
+			}
+		#if defined (DOUBLE_FP)
+		output_file.read((char*)&(goldenResult->fitness_score), sizeof(double));
+		#else
+		double temp;
+		output_file.read((char*)&(temp), sizeof(double));
+		goldenResult->fitness_score = temp;
+		#endif
+		output_file.read((char*)&(goldenResult->converged), sizeof(bool));
+	}  catch (std::ifstream::failure e) {
+		throw std::ios_base::failure("Error reading result.");
+	}
+}
+
+int ndt_mapping::read_next_testcases(int count)
+{
+	int i;
+	// free memory used in the previous test case and allocate new one
+	delete [] maps;
+	maps = new PointCloud[count];
+	delete [] filtered_scan_ptr;
+	filtered_scan_ptr = new PointCloud[count];
+	delete [] init_guess;
+	init_guess = new Matrix4f[count];
+	delete [] results;
+	results = new CallbackResult[count];
+	// parse the test cases
+	for (i = 0; (i < count) && (read_testcases < testcases); i++,read_testcases++)
+	{
+		try {
+			parseInitGuess(input_file, init_guess + i);
+			parseFilteredScan(input_file, filtered_scan_ptr + i);
+			parseFilteredScan(input_file, maps + i);
+		} catch (std::ios_base::failure& e) {
+			std::cerr << e.what() << std::endl;
+			exit(-3);
+		}
+	}
+	return i;
+}
 
 int ndt_mapping::read_number_testcases(std::ifstream& input_file)
 {
-    int32_t number;
-    try {
-	input_file.read((char*)&(number), sizeof(int32_t));
-    } catch (std::ifstream::failure e) {
-	std::cerr << "Error reading file\n";
-	exit(-3);
-    }
-
-    return number;    
-}
-
-
-void  parseFilteredScan(std::ifstream& input_file, PointCloud* pointcloud) {
-    int32_t size;
-    try {
-	input_file.read((char*)&(size), sizeof(int32_t));
-	pointcloud->clear();
-
-	for (int i = 0; i < size; i++)
-	    {
-		PointXYZI p;
-		input_file.read((char*)&p.data[0], sizeof(float));
-		input_file.read((char*)&p.data[1], sizeof(float));
-		input_file.read((char*)&p.data[2], sizeof(float));
-		input_file.read((char*)&p.data[3], sizeof(float));
-		pointcloud->push_back(p);
-	    }
-    }  catch (std::ifstream::failure e) {
-	std::cerr << "Error reading file\n";
-	exit(-3);
-    }
-}
-
-void  parseInitGuess(std::ifstream& input_file, Matrix4f* initGuess) {
-    try {
-	for (int h = 0; h < 4; h++)
-	    for (int w = 0; w < 4; w++)
-		input_file.read((char*)&(initGuess->data[h][w]),sizeof(float));
-    }  catch (std::ifstream::failure e) {
-	std::cerr << "Error reading file\n";
-	exit(-3);
-    }
-}
-
-
-void writeResult(std::ofstream& output_file, CallbackResult *result) {
-    try {
-	for (int h = 0; h < 4; h++)
-	    for (int w = 0; w < 4; w++)
-		{
-		    output_file.write((char*)&(result->final_transformation.data[h][w]), sizeof(float));
-		}
-	output_file.write((char*)&(result->fitness_score), sizeof(double));
-	output_file.write((char*)&(result->converged), sizeof(bool));
-    }  catch (std::ifstream::failure e) {
-	std::cerr << "Error writing file\n";
-	exit(-3);
-    }
-}
-
-void parseResult(std::ifstream& output_file, CallbackResult* goldenResult) {
-    try {
-	for (int h = 0; h < 4; h++)
-	    for (int w = 0; w < 4; w++)
-		{
-		    output_file.read((char*)&(goldenResult->final_transformation.data[h][w]), sizeof(float));
-		}
-        #if defined (DOUBLE_FP)
-	output_file.read((char*)&(goldenResult->fitness_score), sizeof(double));
-        #else
-	double temp;
-	output_file.read((char*)&(temp), sizeof(double));
-	goldenResult->fitness_score = temp;
-        #endif
-	output_file.read((char*)&(goldenResult->converged), sizeof(bool));
-    }  catch (std::ifstream::failure e) {
-	std::cerr << "Error reading file\n";
-	exit(-3);
-    }
-}
-
-// return how many could be read
-int ndt_mapping::read_next_testcases(int count)
-{
-    int i;
-
-    delete [] maps;
-    maps = new PointCloud[count];
-    delete [] filtered_scan_ptr;
-    filtered_scan_ptr = new PointCloud[count];
-    delete [] init_guess;
-    init_guess = new Matrix4f[count];
-    delete [] results;
-    results = new CallbackResult[count];
-    
-    for (i = 0; (i < count) && (read_testcases < testcases); i++,read_testcases++)
-	{
-	    parseInitGuess(input_file, init_guess + i);
-	    parseFilteredScan(input_file, filtered_scan_ptr + i);
-	    parseFilteredScan(input_file, maps + i);
+	int32_t number;
+	try {
+		input_file.read((char*)&(number), sizeof(int32_t));
+	} catch (std::ifstream::failure) {
+		throw std::ios_base::failure("Error reading number of test cases");
 	}
-  
-    return i;
+	return number;
 }
-
 
 inline int ndt_mapping::linearizeAddr(const int x, const int y, const int z)
 {
-    return  (x + voxelDimension[0] * (y + voxelDimension[1] * z));
+	return  (x + voxelDimension[0] * (y + voxelDimension[1] * z));
 }
 
 inline int ndt_mapping::linearizeCoord(const float x, const float y, const float z)
 {
-    int idx_x = (x - minVoxel.data[0]) / resolution_;
-    int idx_y = (y - minVoxel.data[1]) / resolution_;
-    int idx_z = (z - minVoxel.data[2]) / resolution_;
-
-
-    return linearizeAddr(idx_x, idx_y, idx_z);
+	int idx_x = (x - minVoxel.data[0]) / resolution_;
+	int idx_y = (y - minVoxel.data[1]) / resolution_;
+	int idx_z = (z - minVoxel.data[2]) / resolution_;
+	return linearizeAddr(idx_x, idx_y, idx_z);
 }
 
-// also performs clipping
-inline void ndt_mapping::linearCoord2Addr(const float x, const float y, const float z, int &xr, int &yr, int &zr)
-{
-    xr = (x - minVoxel.data[0]) / resolution_;
-    yr = (y - minVoxel.data[1]) / resolution_;
-    zr = (z - minVoxel.data[2]) / resolution_;
-
-    if (xr < 0)
-	xr = 0;
-    if (xr >= voxelDimension[0])
-	xr = voxelDimension[0]-1;
-    if (yr < 0)
-	yr = 0;
-    if (yr >= voxelDimension[1])
-	yr = voxelDimension[1]-1;
-    if (zr < 0)
-	zr = 0;
-    if (zr >= voxelDimension[2])
-	zr = voxelDimension[2]-1;
-	
-}
 
 #if defined (DOUBLE_FP)
 int ndt_mapping::voxelRadiusSearch(VoxelGrid &grid, const PointXYZI& point, double radius,
-				   std::vector<TargetGridLeafConstPtr> & indices,
+				   std::vector<Voxel> & indices,
 				   std::vector<float> distances)
 #else
 int ndt_mapping::voxelRadiusSearch(VoxelGrid &grid, const PointXYZI& point, float radius,
-				   std::vector<TargetGridLeafConstPtr> & indices,
+				   std::vector<Voxel> & indices,
 				   std::vector<float> distances)
 #endif
 {
@@ -752,7 +724,7 @@ ndt_mapping::computeHessian (Mat66 &hessian,
   // Original Point and Transformed Point (for math)
   Vec3 x, x_trans;
   // Occupied Voxel
-  TargetGridLeafConstPtr cell;
+  Voxel cell;
   // Inverse Covariance of Occupied Voxel
   Mat33 c_inv;
 
@@ -770,11 +742,11 @@ ndt_mapping::computeHessian (Mat66 &hessian,
     x_trans_pt = trans_cloud[idx];
 
     // Find nieghbors (Radius search has been experimentally faster than direct neighbor checking.
-    std::vector<TargetGridLeafConstPtr> neighborhood;
+    std::vector<Voxel> neighborhood;
     std::vector<float> distances;
     voxelRadiusSearch (target_cells_, x_trans_pt, resolution_, neighborhood, distances);
 
-    for (typename std::vector<TargetGridLeafConstPtr>::iterator neighborhood_it = neighborhood.begin (); neighborhood_it != neighborhood.end (); neighborhood_it++)
+    for (typename std::vector<Voxel>::iterator neighborhood_it = neighborhood.begin (); neighborhood_it != neighborhood.end (); neighborhood_it++)
     {
       cell = *neighborhood_it;
 
@@ -887,7 +859,7 @@ float ndt_mapping::computeDerivatives (Vec6 &score_gradient,
     // Original Point and Transformed Point (for math)
     Vec3 x, x_trans;
     // Occupied Voxel
-    TargetGridLeafConstPtr cell;
+    Voxel cell;
     // Inverse Covariance of Occupied Voxel
     Mat33 c_inv;
 
@@ -910,11 +882,11 @@ float ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 	    x_trans_pt = trans_cloud[idx];
 
 	    // Find nieghbors (Radius search has been experimentally faster than direct neighbor checking.
-	    std::vector<TargetGridLeafConstPtr> neighborhood;
+	    std::vector<Voxel> neighborhood;
 	    std::vector<float> distances;
 	    voxelRadiusSearch (target_cells_, x_trans_pt, resolution_, neighborhood, distances);
 	    
-	    for (typename std::vector<TargetGridLeafConstPtr>::iterator neighborhood_it = neighborhood.begin (); neighborhood_it != neighborhood.end (); neighborhood_it++)
+	    for (typename std::vector<Voxel>::iterator neighborhood_it = neighborhood.begin (); neighborhood_it != neighborhood.end (); neighborhood_it++)
 		{
 		    cell = *neighborhood_it;
 		    x_pt = (*input_)[idx];
@@ -1793,15 +1765,8 @@ int compareCloudindex(const void *p1, const void *p2)
 }
 */
 
-void ndt_mapping::initCompute(
-                              #if defined (OPENCL_EPHOS)
-                              OCL_Struct* OCL_objs
-                              #endif
-                             )
+void ndt_mapping::initCompute(OCL_Struct* OCL_objs)
 {
-    #if defined (PRINTINFO)
-    std::cout << "\ttarget_->size() \t= " << target_->size() << std::endl;
-    #endif
 
     // fs: performs now the init of the voxel grid structure
 
@@ -1819,11 +1784,6 @@ void ndt_mapping::initCompute(
 			minVoxel.data[elem] = (*target_)[i].data[elem];
 		}
 	}
-
-        #if defined (PRINTINFO)
-        std::cout << "maxVoxel.data[0]: " << maxVoxel.data[0] << " | maxVoxel.data[1]: " << maxVoxel.data[1] << " | maxVoxel.data[2]: " << maxVoxel.data[2] << std::endl;
-        std::cout << "minVoxel.data[0]: " << minVoxel.data[0] << " | minVoxel.data[1]: " << minVoxel.data[1] << " | minVoxel.data[2]: " << minVoxel.data[2] << std::endl;
-        #endif
     
     voxelDimension[0] = (maxVoxel.data[0] - minVoxel.data[0]) / resolution_ + 1 ;
     voxelDimension[1] = (maxVoxel.data[1] - minVoxel.data[1]) / resolution_ + 1;
@@ -1832,10 +1792,6 @@ void ndt_mapping::initCompute(
     // init the voxel array
     target_cells_.clear();
     target_cells_.resize(voxelDimension[0] * voxelDimension[1] * voxelDimension[2]);
-	
-    #if defined (PRINTINFO)
-    std::cout << "\ttarget_cells_.size() \t= " << target_cells_.size() << std::endl;
-    #endif
 
     for (int i = 0; i < target_cells_.size(); i++)
 	{
@@ -1855,28 +1811,7 @@ void ndt_mapping::initCompute(
 	    target_cells_[i].invCovariance.data[0][2] = 1.0;
 	}
 
-/*
-            #if defined (PRINTINFO)
-	    for (int i = target_cells_.size() - 10; i < target_cells_.size(); i++) {
-		std::cout << ".numberPoints: " << target_cells_[i].numberPoints<< std::endl;
-                std::cout << ".mean[0][1][2]: " << target_cells_[i].mean[0] << " | "  << target_cells_[i].mean[1] << " | " << target_cells_[i].mean[2] << std::endl;
-                std::cout << ".invCovariance.data: " << target_cells_[i].invCovariance.data[0][0] << " | "  << target_cells_[i].invCovariance.data[0][1] << " | " << target_cells_[i].invCovariance.data[0][2] << std::endl;
-                std::cout << ".invCovariance.data: " << target_cells_[i].invCovariance.data[1][0] << " | "  << target_cells_[i].invCovariance.data[1][1] << " | " << target_cells_[i].invCovariance.data[1][2] << std::endl;
-                std::cout << ".invCovariance.data: " << target_cells_[i].invCovariance.data[2][0] << " | "  << target_cells_[i].invCovariance.data[2][1] << " | " << target_cells_[i].invCovariance.data[2][2] << std::endl;
-            }
-	    std::cout<<std::endl;
-	    #endif
-*/
 
-
-
-
-
-
-
-
-
-    #if defined (OPENCL_EPHOS)
 
     // Defining variables to hold sizes of target_
     size_t nelems_target      = target_->size();
@@ -1896,7 +1831,7 @@ void ndt_mapping::initCompute(
 
     // Defining variables to hold sizes of target_cells_
     size_t nelems_targetcells      = target_cells_.size();
-    size_t size_single_targetcells = sizeof(TargetGridLeadConstPtr);
+    size_t size_single_targetcells = sizeof(Voxel);
     size_t nbytes_targetcells      = nelems_targetcells * size_single_targetcells;
 
 
@@ -1907,7 +1842,7 @@ void ndt_mapping::initCompute(
     // Read in firstPass kernel 
     cl::Buffer buff_targetcells (OCL_objs->context, CL_MEM_READ_WRITE, nbytes_targetcells);
 
-    TargetGridLeadConstPtr* tmp_targetcells= (TargetGridLeadConstPtr*) OCL_objs->cmdqueue.enqueueMapBuffer(buff_targetcells, CL_TRUE, CL_MAP_WRITE_INVALIDATE_REGION, 0, nbytes_targetcells);
+    Voxel* tmp_targetcells= (Voxel*) OCL_objs->cmdqueue.enqueueMapBuffer(buff_targetcells, CL_TRUE, CL_MAP_WRITE_INVALIDATE_REGION, 0, nbytes_targetcells);
     memcpy(tmp_targetcells, target_cells_.data(), nbytes_targetcells);
     OCL_objs->cmdqueue.enqueueUnmapMemObject(buff_targetcells, tmp_targetcells);
 
@@ -1915,7 +1850,6 @@ void ndt_mapping::initCompute(
        size_t num_workgroups3 = nelems_target / local_size3 + 1; // rounded up, se we don't miss one    
        size_t global_size3    = local_size3 * num_workgroups3;   // BEFORE: = nelems_target;
 
-        #if defined (OPENCL_CPP_WRAPPER)
         cl::NDRange ndrange_offset3    (offset);
         cl::NDRange ndrange_localsize3 (local_size3);
         cl::NDRange ndrange_globalsize3(global_size3);
@@ -1935,77 +1869,12 @@ void ndt_mapping::initCompute(
 				                ndrange_offset3,
                                                 ndrange_globalsize3,
                                                 ndrange_localsize3);
-/*
-	    // No need to retrieve target_cells_ data from device at this point.
-	    // This is done after subsequent kernel executions.
-	    #if defined (PRINTINFO)
-	    // Copying data from buff_targetcells into std::vector
-            TargetGridLeadConstPtr* tmp3_= (TargetGridLeadConstPtr *) OCL_objs->cmdqueue.enqueueMapBuffer(buff_targetcells, CL_TRUE, CL_MAP_READ, 0, nbytes_targetcells);
-            memcpy(target_cells_.data(), tmp3_, nbytes_targetcells);
-            OCL_objs->cmdqueue.enqueueUnmapMemObject(buff_targetcells, tmp3_);
-	
-	    for (int i = target_cells_.size() - 10; i < target_cells_.size(); i++) {
-		std::cout << ".numberPoints: "  << target_cells_[i].numberPoints<< std::endl;
-                std::cout << ".mean[0][1][2]: " << target_cells_[i].mean[0] << " | "  << target_cells_[i].mean[1] << " | " << target_cells_[i].mean[2] << std::endl;
-                std::cout << ".invCovariance.data: " << target_cells_[i].invCovariance.data[0][0] << " | "  << target_cells_[i].invCovariance.data[0][1] << " | " << target_cells_[i].invCovariance.data[0][2] << std::endl;
-                std::cout << ".invCovariance.data: " << target_cells_[i].invCovariance.data[1][0] << " | "  << target_cells_[i].invCovariance.data[1][1] << " | " << target_cells_[i].invCovariance.data[1][2] << std::endl;
-                std::cout << ".invCovariance.data: " << target_cells_[i].invCovariance.data[2][0] << " | "  << target_cells_[i].invCovariance.data[2][1] << " | " << target_cells_[i].invCovariance.data[2][2] << std::endl;
-            }
-            std::cout<<std::endl;
-	    #endif
-*/
-        #else // No OPENCL_CPP_WRAPPER
 
-        #endif
-
-    #else // Serial execution (original)
-    // first pass to put everything in the right voxel leaf
-    for (int i = 0; i < target_->size(); i++)
-	{
-	    int voxelIndex = linearizeCoord( (*target_)[i].data[0], (*target_)[i].data[1], (*target_)[i].data[2]);
-	
-	    // Added to check that voxelIndex values calculated from
-	    // different "i" target_ elements, can be the same
-	    //std::cout << "i: "<< i << " voxelIndex: " << voxelIndex << std::endl;
-	    target_cells_[voxelIndex].mean[0] += (*target_)[i].data[0];
-	    target_cells_[voxelIndex].mean[1] += (*target_)[i].data[1];
-	    target_cells_[voxelIndex].mean[2] += (*target_)[i].data[2];
-	    target_cells_[voxelIndex].numberPoints++;
-
-	    // sum up x * xT for single pass covariance calculation
-	    for (int row = 0; row < 3; row ++)
-		for (int col = 0; col < 3; col ++)
-		    target_cells_[voxelIndex].invCovariance.data[row][col] += (*target_)[i].data[row] * (*target_)[i].data[col];
-	}
-/*
-            #if defined (PRINTINFO)
-	    for (int i = target_cells_.size() - 10; i < target_cells_.size(); i++) {
-		std::cout << ".numberPoints: " << target_cells_[i].numberPoints<< std::endl;
-                std::cout << ".mean[0][1][2]: " << target_cells_[i].mean[0] << " | "  << target_cells_[i].mean[1] << " | " << target_cells_[i].mean[2] << std::endl;
-                std::cout << ".invCovariance.data: " << target_cells_[i].invCovariance.data[0][0] << " | "  << target_cells_[i].invCovariance.data[0][1] << " | " << target_cells_[i].invCovariance.data[0][2] << std::endl;
-                std::cout << ".invCovariance.data: " << target_cells_[i].invCovariance.data[1][0] << " | "  << target_cells_[i].invCovariance.data[1][1] << " | " << target_cells_[i].invCovariance.data[1][2] << std::endl;
-                std::cout << ".invCovariance.data: " << target_cells_[i].invCovariance.data[2][0] << " | "  << target_cells_[i].invCovariance.data[2][1] << " | " << target_cells_[i].invCovariance.data[2][2] << std::endl;
-            }
-	    std::cout<<std::endl;
-	    #endif
-*/
-    #endif // End of Serial execution (original)
-
-
-
-
-
-
-
-
-
-
-    #if defined (OPENCL_EPHOS)
         size_t local_size4     = NUMWORKITEMS_PER_WORKGROUP;
         size_t num_workgroups4 = nelems_targetcells / local_size4 + 1; // rounded up, se we don't miss one    
         size_t global_size4    = local_size4 * num_workgroups4;        // BEFORE: =nelems_targetcells;
 
-        #if defined (OPENCL_CPP_WRAPPER)
+        
         cl::NDRange ndrange_offset4    (offset);
         cl::NDRange ndrange_localsize4 (local_size4);
         cl::NDRange ndrange_globalsize4(global_size4);
@@ -2024,89 +1893,19 @@ void ndt_mapping::initCompute(
                                                 ndrange_localsize4);
 
 	// Copying data from buff_targetcells into std::vector
-        TargetGridLeadConstPtr* tmp4_= (TargetGridLeadConstPtr *) OCL_objs->cmdqueue.enqueueMapBuffer(buff_targetcells, CL_TRUE, CL_MAP_READ, 0, nbytes_targetcells);
+        Voxel* tmp4_= (Voxel *) OCL_objs->cmdqueue.enqueueMapBuffer(buff_targetcells, CL_TRUE, CL_MAP_READ, 0, nbytes_targetcells);
         memcpy(target_cells_.data(), tmp4_, nbytes_targetcells);
         OCL_objs->cmdqueue.enqueueUnmapMemObject(buff_targetcells, tmp4_);
-        #else // No OPENCL_CPP_WRAPPER
-
-        #endif
-
-    #else // Serial execution (original)
-    // second pass to finalize average and sum of all leafs
-   for (int i = 0; i < target_cells_.size(); i++)
-	{
-	    // if not enough points it canot accuratly approximated using a normal distribution
-	    Vec3 pointSum = {target_cells_[i].mean[0], target_cells_[i].mean[1], target_cells_[i].mean[2]};
-
-	    target_cells_[i].mean[0] /= target_cells_[i].numberPoints;
-	    target_cells_[i].mean[1] /= target_cells_[i].numberPoints;
-	    target_cells_[i].mean[2] /= target_cells_[i].numberPoints;
-	    //	    invCovariance = (invCovariance - 2*(pointSum * mean.transpose)) / numberPoints + mean * mean.transpose;
-
-	    //  invCovariance *= (numberPoints - 1.0) / leaf.nr_points;
-	    for (int row = 0; row < 3; row++)
-		for (int col = 0; col < 3; col++)
-		    {
-			target_cells_[i].invCovariance.data[row][col] = (target_cells_[i].invCovariance.data[row][col] -
-									 2 * (pointSum[row] * target_cells_[i].mean[col])) / target_cells_.size() +
-			    target_cells_[i].mean[row]*target_cells_[i].mean[col];
-			target_cells_[i].invCovariance.data[row][col] *= (target_cells_.size() -1.0) / target_cells_[i].numberPoints; 
-		    }
-
-	    // Avoids matrices near singularities (eq 6.11)[Magnusson 2009]
-	    // if (eigen_val < min_covar_eig_value)
-	    // invCovariance = evecs * eigen_val * leaf.evecs.inverse;
-
-	    // so far computed covariance
-	    
-	    invertMatrix(target_cells_[i].invCovariance);
-
-	    /*if (not invertable)
-		numberPoints = -1;
-	    */
-	}
-    #endif // End of Serial execution (original)
-
-
-
-
-    #if defined (PRINTINFO)
-    for (int i = 0; i < target_cells_.size(); i++) {
-        if (target_cells_[i].numberPoints != 0) {
-            std::cout << std::endl;
-            std::cout << "i: " << i << std::endl;
-            std::cout << ".numberPoints: " << target_cells_[i].numberPoints<< std::endl;
-            std::cout << ".mean[0][1][2]: " << target_cells_[i].mean[0] << " | "  << target_cells_[i].mean[1] << " | " << target_cells_[i].mean[2] << std::endl;
-            std::cout << ".invCovariance.data: " << target_cells_[i].invCovariance.data[0][0] << " | "  << target_cells_[i].invCovariance.data[0][1] << " | " << target_cells_[i].invCovariance.data[0][2] << std::endl;
-            std::cout << ".invCovariance.data: " << target_cells_[i].invCovariance.data[1][0] << " | "  << target_cells_[i].invCovariance.data[1][1] << " | " << target_cells_[i].invCovariance.data[1][2] << std::endl;
-            std::cout << ".invCovariance.data: " << target_cells_[i].invCovariance.data[2][0] << " | "  << target_cells_[i].invCovariance.data[2][1] << " | " << target_cells_[i].invCovariance.data[2][2] << std::endl;
-        }
-    }
-    std::cout<<std::endl;
-    #endif
-
-}
-
-void ndt_mapping::deinitCompute()
-{
+   
 
 }
 
 // removed "PointCloudSource output" parameter as it was not used in the Autoware code
-void ndt_mapping::ndt_align (
-                             #if defined (OPENCL_EPHOS)
-                             OCL_Struct* OCL_objs,
-                             #endif
-                             const Matrix4f& guess
-                            )
+void ndt_mapping::ndt_align(OCL_Struct* OCL_objs, const Matrix4f& guess)
 {
     PointCloud output;
 
-    initCompute (
-                 #if defined (OPENCL_EPHOS)
-                 OCL_objs
-                 #endif
-                );
+    initCompute(OCL_objs);
 
     // Resize the output dataset
     output.resize (input_->size ());
@@ -2126,7 +1925,6 @@ void ndt_mapping::ndt_align (
  
     computeTransformation (output, guess);
  
-    deinitCompute ();
 }
 
 // returns squared euclidean distance of two points a,b
@@ -2150,57 +1948,21 @@ float distance_sqr(const PointXYZI& a, const PointXYZI& b)
 }
 #endif
 
-// find nearest via finding its voxel and the neighbouring, and then check all points in it
-#if defined (DOUBLE_FP)
-inline double ndt_mapping::findNearest(PointXYZI &p)
-{
-    double min = std::numeric_limits<double>::max();
-    double dist = 0.0;
-    for (size_t j = 0; j < target_->size(); j++)
-	{
-	    dist = distance_sqr((*target_)[j], p);
-	    if (dist < min)
-		min = dist;
-	}
-    return min;
-}
-#else
-inline float ndt_mapping::findNearest(PointXYZI &p)
-{
-    float min = std::numeric_limits<float>::max();
-    float dist = 0.0;
-    for (size_t j = 0; j < target_->size(); j++)
-	{
-	    dist = distance_sqr((*target_)[j], p);
-	    if (dist < min)
-		min = dist;
-	}
-    return min;
-}
-#endif
 
 // fs: functions called, actually output_cloud is not used as the result, later in the original code in Autoware
 // final_transformation_ is get and and converged_ is checked
 CallbackResult ndt_mapping::partial_points_callback(
-                                                    #if defined (OPENCL_EPHOS)
-                                                    OCL_Struct* OCL_objs,
-                                                    #endif
-                                                    PointCloud &input_cloud,
-                                                    Matrix4f &init_guess,
-                                                    PointCloud& target_cloud
-                                                   )
+	OCL_Struct* OCL_objs,
+	PointCloud &input_cloud,
+	Matrix4f &init_guess,
+	PointCloud& target_cloud)
 {
     CallbackResult result;
 
     input_ = &input_cloud;
     target_ = &target_cloud;
     
-    ndt_align(
-              #if defined (OPENCL_EPHOS)
-              OCL_objs,
-              #endif
-              init_guess
-             );
+    ndt_align(OCL_objs, init_guess);
 
 
     result.final_transformation = final_transformation_;
@@ -2211,169 +1973,160 @@ CallbackResult ndt_mapping::partial_points_callback(
 
 void ndt_mapping::run(int p) {
 
-    std::chrono::high_resolution_clock::time_point start,end;
-    std::chrono::duration<double> elapsed;
-    std::chrono::high_resolution_clock timer;
-    pause_func();
+	std::chrono::high_resolution_clock::time_point start,end;
+	std::chrono::duration<double> elapsed;
+	std::chrono::high_resolution_clock timer;
+	pause_func();
 
-    #if defined (OPENCL_EPHOS)
-    OCL_Struct OCL_objs;
+	OCL_Struct OCL_objs;
 
-    
-    #if defined (OPENCL_CPP_WRAPPER)
-
-    try {
-        // Get list of OpenCL platforms.
-        std::vector<cl::Platform> platform;
-        cl::Platform::get(&platform);
+	try {
+    // Get list of OpenCL platforms.
+    std::vector<cl::Platform> platform;
+    cl::Platform::get(&platform);
  
-        if (platform.empty()) {
-          std::cerr << "OpenCL platforms not found." << std::endl;
-          exit(EXIT_FAILURE);
-        }
+    if (platform.empty()) {
+      std::cerr << "OpenCL platforms not found." << std::endl;
+      exit(EXIT_FAILURE);
+    }
 
-        // Get first available GPU device which supports double precision.
-        cl::Context context;
-        std::vector<cl::Device> device;
-        for(auto p = platform.begin(); device.empty() && p != platform.end(); p++) {
-          std::vector<cl::Device> pldev;
+    // Get first available GPU device which supports double precision.
+    cl::Context context;
+	cl::CommandQueue queue;
+    std::vector<cl::Device> device;
+    for(auto p = platform.begin(); device.empty() && p != platform.end(); p++) {
+      std::vector<cl::Device> pldev;
 
-          try {
-	    p->getDevices(CL_DEVICE_TYPE_ACCELERATOR, &pldev);
-//            p->getDevices(CL_DEVICE_TYPE_GPU, &pldev);
+      try {
+        p->getDevices(CL_DEVICE_TYPE_GPU, &pldev);
 
-            for(auto d = pldev.begin(); device.empty() && d != pldev.end(); d++) {
-	      if (!d->getInfo<CL_DEVICE_AVAILABLE>()) continue;
+        for(auto d = pldev.begin(); device.empty() && d != pldev.end(); d++) {
+	  if (!d->getInfo<CL_DEVICE_AVAILABLE>()) continue;
 
-              #if defined (DOUBLE_FP)
-	      std::string ext = d->getInfo<CL_DEVICE_EXTENSIONS>();
+          #if defined (DOUBLE_FP)
+	  std::string ext = d->getInfo<CL_DEVICE_EXTENSIONS>();
 
-	      if (
-	          ext.find("cl_khr_fp64") == std::string::npos &&
-	          ext.find("cl_amd_fp64") == std::string::npos
-	         ) continue;
-              #endif
+	  if (
+	      ext.find("cl_khr_fp64") == std::string::npos &&
+	      ext.find("cl_amd_fp64") == std::string::npos
+	     ) continue;
+          #endif
 
-	      device.push_back(*d);
-	      context = cl::Context(device);
-	    }
-          } catch(...) {
-            device.clear();
-          }
-        }
-
-        #if defined (DOUBLE_FP)
-        if (device.empty()) {
-          std::cerr << "GPUs with double precision not found." << std::endl;
-          exit(EXIT_FAILURE);
-        }
-        #endif
-
-        //#if defined (PRINTINFO)
-        std::cout << "EPHoS OpenCL device: " << device[0].getInfo<CL_DEVICE_NAME>() << std::endl;
-        //#endif
-
-        // Create command queue.
-        cl::CommandQueue queue(context, device[0]);
-
-        // Preparing data to pass to kernel functions
-        //OCL_objs.platform = platform[0];
-        OCL_objs.device   = device[0];
-        OCL_objs.context  = context;
-        OCL_objs.cmdqueue = queue;
-
-      } catch (const cl::Error &err) {
-        std::cerr
-	     << "OpenCL error: "
-	     << err.what() << "(" << err.err() << ")"
-	     << std::endl;
-        exit(EXIT_FAILURE);
+	  device.push_back(*d);
+	  std::vector<cl::Device> devices;
+	  devices.push_back(*d);
+	  context = cl::Context(devices);
+	  queue = cl::CommandQueue(context, *d);
+	  break;
+	}
+      } catch(...) {
+        device.clear();
       }
+    }
 
-      // Kernel code was stringified, rather than read from file
-      std::string sourceCode = all_ocl_krnl;
-      cl::Program::Sources sourcesCL = cl::Program::Sources(1, std::make_pair(sourceCode.c_str(), sourceCode.size()));
+    #if defined (DOUBLE_FP)
+    if (device.empty()) {
+      std::cerr << "GPUs with double precision not found." << std::endl;
+      exit(EXIT_FAILURE);
+    }
+    #endif
+		
+		
+		std::cout << "EPHoS OpenCL device: " << device[0].getInfo<CL_DEVICE_NAME>() << std::endl;
+		
 
-      // Create program
-      cl::Program program(OCL_objs.context, sourcesCL);
-  
-      try {   
-        // Building, specifying options
-        // Notice initial space within strings
-        const std::string ocl_build_options = std::string(" -I ./ocl/device/") +
-				 	      std::string(" -DNUMWORKITEMS_PER_WORKGROUP=") + NUMWORKITEMS_PER_WORKGROUP_STRING
-                                              #if defined (DOUBLE_FP)
-                                              + std::string(" -DDOUBLE_FP");
-                                              #else
-					      ;				
-                                              #endif
+		// Preparing data to pass to kernel functions
+		//OCL_objs.platform = platform[0];
+		OCL_objs.device   = device[0];
+		OCL_objs.context  = context;
+		OCL_objs.cmdqueue = queue;
 
-        //#if defined (PRINTINFO)
-        std::cout << "Kernel compilation flags passed to OpenCL device: " << std::endl << ocl_build_options << std::endl;
-        //#endif
-
-        // Conversion from std::string to char* is required:
-        // https://stackoverflow.com/a/7352131/1616865
-        program.build(ocl_build_options.c_str());
-
-        // Use this in case previous build() is not be supported in other platforms
-        /*
-        program.build();
-        */
-		    
-        } catch (const cl::Error&) {
-          std::cerr
-            << "OpenCL compilation error" << std::endl
-	    << program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(OCL_objs.device)
-	    << std::endl;
-			    
-          exit(EXIT_FAILURE);
-        }
-
-      cl::Kernel findMinMax_kernel     (program, "findMinMax");
-      cl::Kernel initTargetCells_kernel(program, "initTargetCells");
-      cl::Kernel firstPass_kernel      (program, "firstPass");
-      cl::Kernel secondPass_kernel     (program, "secondPass");
-
-      OCL_objs.kernel_findMinMax      = findMinMax_kernel;
-      OCL_objs.kernel_initTargetCells = initTargetCells_kernel;
-      OCL_objs.kernel_firstPass       = firstPass_kernel;
-      OCL_objs.kernel_secondPass      = secondPass_kernel;
-
-    #else // No OPENCL_CPP_WRAPPER
-
-    #endif // OPENCL_CPP_WRAPPER
-
-    #endif // OPENCL_EPHOS
-  
-    while (read_testcases < testcases)
-	{
-	    int count = read_next_testcases(p);
-
-            #if defined (PRINTINFO)
-            //std::cout << std::endl;
-            std::cout << "# testcase: " << read_testcases << ", count:" << count << std::endl;
-            #endif
-
-if(read_testcases != 1) {
-	    unpause_func();
-}
-	    for (int i = 0; i < count; i++)
-		{
-		    // actual kernel invocation
-		    results[i] = partial_points_callback(
-                                                         #if defined (OPENCL_EPHOS)
-                                                         &OCL_objs,
-                                                         #endif
-                                                         filtered_scan_ptr[i],
-                                                         init_guess[i],
-                                                         maps[i]
-                                                        );
+		} catch (const cl::Error &err) {
+		std::cerr
+			<< "OpenCL error: "
+			<< err.what() << "(" << err.err() << ")"
+			<< std::endl;
+		exit(EXIT_FAILURE);
 		}
-if(read_testcases != 1) {
-	    pause_func();
-}
-	    check_next_outputs(count);
+
+		// Kernel code was stringified, rather than read from file
+		std::string sourceCode = all_ocl_krnl;
+		
+		//cl::Program::Sources sourcesCL = cl::Program::Sources(1, std::make_pair(sourceCode.c_str(), sourceCode.size()));
+		cl::Program::Sources sourcesCL;
+		#if defined(CL_HPP_ENABLE_PROGRAM_CONSTRUCTION_FROM_ARRAY_COMPATIBILITY)
+		sourcesCL.push_back(std::make_pair(sourceCode.c_str(), sourceCode.size()));
+		#else
+		sourcesCL.push_back(sourceCode);
+		#endif
+
+		// Create program
+		cl::Program program(OCL_objs.context, sourcesCL);
+
+		try {   
+		// Building, specifying options
+		// Notice initial space within strings
+		const std::string ocl_build_options = std::string(" -I ./ocl/device/") +
+							std::string(" -DNUMWORKITEMS_PER_WORKGROUP=") + NUMWORKITEMS_PER_WORKGROUP_STRING
+												#if defined (DOUBLE_FP)
+												+ std::string(" -DDOUBLE_FP");
+												#else
+							;				
+												#endif
+
+		
+		std::cout << "Kernel compilation flags passed to OpenCL device: " << std::endl << ocl_build_options << std::endl;
+		
+
+		// Conversion from std::string to char* is required:
+		// https://stackoverflow.com/a/7352131/1616865
+		program.build(ocl_build_options.c_str());
+
+		// Use this in case previous build() is not be supported in other platforms
+		/*
+		program.build();
+		*/
+			
+		} catch (const cl::Error&) {
+			std::cerr
+			<< "OpenCL compilation error" << std::endl
+		<< program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(OCL_objs.device)
+		<< std::endl;
+				
+			exit(EXIT_FAILURE);
+		}
+
+		cl::Kernel findMinMax_kernel     (program, "findMinMax");
+		cl::Kernel initTargetCells_kernel(program, "initTargetCells");
+		cl::Kernel firstPass_kernel      (program, "firstPass");
+		cl::Kernel secondPass_kernel     (program, "secondPass");
+
+		OCL_objs.kernel_findMinMax      = findMinMax_kernel;
+		OCL_objs.kernel_initTargetCells = initTargetCells_kernel;
+		OCL_objs.kernel_firstPass       = firstPass_kernel;
+		OCL_objs.kernel_secondPass      = secondPass_kernel;
+
+	while (read_testcases < testcases)
+	{
+		int count = read_next_testcases(p);
+
+		if(read_testcases != 1) {
+			unpause_func();
+		}
+			for (int i = 0; i < count; i++)
+			{
+				// actual kernel invocation
+				results[i] = partial_points_callback(
+					&OCL_objs,
+					filtered_scan_ptr[i],
+					init_guess[i],
+					maps[i]
+				);
+			}
+		if(read_testcases != 1) {
+			pause_func();
+		}
+		check_next_outputs(count);
 	}
 }
 

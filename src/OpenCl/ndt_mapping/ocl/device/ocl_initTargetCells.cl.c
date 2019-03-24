@@ -69,7 +69,14 @@ initTargetCells(
         */
 
         #if defined (DOUBLE_FP)
-	TargetGridLeadConstPtr temp = {{0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, 0 /*, 0, 0, 0*/};
+	TargetGridLeadConstPtr temp = {
+		{{{0.0, 0.0, 1.0},
+		{0.0, 1.0, 0.0},
+		{1.0, 0.0, 0.0}}},
+		 
+		{0.0, 0.0, 0.0}, 
+		0
+	};
         #else
 	TargetGridLeadConstPtr temp = {{0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, 0 /*, 0, 0, 0*/};
         #endif
