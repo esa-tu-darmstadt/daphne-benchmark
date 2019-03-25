@@ -2,6 +2,7 @@
 #include "datatypes.h"
 #include <cmath>
 #include <iostream>
+#include <sstream>
 #include <fstream>
 #include <limits>
 #include <cstring>
@@ -19,6 +20,17 @@
 // maximum allowed deviation from reference
 #define MAX_TRANSLATION_EPS 0.001
 #define MAX_ROTATION_EPS 1.8
+
+// platform information
+#ifndef EPHOS_PLATFORM_HINT
+#define EPHOS_PLATFORM_HINT ""
+#endif
+#ifndef EPHOS_DEVICE_HINT
+#define EPHOS_DEVICE_HINT ""
+#endif
+#ifndef EPHOS_DEVICE_TYPE
+#define EPHOS_DEVICE_TYPE "ALL"
+#endif
 
 class ndt_mapping : public kernel {
 private:
@@ -1812,74 +1824,186 @@ CallbackResult ndt_mapping::partial_points_callback(
 	result.converged = converged_;
 	return result;
 }
-
+OCL_Struct find_compute_platform(
+	std::string platformHint, std::string deviceHint, std::string deviceType,
+	std::vector<std::vector<std::string>> extensions) {
+	
+	OCL_Struct result;
+	
+	// query all platforms
+	std::vector<cl::Platform> availablePlatforms;
+	try {
+		cl::Platform::get(&availablePlatforms);
+	} catch (cl::Error& e) {
+		throw std::logic_error("Platform query failed: " + std::string(e.what()));
+	}
+	if (availablePlatforms.size() == 0) {
+		throw std::logic_error("No platforms found");
+	}
+	// select a platform
+	std::vector<cl::Platform> selectedPlatforms;
+	if (platformHint.length() > 0) {
+		// select certain platforms
+		int iPlatform;
+		if (sscanf(platformHint.c_str(), "%d", &iPlatform) == 1) {
+			// select platform by index
+			if (iPlatform < availablePlatforms.size()) {
+				selectedPlatforms.push_back(availablePlatforms[iPlatform]);
+			} else {
+				throw std::logic_error("Platform of index" + std::to_string(iPlatform) + " does not exist");
+			}
+			
+		} else {
+			// search for platforms that match a given name
+			bool found = false;
+			for (cl::Platform p : availablePlatforms) {
+				std::string platformName = p.getInfo<CL_PLATFORM_NAME>();
+				if (platformName.find(platformHint) != std::string::npos) {
+					selectedPlatforms.push_back(p);
+					found = true;
+				}
+			}
+			if (!found) {
+				throw std::logic_error("No platform that matches " + platformHint);
+			}
+		}
+	} else {
+		// consider all platforms
+		for (cl::Platform p : availablePlatforms) {
+			selectedPlatforms.push_back(p);
+		}
+	}
+	// query devices
+	// filter devices by type
+	std::vector<cl::Device> filteredDevices;
+	// detect the device type
+	cl_device_type type = CL_DEVICE_TYPE_ALL;
+	if (deviceType.find("CPU") != std::string::npos) {
+		type = CL_DEVICE_TYPE_CPU;
+	} else if (deviceType.find("GPU") != std::string::npos) {
+		type = CL_DEVICE_TYPE_GPU;
+	} else if (deviceType.find("ACC") != std::string::npos) {
+		type = CL_DEVICE_TYPE_ACCELERATOR;
+	} else if (deviceType.find("DEF") != std::string::npos) {
+		type = CL_DEVICE_TYPE_DEFAULT;
+	}
+	std::ostringstream sQueryError;
+	bool errorDetected = false;
+	// filter devices
+	for (cl::Platform p : selectedPlatforms) {
+		std::vector<cl::Device> devices;
+		try {
+			p.getDevices(type, &devices);
+		} catch (cl::Error& e) {
+			sQueryError << e.what() << std::endl;
+			errorDetected = true;
+		}
+		for (cl::Device d : devices) {
+			filteredDevices.push_back(d);
+		}
+	}
+	if (filteredDevices.size() == 0) {
+		std::ostringstream sError;
+		sError << "No devices found.";
+		if (errorDetected) {
+			sError << "Failed queries:" << std::endl;
+			sError << sQueryError.str();
+		}
+		throw std::logic_error(sError.str());
+	}
+	// select devices
+	std::vector<cl::Device> selectedDevices;
+	if (deviceHint.length() > 0) {
+		// select specific devices
+		int iDevice;
+		if (sscanf(deviceHint.c_str(), "%d", &iDevice) == 1) {
+			// select by index
+			if (iDevice < filteredDevices.size()) {
+				selectedDevices.push_back(filteredDevices[iDevice]);
+			} else {
+				throw std::logic_error("Device of index " + std::to_string(iDevice) + " does not exist");
+			}
+		} else {
+			// select by name
+			bool found = false;
+			for (cl::Device d : filteredDevices) {
+				std::string deviceName = d.getInfo<CL_DEVICE_NAME>();
+				if (deviceName.find(deviceHint) != std::string::npos) {
+					selectedDevices.push_back(d);
+					found = true;
+				}
+			} 
+			if (!found) {
+				throw std::logic_error("No device that matches " + deviceHint);
+			}
+		}
+	} else {
+		// select all devices
+		for (cl::Device d : filteredDevices) {
+			selectedDevices.push_back(d);
+		}
+	}
+	// filter by extensions
+	std::vector<cl::Device> supportedDevices;
+	if (extensions.size() > 0) {
+		// request at least one extension
+		bool found = false;
+		for (cl::Device d : selectedDevices) {
+			std::string supportedExtensions = d.getInfo<CL_DEVICE_EXTENSIONS>();
+			// for each extension set at least one extension must be supported
+			bool deviceSupported = true;
+			for (std::vector<std::string> extensionSet : extensions) {
+				bool extFound = false;
+				for (std::string ext : extensionSet) {
+					if (supportedExtensions.find(ext) != std::string::npos) {
+						extFound = true;
+					}
+				}
+				if (!extFound) {
+					deviceSupported = false;
+				}
+			}
+			if (deviceSupported) {
+				supportedDevices.push_back(d);
+			}
+		}
+		if (supportedDevices.size() == 0) {
+			throw std::logic_error("No device that supports the required extensions");
+		}
+	} else {
+		// all devices pass
+		for (cl::Device d : selectedDevices) {
+			supportedDevices.push_back(d);
+		}
+	}
+	// create context and queue
+	// select the first supported device
+	result.device = supportedDevices[0];
+	try {
+		result.context = cl::Context(supportedDevices[0]);
+	} catch (cl::Error& e) {
+		throw std::logic_error("Context creation failed: " + std::string(e.what()));
+	}
+	try {
+		result.cmdqueue = cl::CommandQueue(result.context, supportedDevices[0]);
+	} catch (cl::Error& e) {
+		throw std::logic_error("Command queue creation failed: " + std::string(e.what()));
+	}
+	return result;
+}
 void ndt_mapping::run(int p) {
 	// do not measure the initialization
 	pause_func();
-
+	
 	OCL_Struct OCL_objs;
-	// find a suitable platform and device
 	try {
-		// Get list of OpenCL platforms.
-		std::vector<cl::Platform> platform;
-		cl::Platform::get(&platform);
-	if (platform.empty()) {
-		std::cerr << "OpenCL platforms not found." << std::endl;
+		std::vector<std::vector<std::string>> requiredExtensions = { {"cl_khr_fp64", "cl_amd_fp64"} };
+		OCL_objs = find_compute_platform(EPHOS_PLATFORM_HINT, EPHOS_DEVICE_HINT, EPHOS_DEVICE_TYPE, requiredExtensions);
+		std::cout << "EPHoS OpenCL device: " << OCL_objs.device.getInfo<CL_DEVICE_NAME>() << std::endl;
+	} catch (std::logic_error& e) {
+		std::cerr << e.what() << std::endl;
 		exit(EXIT_FAILURE);
 	}
-	// Get first available GPU device which supports double precision.
-	cl::Context context;
-	cl::CommandQueue queue;
-	std::vector<cl::Device> device;
-	for(auto p = platform.begin(); device.empty() && p != platform.end(); p++) {
-		std::vector<cl::Device> pldev;
-
-		try {
-			p->getDevices(CL_DEVICE_TYPE_GPU, &pldev);
-
-			for(auto d = pldev.begin(); device.empty() && d != pldev.end(); d++) {
-				if (!d->getInfo<CL_DEVICE_AVAILABLE>()) continue;
-
-				#if defined (DOUBLE_FP)
-				std::string ext = d->getInfo<CL_DEVICE_EXTENSIONS>();
-
-				if (
-					ext.find("cl_khr_fp64") == std::string::npos &&
-					ext.find("cl_amd_fp64") == std::string::npos
-					) continue;
-					#endif
-
-				device.push_back(*d);
-				std::vector<cl::Device> devices;
-				devices.push_back(*d);
-				context = cl::Context(devices);
-				queue = cl::CommandQueue(context, *d);
-				break;
-			}		
-		} catch(...) {
-			device.clear();
-		}
-	}
-	#if defined (DOUBLE_FP)
-	if (device.empty()) {
-		std::cerr << "GPUs with double precision not found." << std::endl;
-		exit(EXIT_FAILURE);
-	}
-	#endif
-	std::cout << "EPHoS OpenCL device: " << device[0].getInfo<CL_DEVICE_NAME>() << std::endl;
-	// Preparing data to pass to kernel functions
-	OCL_objs.device   = device[0];
-	OCL_objs.context  = context;
-	OCL_objs.cmdqueue = queue;
-
-	} catch (const cl::Error &err) {
-		std::cerr
-			<< "OpenCL error: "
-			<< err.what() << "(" << err.err() << ")"
-			<< std::endl;
-		exit(EXIT_FAILURE);
-	}
-
 	// Kernel code was stringified, rather than read from file
 	std::string sourceCode = all_ocl_krnl;
 	
@@ -1894,19 +2018,19 @@ void ndt_mapping::run(int p) {
 	// Create program
 	cl::Program program(OCL_objs.context, sourcesCL);
 
-	try {   
-		const std::string ocl_build_options = std::string(" -I ./ocl/device/") +
-			std::string(" -DNUMWORKITEMS_PER_WORKGROUP=") + NUMWORKITEMS_PER_WORKGROUP_STRING
-			#if defined (DOUBLE_FP)
-			+ std::string(" -DDOUBLE_FP");
-			#else
-			;
-			#endif
-		std::cout << "Kernel compilation flags passed to OpenCL device: " << std::endl << ocl_build_options << std::endl;
-		program.build(ocl_build_options.c_str());
+	try {
+		std::ostringstream sBuildOptions;
+		sBuildOptions << " -I ./ocl/device/";
+		sBuildOptions << " -DNUMWORKITEMS_PER_WORKGROUP=" << NUMWORKITEMS_PER_WORKGROUP_STRING;
+		#if defined(DOUBLE_FP)
+		sBuildOptions << " -DDOUBLE_FP";
+		#endif
+		std::string buildOptions(sBuildOptions.str());
+		std::cout << "Kernel compilation flags passed to OpenCL device: " << std::endl << buildOptions << std::endl;
+		program.build(buildOptions.c_str());
 	} catch (const cl::Error&) {
 		std::cerr
-			<< "OpenCL compilation error" << std::endl
+			<< "Kernel compilation error" << std::endl
 			<< program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(OCL_objs.device)
 			<< std::endl;
 		exit(EXIT_FAILURE);
@@ -1925,23 +2049,19 @@ void ndt_mapping::run(int p) {
 	while (read_testcases < testcases)
 	{
 		int count = read_next_testcases(p);
-
-		if(read_testcases != 1) {
-			unpause_func();
+		
+		unpause_func();
+		for (int i = 0; i < count; i++)
+		{
+			// actual kernel invocation
+			results[i] = partial_points_callback(
+				&OCL_objs,
+				filtered_scan_ptr[i],
+				init_guess[i],
+				maps[i]
+			);
 		}
-			for (int i = 0; i < count; i++)
-			{
-				// actual kernel invocation
-				results[i] = partial_points_callback(
-					&OCL_objs,
-					filtered_scan_ptr[i],
-					init_guess[i],
-					maps[i]
-				);
-			}
-		if(read_testcases != 1) {
-			pause_func();
-		}
+		pause_func();
 		check_next_outputs(count);
 	}
 }
