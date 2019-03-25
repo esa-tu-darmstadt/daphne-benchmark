@@ -433,11 +433,11 @@ double ndt_mapping::updateDerivatives (Vec6 &score_gradient,
 {
 	// matrix preparation
 	double xCx = c_inv.data[0][0] * x_trans[0] * x_trans[0] +
-	c_inv.data[1][1] * x_trans[1] * x_trans[1] +
-	c_inv.data[2][2] * x_trans[2] * x_trans[2] +
-	(c_inv.data[0][1] + c_inv.data[1][0]) * x_trans[0] * x_trans[1] +
-	(c_inv.data[0][2] + c_inv.data[2][0]) * x_trans[0] * x_trans[2] +
-	(c_inv.data[1][2] + c_inv.data[2][1]) * x_trans[1] * x_trans[2];
+		c_inv.data[1][1] * x_trans[1] * x_trans[1] +
+		c_inv.data[2][2] * x_trans[2] * x_trans[2] +
+		(c_inv.data[0][1] + c_inv.data[1][0]) * x_trans[0] * x_trans[1] +
+		(c_inv.data[0][2] + c_inv.data[2][0]) * x_trans[0] * x_trans[2] +
+		(c_inv.data[1][2] + c_inv.data[2][1]) * x_trans[1] * x_trans[2];
 
 	double e_x_cov_x = exp (-gauss_d2_ * (xCx) / 2);
 	// calculate probability of transtormed points existance, equation 6.9 [Magnusson 2009]
@@ -657,10 +657,8 @@ double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 	memset(&(score_gradient[0]), 0, sizeof(double) * 6 );
 	memset(&(hessian.data[0][0]), 0, sizeof(double) * 6 * 6);
 	double score = 0.0;
-
 	// Precompute Angular Derivatives (eq. 6.19 and 6.21)[Magnusson 2009]
 	computeAngleDerivatives (p);
-
 	// Update gradient and hessian for each point, line 17 in Algorithm 2 [Magnusson 2009]
 	for (size_t idx = 0; idx < input_->size (); idx++)
 	{
@@ -1375,8 +1373,8 @@ void ndt_mapping::ndt_align (const Matrix4f& guess)
 	// Perform the actual transformation computation
 	converged_ = false;
 	final_transformation_ = transformation_ = previous_transformation_ = Matrix4f_Identity;
-	// Right before we estimate the transformation, we set all the point.data[3] values to 1 to aid the rigid 
-	// transformation
+	// Right before we estimate the transformation, we set all the point.data[3] values to 1 
+	// to aid the rigid transformation
 	for (size_t i = 0; i < input_->size (); ++i)
 		output[i].data[3] = 1.0;
 	computeTransformation (output, guess);
