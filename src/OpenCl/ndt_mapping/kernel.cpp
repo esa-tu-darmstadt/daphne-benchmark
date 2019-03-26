@@ -1824,6 +1824,13 @@ CallbackResult ndt_mapping::partial_points_callback(
 	result.converged = converged_;
 	return result;
 }
+/**
+ * Searches through the available OpenCL platforms to find one that suits the given arguments.
+ * platformHint: platform name or index, empty for no restriction
+ * deviceHint: device name or index, empty for no restriction
+ * deviceType: can be one of ALL, CPU, GPU, ACC, DEF to only allow certaind devices
+ * extensions: a chosen device must support at least one extension from each given extension set
+ */
 OCL_Struct find_compute_platform(
 	std::string platformHint, std::string deviceHint, std::string deviceType,
 	std::vector<std::vector<std::string>> extensions) {
@@ -1895,7 +1902,7 @@ OCL_Struct find_compute_platform(
 		try {
 			p.getDevices(type, &devices);
 		} catch (cl::Error& e) {
-			sQueryError << e.what() << std::endl;
+			sQueryError << e.what() << " (" << e.err() << ")" << std::endl;
 			errorDetected = true;
 		}
 		for (cl::Device d : devices) {
@@ -1906,7 +1913,7 @@ OCL_Struct find_compute_platform(
 		std::ostringstream sError;
 		sError << "No devices found.";
 		if (errorDetected) {
-			sError << "Failed queries:" << std::endl;
+			sError << " Failed queries:" << std::endl;
 			sError << sQueryError.str();
 		}
 		throw std::logic_error(sError.str());

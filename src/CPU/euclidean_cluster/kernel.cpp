@@ -45,10 +45,10 @@ protected:
 		Centroid *in_out_centroids,
 		double in_max_cluster_distance);
 	/**
-	* Cluster the point cloud according to the pairwise point distances.
-	* Clustering of the same input data is performed multiple times with different thresholds
-	* so that points farther away in the cloud also get assigned to a cluster.
-	*/
+	 * Cluster the point cloud according to the pairwise point distances.
+	 * Clustering of the same input data is performed multiple times with different thresholds
+	 * so that points farther away in the cloud also get assigned to a cluster.
+	 */
 	void segmentByDistance(const PointCloud *in_cloud_ptr,
 		PointCloudRGB *out_cloud_ptr,
 		BoundingboxArray *in_out_boundingbox_array,
@@ -210,7 +210,7 @@ static void rotatingCalipers(const Point2D* points, int n, float* out)
 				base_b = lead_x;
 				break;
 			default:
-				throw std::logic_error("Error in rotatingCalipers function: main_element should be 0, 1, 2 or 3");
+				throw std::logic_error("Error in rotatingCalipers(): main_element should be 0, 1, 2 or 3");
 			}
 		}
 		// change base point of main edge
@@ -358,8 +358,8 @@ struct CHullCmpPoints
 	 * Performs a primary test for the x component
 	 * and a secondary test for the y component.
 	 */
-    bool operator()(const Point2D* p1, const Point2D* p2) const
-    { 
+	bool operator()(const Point2D* p1, const Point2D* p2) const
+	{ 
 		return p1->x < p2->x || (p1->x == p2->x && p1->y < p2->y);
 	}
 };
@@ -739,7 +739,7 @@ void euclidean_clustering::clusterAndColor(
 		bounding_box.orientation.z = sinYaw; //z
 		bounding_box.orientation.w = cosYaw; //w, formerly yzx
 
-		if (  bounding_box.dimensions.x >0 && bounding_box.dimensions.y >0 && bounding_box.dimensions.z > 0 &&
+		if (bounding_box.dimensions.x >0 && bounding_box.dimensions.y >0 && bounding_box.dimensions.z > 0 &&
 			bounding_box.dimensions.x < 15 && bounding_box.dimensions.y >0 && bounding_box.dimensions.y < 15 &&
 			max_z > -1.5 && min_z > -1.5 && min_z < 1.0 )
 		{
@@ -859,19 +859,18 @@ void parseBoundingboxArray(std::ifstream& input_file, BoundingboxArray *bb_array
     int size = 0;
     Boundingbox bba;
     try {
-	input_file.read((char*)&(size), sizeof(int));
-
-	for (int i = 0; i < size; i++)
-	    {
-		input_file.read((char*)&bba.position.x, sizeof(double));
-		input_file.read((char*)&bba.position.y, sizeof(double));
-		input_file.read((char*)&bba.orientation.x, sizeof(double));
-		input_file.read((char*)&bba.orientation.y, sizeof(double));
-		input_file.read((char*)&bba.orientation.z, sizeof(double));
-		input_file.read((char*)&bba.orientation.w, sizeof(double));
-		input_file.read((char*)&bba.dimensions.x, sizeof(double));
-		input_file.read((char*)&bba.dimensions.y, sizeof(double));
-		bb_array->boxes.push_back(bba);
+		input_file.read((char*)&(size), sizeof(int));
+		for (int i = 0; i < size; i++)
+		{
+			input_file.read((char*)&bba.position.x, sizeof(double));
+			input_file.read((char*)&bba.position.y, sizeof(double));
+			input_file.read((char*)&bba.orientation.x, sizeof(double));
+			input_file.read((char*)&bba.orientation.y, sizeof(double));
+			input_file.read((char*)&bba.orientation.z, sizeof(double));
+			input_file.read((char*)&bba.orientation.w, sizeof(double));
+			input_file.read((char*)&bba.dimensions.x, sizeof(double));
+			input_file.read((char*)&bba.dimensions.y, sizeof(double));
+			bb_array->boxes.push_back(bba);
 	    }
     }  catch (std::ifstream::failure) {
 		throw std::ios_base::failure("Error reading reference bounding boxes");
