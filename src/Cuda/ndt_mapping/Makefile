@@ -1,7 +1,8 @@
 .DEFAULT_GOAL := kernel
 
 
-CXXFLAGS=-std c++11 -g -O3 -arch=sm_72 
+#CXXFLAGS=-std c++11 -g -O3 -arch=sm_72 
+CXXFLAGS=-std c++11 -g -O3 -arch=sm_60
 CXX=nvcc
 #CXXFLAGS=-std=gnu++11 -O3
 

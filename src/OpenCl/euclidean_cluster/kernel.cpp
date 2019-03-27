@@ -1314,14 +1314,8 @@ void euclidean_clustering::run(int p) {
 	}
 	// Kernel code was stringified, rather than read from file
 	std::string sourceCode = initRadiusSearch_ocl_krnl;
-	
 	cl::Program::Sources sourcesCL = cl::Program::Sources();
-	
-	#if defined(CL_HPP_ENABLE_PROGRAM_CONSTRUCTION_FROM_ARRAY_COMPATIBILITY)
 	sourcesCL.push_back(std::make_pair(sourceCode.c_str(), sourceCode.size()));
-	#else
-	sourcesCL.push_back(sourceCode);
-	#endif
 	// Create program
 	cl::Program program(OCL_objs.context, sourcesCL);
 	try {

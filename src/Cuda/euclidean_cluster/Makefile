@@ -1,6 +1,5 @@
 .DEFAULT_GOAL := kernel
 
-
 CXXFLAGS=-std c++11 -O3 -arch sm_60 
 CXX=nvcc
 
