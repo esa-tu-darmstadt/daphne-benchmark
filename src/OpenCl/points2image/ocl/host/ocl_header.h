@@ -1,17 +1,10 @@
-#ifndef ocl_ephos_h
-#define ocl_ephos_h
-
-// OpenCL C++ headers
-
-// Added to avoid "warning: <CL-API> is deprecated" compiler messages
-// clinfo tells that device support v1.2, 
-// although platform supports v2.1
+#ifndef OCL_EPHOS_H
+#define OCL_EPHOS_H
 
 #define CL_TARGET_OPENCL_VERSION 120
 //#define CL_USE_DEPRECATED_OPENCL_1_2_APIS
 
 #define __CL_ENABLE_EXCEPTIONS
-//#include <CL/cl.hpp>
 #include <CL/cl.h>
 
 // Compute c = a + b.
@@ -38,12 +31,6 @@ static const char source[] =
 
 // Struct for passing OpenCL objects
 struct OCL_Struct {
-#if 0
-	  cl::Platform     platform;
-	  cl::Device       device;
-	  cl::Context      context;
-	  cl::CommandQueue cmdqueue;
-#endif
 	cl_platform_id   *rcar_platform;
 	cl_device_id     cvengine_device;
 	cl_context       rcar_context;

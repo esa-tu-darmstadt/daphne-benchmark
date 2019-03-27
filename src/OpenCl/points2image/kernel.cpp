@@ -1,10 +1,22 @@
 #include "benchmark.h"
 #include "datatypes.h"
-#include <math.h>
+#include "ocl/host/ocl_header.h"
+#include <cmath>
 #include <iostream>
 #include <fstream>
+#include <sstream>
 
 #define MAX_EPS 0.001
+
+#ifndef EPHOS_PLATFORM_HINT
+#define EPHOS_PLATFORM_HINT ""
+#endif
+#ifndef EPHOS_DEVICE_HINT
+#define EPHOS_DEVICE_HINT ""
+#endif
+#ifndef EPHOS_DEVICE_TYPE
+#define EPHOS_DEVICE_TYPE "ALL"
+#endif
 
 class points2image : public kernel {
     public:
@@ -46,10 +58,6 @@ void  parsePointCloud(std::ifstream& input_file, PointCloud2* pointcloud2) {
     	input_file.read((char*)&(pointcloud2->height), sizeof(int32_t));
     	input_file.read((char*)&(pointcloud2->width), sizeof(int32_t));
     	input_file.read((char*)&(pointcloud2->point_step), sizeof(uint32_t));
-
-    	// Not used
-    	/*int pos = 0;*/
-
     	pointcloud2->data = new float[pointcloud2->height * pointcloud2->width * pointcloud2->point_step];
     	input_file.read((char*)pointcloud2->data, pointcloud2->height * pointcloud2->width * pointcloud2->point_step);
     }
@@ -177,7 +185,6 @@ int points2image::read_next_testcases(int count)
 void points2image::init() {
 
     std::cout << "init\n";
-    //input_file.read((char*)&testcases, sizeof(uint32_t));
     testcases = /*2500*/ 2500;
 
     #if defined (PRINTINFO)
@@ -232,268 +239,253 @@ float* assign(uint32_t count, float value) {
 }
 
 /**
-   This code is extracted from Autoware, file:
-   ~/Autoware/ros/src/sensing/fusion/packages/points2image/lib/points_image/points_image.cpp
-*/
-
-#if defined (OPENCL)
-
-#else
-	// Print serial
-	//#define PRINT_CPP
-	//#define PRINT_CRITICAL
-	//#define IT_CRITICAL 45285
-#endif
-
-PointsImage
-pointcloud2_to_image(const PointCloud2& pointcloud2,
-                     const Mat44& cameraExtrinsicMat,
-                     const Mat33& cameraMat, const Vec5& distCoeff,
-                     const ImageSize& imageSize)
-{
-        int w = imageSize.width;
-        int h = imageSize.height;
-
-	#if defined (PRINT_CPP)
-	std::cout << "w : " << w << " | h : " << h << " | pc2_width : " << pointcloud2.width << " | pc2_height : " << pointcloud2.height << " | pc2_pstep : " << pointcloud2.point_step << std::endl;
-	#endif
-
-        uintptr_t cp = (uintptr_t)pointcloud2.data;
-
-        PointsImage msg;
-
-	msg.intensity = assign(w * h, 0);
-	msg.distance = assign(w * h, 0);
-        msg.min_height = assign(w * h, 0);
-        msg.max_height = assign(w * h, 0);
-
-        Mat33 invR;
-	Mat13 invT;
-	// invR= cameraExtrinsicMat(cv::Rect(0,0,3,3)).t();
-	for (int row = 0; row < 3; row++)
-	  for (int col = 0; col < 3; col++)
-	    invR.data[row][col] = cameraExtrinsicMat.data[col][row];
-	for (int row = 0; row < 3; row++) {
-	  invT.data[row] = 0.0;
-	  for (int col = 0; col < 3; col++)
-	    //invT = -invR*(cameraExtrinsicMat(cv::Rect(3,0,1,3)));
-	    invT.data[row] -= invR.data[row][col] * cameraExtrinsicMat.data[col][3];
-	}
-
-	#if defined (PRINT_CPP)
-	std::cout << "(Mat33) invR: " << std::endl;
-	for (unsigned int idx = 0; idx < 3; idx ++) {
-		for (unsigned int idy = 0; idy < 3; idy ++) {
-			std::cout << idx << " | "<< idy << " | "<< invR.data[idx][idy] << std::endl;
+ * Searches through the available OpenCL platforms to find one that suits the given arguments.
+ * platformHint: platform name or index, empty for no restriction
+ * deviceHint: device name or index, empty for no restriction
+ * deviceType: can be one of ALL, CPU, GPU, ACC, DEF to only allow certaind devices
+ * extensions: a chosen device must support at least one extension from each given extension set
+ */
+OCL_Struct find_compute_platform(
+    std::string platformHint, std::string deviceHint, std::string deviceType,
+    std::vector<std::vector<std::string>> extensions) {
+    
+    OCL_Struct result;
+    cl_int errorCode = CL_SUCCESS;
+    // query all platforms
+    std::vector<cl_platform_id> availablePlatforms(16);
+    cl_uint availablePlatformNo = 0;
+    errorCode = clGetPlatformIDs(availablePlatforms.size(), availablePlatforms.data(), &availablePlatformNo);
+    if (errorCode != CL_SUCCESS) {
+	throw std::logic_error("Platform query failed: " + errorCode);
+    }
+    availablePlatforms.resize(availablePlatformNo);
+    //try {
+//	cl::Platform::get(&availablePlatforms);
+//    } catch (cl::Error& e) {
+//	throw std::logic_error("Platform query failed: " + std::string(e.what()));
+//    }
+    if (availablePlatforms.size() == 0) {
+	throw std::logic_error("No platforms found");
+    }
+    // select a platform
+    std::vector<cl_platform_id> selectedPlatforms;
+    if (platformHint.length() > 0) {
+	// select certain platforms
+	int iPlatform;
+	if (sscanf(platformHint.c_str(), "%d", &iPlatform) == 1) {
+	    // select platform by index
+	    if (iPlatform < availablePlatforms.size()) {
+		selectedPlatforms.push_back(availablePlatforms[iPlatform]);
+	    } else {
+		throw std::logic_error("Platform of index" + std::to_string(iPlatform) + " does not exist");
+	    }
+	    
+	} else {
+	    // search for platforms that match a given name
+	    bool found = false;
+	    for (cl_platform_id p : availablePlatforms) {
+		std::vector<char> nameBuffer(256);
+		size_t nameLength = 0;
+		errorCode = clGetPlatformInfo(p, CL_PLATFORM_NAME, nameBuffer.size(), nameBuffer.data(), &nameLength);
+		if (errorCode != CL_SUCCESS) {
+		    // ignore for now
+		} else {
+		    std::string platformName = std::string(nameBuffer.data(), nameLength);
+		    //std::string platformName = p.getInfo<CL_PLATFORM_NAME>();
+		    if (platformName.find(platformHint) != std::string::npos) {
+			selectedPlatforms.push_back(p);
+			found = true;
+		    }
 		}
+	    }
+	    if (!found) {
+		throw std::logic_error("No platform that matches " + platformHint);
+		// TODO: display any query errors
+	    }
 	}
-	std::cout << std::endl;
-
-	std::cout << "(Mat13) invT: " << std::endl;
-	for (unsigned int idx = 0; idx < 3; idx ++) {
-		std::cout << idx << " | " << invT.data[idx] << std::endl;
+    } else {
+	// consider all platforms
+	for (cl_platform_id p : availablePlatforms) {
+	    selectedPlatforms.push_back(p);
 	}
-	std::cout << std::endl;
-	#endif
+    }
+    // query devices
+    // filter devices by type
+    std::vector<cl_device_id> filteredDevices;
+    // detect the device type
+    cl_device_type type = CL_DEVICE_TYPE_ALL;
+    if (deviceType.find("CPU") != std::string::npos) {
+	type = CL_DEVICE_TYPE_CPU;
+    } else if (deviceType.find("GPU") != std::string::npos) {
+	type = CL_DEVICE_TYPE_GPU;
+    } else if (deviceType.find("ACC") != std::string::npos) {
+	type = CL_DEVICE_TYPE_ACCELERATOR;
+    } else if (deviceType.find("DEF") != std::string::npos) {
+	type = CL_DEVICE_TYPE_DEFAULT;
+    }
+    std::ostringstream sQueryError;
+    bool errorDetected = false;
+    // filter devices
+    for (cl_platform_id p : selectedPlatforms) {
+	std::vector<cl_device_id> devices(16);
+	cl_uint deviceNo = 0;
+	//try {
+	//    p.getDevices(type, &devices);
+	//} catch (cl::Error& e) {
+	//    sQueryError << e.what() << " (" << e.err() << ")" << std::endl;
+	//    errorDetected = true;
+	//}
+	errorCode = clGetDeviceIDs(p, type, devices.size(), devices.data(), &deviceNo);
+	if (errorCode != CL_SUCCESS) {
+	    sQueryError << "Failed to get devices (" << errorCode << ")" << std::endl;
+	    errorDetected = true;
+	}
+	devices.resize(deviceNo);
+	for (cl_device_id d : devices) {
+	    filteredDevices.push_back(d);
+	}
+    }
+    if (filteredDevices.size() == 0) {
+	std::ostringstream sError;
+	sError << "No devices found.";
+	if (errorDetected) {
+	    sError << " Failed queries:" << std::endl;
+	    sError << sQueryError.str();
+	}
+	throw std::logic_error(sError.str());
+    }
+    // select devices
+    std::vector<cl_device_id> selectedDevices;
+    if (deviceHint.length() > 0) {
+	// select specific devices
+	int iDevice;
+	if (sscanf(deviceHint.c_str(), "%d", &iDevice) == 1) {
+	    // select by index
+	    if (iDevice < filteredDevices.size()) {
+		selectedDevices.push_back(filteredDevices[iDevice]);
+	    } else {
+		throw std::logic_error("Device of index " + std::to_string(iDevice) + " does not exist");
+	    }
+	} else {
+	    // select by name
+	    bool found = false;
+	    for (cl_device_id d : filteredDevices) {
+		std::vector<char> nameBuffer(256);
+		size_t nameLength = 0;
+		errorCode = clGetDeviceInfo(d, CL_DEVICE_NAME, nameBuffer.size(), nameBuffer.data(), &nameLength);
+		if (errorCode != CL_SUCCESS) {
+		    // TODO: generate a message
+		} else {
+		    std::string deviceName(nameBuffer.data(), nameLength);
+		    //std::string deviceName = d.getInfo<CL_DEVICE_NAME>();
+		    if (deviceName.find(deviceHint) != std::string::npos) {
+			selectedDevices.push_back(d);
+			found = true;
+		    }
+		}
+	    } 
+	    if (!found) {
+		throw std::logic_error("No device that matches " + deviceHint);
+	    }
+	}
+    } else {
+	// select all devices
+	for (cl_device_id d : filteredDevices) {
+	    selectedDevices.push_back(d);
+	}
+    }
+    // filter by extensions
+    std::vector<cl_device_id> supportedDevices;
+    if (extensions.size() > 0) {
+	// request at least one extension
+	bool found = false;
+	for (cl_device_id d : selectedDevices) {
+	    std::vector<char> extensionBuffer(4096);
+	    size_t extensionLength = 0;
+	    errorCode = clGetDeviceInfo(d, CL_DEVICE_EXTENSIONS, extensionBuffer.size(), extensionBuffer.data(), &extensionLength);
+	    if (errorCode != CL_SUCCESS) {
+		// TODO: generate a message
+	    } else {
+		std::string supportedExtensions(extensionBuffer.data(), extensionLength);
 
-        msg.max_y = -1;
-        msg.min_y = h;
-        msg.image_height = imageSize.height;
-        msg.image_width = imageSize.width;
-
-	#if defined (PRINT_CPP)
-	std::cout << "msg.max_y : " << msg.max_y << " | msg.min_y : " << msg.min_y << " | msg.image_height : " << msg.image_height << " | msg.image_width : " << msg.image_width << std::endl;
-	#endif
-
-	#if defined (PRINT_CPP)
-	printf("\ncp: 0 - 31\n");
-	for (unsigned int idx = 0; idx < 32; idx ++) {
-		printf("%-5u %10f\n", idx, pointcloud2.data[idx]);}
-	printf("\ncp: 32 - 63\n");
-	for (unsigned int idx = 32; idx < 64; idx ++) {
-		printf("%-5u %10f\n", idx, pointcloud2.data[idx]);}
-	#endif
-
-
-
-       for (uint32_t y = 0; y < pointcloud2.height; ++y) {
-                for (uint32_t x = 0; x < pointcloud2.width; ++x) {
-                        float* fp = (float *)(cp + (x + y*pointcloud2.width) * pointcloud2.point_step);
-                        double intensity = fp[4];
-
-                        Mat13 point, point2;
-                        point2.data[0] = double(fp[0]);
-                        point2.data[1] = double(fp[1]);
-                        point2.data[2] = double(fp[2]);
-
-                        //point = point * invR.t() + invT.t();
-			for (int row = 0; row < 3; row++) {
-			  point.data[row] = invT.data[row];
-			  for (int col = 0; col < 3; col++) 
-			    point.data[row] += point2.data[col] * invR.data[row][col];
+	        //std::string supportedExtensions = d.getInfo<CL_DEVICE_EXTENSIONS>();
+	        // for each extension set at least one extension must be supported
+	        bool deviceSupported = true;
+	        for (std::vector<std::string> extensionSet : extensions) {
+		    bool extFound = false;
+		    for (std::string ext : extensionSet) {
+			if (supportedExtensions.find(ext) != std::string::npos) {
+			    extFound = true;
 			}
-
-
-			#if defined (PRINT_CPP)
-			printf("\n\n");
-			printf("%-15s %10u\n", "inner loop id (x) : ", x);
-			printf("%-15s %15u\n", "offset1 : ", (x + y*pointcloud2.width) * pointcloud2.point_step);
-			//printf("%-35s %10u\n", "pointcloud2.data : ", pointcloud2.data);
-			//printf("%-35s %10u\n", "cp : ", cp);
-
-			//printf("%-35s %10u\n", "pointcloud2.data + offset1 : ", pointcloud2.data +  (x + y*pointcloud2.width) * pointcloud2.point_step);
-			//printf("%-35s %10u\n", "cp + offset1 : ", cp+  (x + y*pointcloud2.width) * pointcloud2.point_step);
-
-			printf("\n");
-			for (unsigned int k = 0; k < 5; k ++) {
-				printf("%s %u %s %15f\n", "fp[", k, "] : ", fp[k]);
-				//printf("%s %u %s %15f\n", "fp*[", k, "] : ", pointcloud2.data[(x + y*pointcloud2.width) * pointcloud2.point_step + k]);
-			}
-
-			printf("%s %15f\n", "intensity: ", intensity);
-
-			printf("\n");
-			for (unsigned int k = 0; k < 3; k ++) {
-				printf("%s %u %s %15f\n", "point2.data[", k, "] : ", point2.data[k]);
-			}
-
-			printf("\n");
-			for (unsigned int k = 0; k < 3; k ++) {
-				printf("%s %u %s %15f\n", "point.data[", k, "] : ", point.data[k]);
-			}
-			#endif
-
-                        if (point.data[2] <= 2.5) {
-				#if defined (PRINT_CPP)
-				printf("\nSkipping rest of iteration x # %u\n", x);
-				#endif
-                                continue;
-                        }
-
-			#if defined (PRINT_CPP)
-			printf("\nProcessing iteration x # %u\n", x);
-			#endif
-
-                        double tmpx = point.data[0] / point.data[2];
-                        double tmpy = point.data[1]/ point.data[2];
-                        double r2 = tmpx * tmpx + tmpy * tmpy;
-                        double tmpdist = 1 + distCoeff.data[0] * r2
-                                + distCoeff.data[1] * r2 * r2
-                                + distCoeff.data[4] * r2 * r2 * r2;
-
-			#if defined (PRINT_CPP)
-			printf("\n");
-			printf("%-25s %10f\n", "tmpx : ", tmpx);
-			printf("%-25s %10f\n", "tmpy : ", tmpy);
-			printf("%-25s %10f\n", "r2 : ", r2);
-			printf("%-25s %10f\n", "tmpdist : ", tmpdist);
-			#endif
-
-                        Point2d imagepoint;
-                        imagepoint.x = tmpx * tmpdist
-                                + 2 * distCoeff.data[2] * tmpx * tmpy
-                                + distCoeff.data[3] * (r2 + 2 * tmpx * tmpx);
-                        imagepoint.y = tmpy * tmpdist
-                                + distCoeff.data[2] * (r2 + 2 * tmpy * tmpy)
-                                + 2 * distCoeff.data[3] * tmpx * tmpy;
-                        imagepoint.x = cameraMat.data[0][0] * imagepoint.x + cameraMat.data[0][2];
-                        imagepoint.y = cameraMat.data[1][1] * imagepoint.y + cameraMat.data[1][2];
-
-                        int px = int(imagepoint.x + 0.5);
-                        int py = int(imagepoint.y + 0.5);
-
-			#if defined (PRINT_CPP)
-			printf("\n");
-			printf("%-25s %10f\n", "imagepoint.x : ", imagepoint.x);
-			printf("%-25s %10f\n", "imagepoint.y : ", imagepoint.y);
-			printf("%-25s %10i\n", "px : ", px);
-			printf("%-25s %10i\n", "py : ", py);
-			#endif
-
-                        if(0 <= px && px < w && 0 <= py && py < h)
-                        {
-                                int pid = py * w + px; 
-
-				/*
-				#if defined (PRINT_CRITICAL)
-				if (x == IT_CRITICAL) {
-					printf("x=%u\n", x);
-					printf("%-25s %10i\n", "tmp_gmem : ", msg.distance[pid]);
-				}
-				#endif
-				*/
-
-				#if defined (PRINT_CRITICAL)
-				printf("px & py within [0, w&h> range, happens when x=%u, px=%i, py=%i, pid=%i, msg.distance[pid]=%f\n", x, px, py, pid, msg.distance[pid]);
-				#endif
-
-
-				// Confirmed: pid can be zero
-				// if (pid == 0) {printf("pid==0\n");};
-
-                                if(msg.distance[pid] == 0 ||
-                                   msg.distance[pid] > point.data[2] * 100.0)
-                                {
-					#if defined (PRINT_CRITICAL)
-					printf("msg.distance[%i]=%f, point.data[2] * 100.0=%f\n", pid, msg.distance[pid], point.data[2] * 100.0);
-					#endif
-
-			    		// added to make the result always deterministic and independent from the point order
-			   	 	// in case two points get the same distance, take the one with high intensity
-			    		if (((msg.distance[pid] == float(point.data[2] * 100.0)) &&  msg.intensity[pid] < float(intensity)) ||
-					    (msg.distance[pid] > float(point.data[2] * 100.0)) ||
-				            msg.distance[pid] == 0)
-						msg.intensity[pid] = float(intensity);
-
-					msg.distance[pid] = float(point.data[2] * 100);
-
-                                        msg.max_y = py > msg.max_y ? py : msg.max_y;
-                                        msg.min_y = py < msg.min_y ? py : msg.min_y;
-
-					#if defined (PRINT_CRITICAL)
-					printf("msg.distance[%i]=%f, msg.intensity[pid]=%f\n", pid, msg.distance[pid], msg.intensity[pid]);
-					printf("msg.max_y=%i, msg.min_y=%i\n", msg.max_y, msg.min_y);
-					printf("\n");
-					#endif
-
-                                }
-                                if (0 == y && pointcloud2.height == 2)//process simultaneously min and max during the first layer
-                                {
-                                        float* fp2 = (float *)(cp + (x + (y+1)*pointcloud2.width) * pointcloud2.point_step);
-                                        msg.min_height[pid] = fp[2];
-                                        msg.max_height[pid] = fp2[2];
-                                }
-                                else
-                                {
-                                        msg.min_height[pid] = -1.25;
-                                        msg.max_height[pid] = 0;
-                                }
-                        }
-               }
-        }
-        return msg;
+		    }
+		    if (!extFound) {
+			deviceSupported = false;
+		    }
+		}
+		if (deviceSupported) {
+		    supportedDevices.push_back(d);
+		}
+	    }
+	}
+	if (supportedDevices.size() == 0) {
+	    throw std::logic_error("No device that supports the required extensions");
+	}
+    } else {
+	// all devices pass
+	for (cl_device_id d : selectedDevices) {
+	    supportedDevices.push_back(d);
+	}
+    }
+    // create context and queue
+    // select the first supported device
+    result.cvengine_device = supportedDevices[0];
+    cl_context context = clCreateContext(nullptr, 1, &supportedDevices[0], nullptr, nullptr, &errorCode);
+    if (errorCode != CL_SUCCESS) {
+	throw std::logic_error("Context creation failed: " + std::to_string(errorCode));
+    }
+    result.rcar_context = context;
+    //try {
+	//result.context = cl::Context(supportedDevices[0]);
+    //} catch (cl::Error& e) {
+	//throw std::logic_error("Context creation failed: " + std::string(e.what()));
+    //}
+    cl_command_queue_properties queueProperties = 0;
+    cl_command_queue queue = clCreateCommandQueue(context, supportedDevices[0], queueProperties, &errorCode);
+    if (errorCode != CL_SUCCESS) {
+	throw std::logic_error("Command queue creation failed: " + std::to_string(errorCode));
+    }
+    result.cvengine_command_queue = queue;
+    result.rcar_platform = nullptr;
+    //try {
+//	result.cmdqueue = cl::CommandQueue(result.context, supportedDevices[0]);
+//    } catch (cl::Error& e) {
+//	throw std::logic_error("Command queue creation failed: " + std::string(e.what()));
+//    }
+    return result;
+    // TODO: release after program exit
 }
 
-// ---------------------------------------------------------------
-#if defined (OPENCL)
 	#include "ocl_header.h"
 	#include "stringify.h"
 
-extern OCL_Struct OCL_objs;
-
-	#include <array>	// std:: array
-	#include <string>       // std::string
+	#include <array>
+	#include <string>
 	#include <sstream>      // std::stringstream
 	#include <utility>      // std::pair
 
 	#define MAX_NUM_WORKITEMS 32
-#endif
-// ---------------------------------------------------------------
+
 void points2image::run(int p) {
-
+	// do not measure setup time
 	pause_func();
+	OCL_Struct OCL_objs;
+	try {
+	    std::vector<std::vector<std::string>> extensions = { {"cl_khr_fp64", "cl_amd_fp64" } };
+	    OCL_objs = find_compute_platform(EPHOS_PLATFORM_HINT, EPHOS_DEVICE_HINT, EPHOS_DEVICE_TYPE, extensions);
+	} catch (std::logic_error& e) {
+	    std::cerr << "OpenCL setup failed. " << e.what() << std::endl;
+	}
 
-#if defined (OPENCL)
 	// constructing the OpenCL program for the points2image function
 	cl_int err;
 	cl_program points2image_program = clCreateProgramWithSource(OCL_objs.rcar_context, 1, (const char **)&points2image_ocl_krnl, NULL, &err);
@@ -515,38 +507,13 @@ void points2image::run(int p) {
 
 	size_t global_size = compute_unit * local_size;
 		//std::cout << "global_size: " << global_size << std::endl;
-#endif
 
 	while (read_testcases < testcases)
 	{
 		int count = read_next_testcases(p);
 
-		#if defined (PRINTINFO)
-	      	std::cout << "# read_testcases: " << read_testcases << "  count: " << count << std::endl;
-		#endif
-
 		unpause_func();
 
-		// ---------------------------------------------------------------
-		// Expensive call ...
-#if !defined (OPENCL)
-
-		for (int i = 0; i < count; i++)
-		{
-			// actual kernel invocation
-			results[i] = pointcloud2_to_image(pointcloud2[i], cameraExtrinsicMat[i], cameraMat[i], distCoeff[i], imageSize[i]);
-
-			/*
-			printf("msg_max_y=%i, msg_min_y=%i, msg_image_height=%i, msg_image_width=%i\n", results[i].max_y, results[i].min_y, results[i].image_height, results[i].image_width);
-
-			for (unsigned int p=0;p<results[i].image_height*results[i].image_width;p++){
-				printf("p=%u, msg_distance=%f, msg_intensity=%f, msg_min_height=%f, msg_max_height=%f\n", p, results[i].distance[p], results[i].intensity[p], results[i].min_height[p], results[i].max_height[p]);
-			}
-			*/
-		}
-
-		// should be replaced by OpenCL NDRange
-#else
 		// Set kernel parameters & launch NDRange kernel
 		for (int i = 0; i < count; i++)
 		{
@@ -805,25 +772,14 @@ void points2image::run(int p) {
 			clReleaseMemObject(buff_py);
 			clReleaseMemObject(buff_fp_2);
 		}
-#endif
-		// End of OpenCL NDRange
-		// ---------------------------------------------------------------
-
-		/*
-		#if defined (PRINTINFO)
-		std::cout << "Outputs will be checked ... " << std::endl;
-		#endif
-		*/
-
 	      	pause_func();
 	      	check_next_outputs(count);
     	}
 
-#if defined (OPENCL)
 	err = clReleaseKernel(points2image_kernel);
 	err = clReleaseProgram(points2image_program);
-#endif
-
+	err = clReleaseCommandQueue(OCL_objs.cvengine_command_queue);
+	err = clReleaseContext(OCL_objs.rcar_context);
 }
 
 void points2image::check_next_outputs(int count)
@@ -837,21 +793,11 @@ void points2image::check_next_outputs(int count)
 	  || (results[i].image_width != reference.image_width))
       {
 	  error_so_far = true;
-
-          #if defined (PRINTINFO)
-          std::cout << "    image_height: " << results[i].image_height << std::endl;
-          std::cout << "    image_width: "  << results[i].image_width  << std::endl;
-          #endif
       }
       if ((results[i].min_y != reference.min_y)
 	  || (results[i].max_y != reference.max_y))
       {
 	  error_so_far = true;
-
-          #if defined (PRINTINFO)
-          std::cout << "   min_y: " << results[i].min_y << std::endl;
-          std::cout << "   max_y: " << results[i].max_y << std::endl;
-          #endif
       }
 
       int pos = 0;
@@ -860,34 +806,18 @@ void points2image::check_next_outputs(int count)
 	  {
 	    if (fabs(reference.intensity[pos] - results[i].intensity[pos]) > max_delta) {
 	      max_delta = fabs(reference.intensity[pos] - results[i].intensity[pos]);
-
-	      #if defined (PRINTINFO)
-	      std::cout << "	intensity: " << " h: " << h  << " w: " << w << " max_delta: " << max_delta << " pos: " << pos << std::endl;
-	      #endif
 	    }
 
 	    if (fabs(reference.distance[pos] - results[i].distance[pos]) > max_delta) {
 	      max_delta = fabs(reference.distance[pos] - results[i].distance[pos]);
-
-	      #if defined (PRINTINFO)
-	      std::cout << "	distance: " << " h: " << h  << " w: " << w << " max_delta: " << max_delta << " pos: " << pos << std::endl;
-	      #endif
 	    }
 
 	    if (fabs(reference.min_height[pos] - results[i].min_height[pos]) > max_delta) {
 	      max_delta = fabs(reference.min_height[pos] - results[i].min_height[pos]);
-
-	      #if defined (PRINTINFO)
-	      std::cout << "	min_height: " << " h: " << h  << " w: " << w << " max_delta: " << max_delta << " pos: " << pos << std::endl;
-	      #endif
     	    }
 
 	    if (fabs(reference.max_height[pos] - results[i].max_height[pos]) > max_delta) {
 	      max_delta = fabs(reference.max_height[pos] - results[i].max_height[pos]);
-
-	      #if defined (PRINTINFO)
-	      std::cout << "	max_height: " << " h: " << h  << " w: " << w << " max_delta: " << max_delta << " pos: " << pos << std::endl;
-	      #endif
             }
 
 	    pos++;
@@ -907,10 +837,6 @@ bool points2image::check_output() {
     output_file.close();
 
     std::cout << "max delta: " << max_delta << "\n";
-
-    #if defined (PRINTINFO)
-    std::cout << "MAX_EPS: " << MAX_EPS << std::endl;
-    #endif
 
     if ((max_delta > MAX_EPS) || error_so_far)
 	  return false;
