@@ -5,24 +5,24 @@
 
 // See datatypes.h
 typedef struct Mat44 {
-  /*double*/ float data[4][4];
+  double data[4][4];
 } Mat44;
 
 typedef struct Mat33 {
-  /*double*/ float data[3][3];
+  double data[3][3];
 } Mat33;
 
 typedef struct Mat13 {
-  /*double*/ float data[3];
+  double data[3];
 } Mat13;
 
 typedef struct Vec5 {
-  /*double*/ float data[5];
+  double data[5];
 } Vec5;
 
 typedef struct Point2d {
-  /*double*/ float x;
-  /*double*/ float y;
+  double x;
+  double y;
 } Point2d;
 
 typedef struct ImageSize {
@@ -243,27 +243,24 @@ pointcloud2_to_image(
                         }
 
 			else {
-		                /*double*/ float tmpx = point.data[0] / point.data[2];
-		                /*double*/ float tmpy = point.data[1] / point.data[2];
-		                /*double*/ float r2 = tmpx * tmpx + tmpy * tmpy;
-		                /*double*/ float tmpdist = 1 + distCoeff.data[0] * r2
+		                double tmpx = point.data[0] / point.data[2];
+		                double tmpy = point.data[1] / point.data[2];
+		                double r2 = tmpx * tmpx + tmpy * tmpy;
+		                double tmpdist = 1 + distCoeff.data[0] * r2
 		                        + distCoeff.data[1] * r2 * r2
 		                        + distCoeff.data[4] * r2 * r2 * r2;
 
-		                Point2d imagepoint;
-		                imagepoint.x = tmpx * tmpdist
+		                double imgx = tmpx * tmpdist
 		                        	+ 2 * distCoeff.data[2] * tmpx * tmpy
 			                        + distCoeff.data[3] * (r2 + 2 * tmpx * tmpx);
 
-		                imagepoint.y = tmpy * tmpdist
+		                double imgy = tmpy * tmpdist
 			                        + distCoeff.data[2] * (r2 + 2 * tmpy * tmpy)
 			                        + 2 * distCoeff.data[3] * tmpx * tmpy;
 
-		                imagepoint.x = cameraMat.data[0][0] * imagepoint.x + cameraMat.data[0][2];
-		                imagepoint.y = cameraMat.data[1][1] * imagepoint.y + cameraMat.data[1][2];
 
-		                int px = convert_int(imagepoint.x + 0.5);
-		                int py = convert_int(imagepoint.y + 0.5);
+		                int px = (int)(cameraMat.data[0][0] * imgx + cameraMat.data[0][2] + 0.5);
+		                int py = (int)(cameraMat.data[1][1] * imgy + cameraMat.data[1][2] + 0.5);
 
 				if( (0 <= px) && (px < w) && (0 <= py) && (py < h) ) {
 					int pid = py * w + px;

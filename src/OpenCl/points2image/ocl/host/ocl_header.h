@@ -38,26 +38,26 @@ struct OCL_Struct {
 };
 
 // SP: single precision flavors of structs
-typedef struct SP_Mat44 {
-  float data[4][4];
-} SP_Mat44;
-
-typedef struct SP_Mat33 {
-  float data[3][3];
-} SP_Mat33;
-
-typedef struct SP_Mat13 {
-  float data[3];
-} SP_Mat13;
-
-typedef struct SP_Vec5 {
-  float data[5];
-} SP_Vec5;
-
-typedef struct SP_Point2d {
-  float x;
-  float y;
-} SP_Point2d;
+// typedef struct SP_Mat44 {
+//   float data[4][4];
+// } SP_Mat44;
+// 
+// typedef struct SP_Mat33 {
+//   float data[3][3];
+// } SP_Mat33;
+// 
+// typedef struct SP_Mat13 {
+//   float data[3];
+// } SP_Mat13;
+// 
+// typedef struct SP_Vec5 {
+//   float data[5];
+// } SP_Vec5;
+// 
+// typedef struct SP_Point2d {
+//   float x;
+//   float y;
+// } SP_Point2d;
 
 
 

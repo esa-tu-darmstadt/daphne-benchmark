@@ -492,6 +492,17 @@ void points2image::run(int p) {
 
 	// building the OpenCL program for all the objects
 	err = clBuildProgram(points2image_program, 1, &OCL_objs.cvengine_device, NULL, NULL, NULL);
+	if (err != CL_SUCCESS) {
+		std::vector<char> logBuffer(8192);
+		size_t logLength = 0;
+		err = clGetProgramBuildInfo(points2image_program, OCL_objs.cvengine_device, 
+			CL_PROGRAM_BUILD_LOG, logBuffer.size(), logBuffer.data(), &logLength);
+		std::string log(logBuffer.data(), logLength);
+		std::cerr << "Build failed" << std::endl;
+		std::cerr << log << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
 
 	// kernel
 	cl_kernel points2image_kernel = clCreateKernel(points2image_program, "pointcloud2_to_image", &err);
@@ -567,9 +578,9 @@ void points2image::run(int p) {
 
 				// Convert explicitly from double-precision into single-precision floating point
 				// Because CVEngine supports only single precision
-			SP_Mat44 tmp_cameraExtrinsic;
-			SP_Mat33 tmp_cameraMat;
-			SP_Vec5  tmp_distCoeff;
+			Mat44 tmp_cameraExtrinsic;
+			Mat33 tmp_cameraMat;
+			Vec5  tmp_distCoeff;
 
 			for (uint p=0; p<4; p++){
 				for (uint q=0; q<4; q++) {
@@ -587,9 +598,9 @@ void points2image::run(int p) {
                                 tmp_distCoeff.data[p] = distCoeff[i].data[p];
                         }
 
-			err = clSetKernelArg (points2image_kernel, 4,  sizeof(SP_Mat44),  &tmp_cameraExtrinsic);
-                       	err = clSetKernelArg (points2image_kernel, 5,  sizeof(SP_Mat33),  &tmp_cameraMat);
-                        err = clSetKernelArg (points2image_kernel, 6,  sizeof(SP_Vec5),   &tmp_distCoeff);
+			err = clSetKernelArg (points2image_kernel, 4,  sizeof(Mat44),  &tmp_cameraExtrinsic);
+                       	err = clSetKernelArg (points2image_kernel, 5,  sizeof(Mat33),  &tmp_cameraMat);
+                        err = clSetKernelArg (points2image_kernel, 6,  sizeof(Vec5),   &tmp_distCoeff);
 
                        	err = clSetKernelArg (points2image_kernel, 7,  sizeof(ImageSize), &imageSize[i]);
                         err = clSetKernelArg (points2image_kernel, 8,  sizeof(cl_mem), &buff_pids);
@@ -712,12 +723,15 @@ void points2image::run(int p) {
 			//__global const float* cp = (__global const float *)(pointcloud2_data);
 
 			// From now on, we executed in serially and in order
+			//assert(pc2_height == 1 && "unexpected height");
 			for (unsigned int y = 0; y < pc2_height; ++y) {
 				for (unsigned int x = 0; x < pc2_width; x++) {
 
 					if (cpu_enable_pids[x] == 1) {
+						
 						//int pid = py * w + px;
 						int pid = cpu_pids [x];
+						//printf("Enabled PID %d: %d\n", x, pid);
 						/*double*/ float tmp_pointdata2 = cpu_pointdata2[x] * 100;
 
 						float tmp_distance = results[i].distance[pid];
@@ -742,17 +756,10 @@ void points2image::run(int p) {
 				                        results[i].min_y = tmp_py < results[i].min_y ? tmp_py : results[i].min_y;
 						}
 
-						// Process simultaneously min and max during the first layer
-						if (0 == y && pc2_height == 2) {
-							//__global const float* fp2 = (__global const float *)(cp + (x + (y+1)*pc2_width) * pc2_pstep);
-							float* fp2 = (float *)(cp + (x + (y+1)*pointcloud2[i].width) * pointcloud2[i].point_step);
-							results[i].min_height[pid] = /*fp[2]*/ cpu_fp_2[x];
-							results[i].max_height[pid] = fp2[2];
-						}
-						else {
+						
 							results[i].min_height[pid] = -1.25f;
 							results[i].max_height[pid] = 0.0f;
-						}
+						
 					} // End: if (cpu_enable_pids[x] == 1) {
 			       } // End: for (unsigned int x = 0; x < pc2_width; x++) {
 			} // End: for (unsigned int y = 0; y < pc2_height; ++y) {
