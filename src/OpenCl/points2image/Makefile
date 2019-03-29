@@ -33,23 +33,12 @@ OPENCL_INCLUDE_PATH=/home/root/CL-headers
 #OPENCL_LIBRARY_PATH=../../../../RCar-CE-0.3.2-Yocto-2.23.1-Release/ComputeAorta/V3M2/lib/
 OPENCL_LIBRARY_PATH==/home/root/CE-v3m2/lib/
 
+CPPFLAGS += -DOPENCL
+CPPFLAGS += -I./ocl/host -I./
+CPPFLAGS += -I$(OPENCL_INCLUDE_PATH)
+LDDFLAGS += -L$(OPENCL_LIBRARY_PATH)
+LDDFLAGS += -lOpenCL
 
-PRINTINFO=0
-
-ifeq ($(PRINTINFO),1)
-        CPPFLAGS += -DPRINTINFO
-else
-        CPPFLAGS +=
-endif
-
-OPENCL=0
-
-ifeq ($(OPENCL),1)
-	CPPFLAGS += -I${OPENCL_INCLUDE_PATH} -I./ocl/host -I./  -DOPENCL
-	LDDFLAGS += -L$(OPENCL_LIBRARY_PATH) -lOpenCL 
-else
-	CPPFLAGS +=
-endif
 
 stringify:
 	./stringify_ocl_krnls.sh

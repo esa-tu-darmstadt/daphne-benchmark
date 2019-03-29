@@ -504,7 +504,12 @@ void points2image::run(int p) {
 	} catch (std::logic_error& e) {
 	    std::cerr << "OpenCL setup failed. " << e.what() << std::endl;
 	}
-
+	{ // display used device
+		std::vector<char> nameBuffer(256);
+		size_t nameLength = 0;
+		clGetDeviceInfo(OCL_objs.device, CL_DEVICE_NAME, nameBuffer.size(), nameBuffer.data(), &nameLength);
+		std::cout << "EPHoS OpenCL device: " << std::string(nameBuffer.data(), nameLength) << std::endl;
+	}
 	// constructing the OpenCL program for the points2image function
 	cl_int err;
 	cl_program points2image_program = clCreateProgramWithSource(OCL_objs.context, 1, (const char **)&points2image_ocl_krnl, NULL, &err);
@@ -573,7 +578,6 @@ void points2image::run(int p) {
 			cl_mem buff_pointdata2  = clCreateBuffer(OCL_objs.context, CL_MEM_WRITE_ONLY | CL_MEM_ALLOC_HOST_PTR, pointcloud2[i].width * sizeof(float), NULL, &err);
 			cl_mem buff_intensity   = clCreateBuffer(OCL_objs.context, CL_MEM_WRITE_ONLY | CL_MEM_ALLOC_HOST_PTR, pointcloud2[i].width * sizeof(float), NULL, &err);
 			cl_mem buff_py          = clCreateBuffer(OCL_objs.context, CL_MEM_WRITE_ONLY | CL_MEM_ALLOC_HOST_PTR, pointcloud2[i].width * sizeof(int),   NULL, &err);
-			cl_mem buff_fp_2        = clCreateBuffer(OCL_objs.context, CL_MEM_WRITE_ONLY | CL_MEM_ALLOC_HOST_PTR, pointcloud2[i].width * sizeof(float), NULL, &err);
 			// Set kernel parameters
 			err = clSetKernelArg (points2image_kernel, 0, sizeof(int),       &pointcloud2[i].height);
 			err = clSetKernelArg (points2image_kernel, 1, sizeof(int),       &pointcloud2[i].width);
@@ -608,7 +612,6 @@ void points2image::run(int p) {
 			err = clSetKernelArg (points2image_kernel, 10, sizeof(cl_mem), &buff_pointdata2);
 			err = clSetKernelArg (points2image_kernel, 11, sizeof(cl_mem), &buff_intensity);
 			err = clSetKernelArg (points2image_kernel, 12, sizeof(cl_mem), &buff_py);
-			err = clSetKernelArg (points2image_kernel, 13, sizeof(cl_mem), &buff_fp_2);
 
 			// Update global size
 			size_t tmp_size =  pointcloud2[i].width / local_size;
@@ -630,8 +633,6 @@ void points2image::run(int p) {
 				CL_TRUE, CL_MAP_READ, 0, size_tmp_float, 0, 0, NULL, &err);
 			int* cpu_py = (int*) clEnqueueMapBuffer(OCL_objs.cmdqueue, buff_py, 
 				CL_TRUE, CL_MAP_READ, 0, size_tmp_int, 0, 0, NULL, &err);
-			int* cpu_fp_2 = (int*) clEnqueueMapBuffer(OCL_objs.cmdqueue, buff_fp_2, 
-				CL_TRUE, CL_MAP_READ, 0, size_tmp_float, 0, 0, NULL, &err);
  
 			// transfer image size
 			const int h          = imageSize[i].height;
@@ -671,7 +672,7 @@ void points2image::run(int p) {
 						results[i].max_height[pid] = 0.0f;
 						
 					} 
-			       }
+				}
 			}
 			// cleanup
 			clEnqueueUnmapMemObject(OCL_objs.cmdqueue, buff_pids, cpu_pids, 0, NULL, NULL);
@@ -679,7 +680,6 @@ void points2image::run(int p) {
 			clEnqueueUnmapMemObject(OCL_objs.cmdqueue, buff_pointdata2, cpu_pointdata2, 0, NULL, NULL);
 			clEnqueueUnmapMemObject(OCL_objs.cmdqueue, buff_intensity, cpu_intensity, 0, NULL, NULL);
 			clEnqueueUnmapMemObject(OCL_objs.cmdqueue, buff_py, cpu_py, 0, NULL, NULL);
-			clEnqueueUnmapMemObject(OCL_objs.cmdqueue, buff_fp_2, cpu_fp_2, 0, NULL, NULL);
 
 			clReleaseMemObject(buff_pointcloud2_data);
 			clReleaseMemObject(buff_pids);
@@ -687,11 +687,10 @@ void points2image::run(int p) {
 			clReleaseMemObject(buff_pointdata2);
 			clReleaseMemObject(buff_intensity);
 			clReleaseMemObject(buff_py);
-			clReleaseMemObject(buff_fp_2);
 		}
 		pause_func();
 		check_next_outputs(count);
-    	}
+	}
 	// cleanup
 	err = clReleaseKernel(points2image_kernel);
 	err = clReleaseProgram(points2image_program);
