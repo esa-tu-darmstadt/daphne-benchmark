@@ -12,20 +12,28 @@
 #include "ocl_ephos.h"
 #include "stringify.h"
 
-// default platform selection parameters
-#ifndef EPHOS_PLATFORM_HINT
-#define EPHOS_PLATFORM_HINT ""
-#endif
-#ifndef EPHOS_DEVICE_HINT
-#define EPHOS_DEVICE_HINT ""
-#endif
-#ifndef EPHOS_DEVICE_TYPE
-#define EPHOS_DEVICE_TYPE ""
-#endif
-
-// for passing numeric arguments to kernel
 #define STRINGIZE2(s) #s
 #define STRINGIZE(s) STRINGIZE2(s)
+
+// opencl platform hints
+#if defined(EPHOS_PLATFORM_HINT)
+#define EPHOS_PLATFORM_HINT_S STRINGIZE(EPHOS_PLATFORM_HINT)
+#else 
+#define EPHOS_PLATFORM_HINT_S ""
+#endif
+
+#if defined(EPHOS_DEVICE_HINT)
+#define EPHOS_DEVICE_HINT_S STRINGIZE(EPHOS_DEVICE_HINT)
+#else
+#define EPHOS_DEVICE_HINT_S ""
+#endif
+
+#if defined(EPHOS_DEVICE_TYPE)
+#define EPHOS_DEVICE_TYPE_S STRINGIZE(EPHOS_DEVICE_TYPE)
+#else
+#define EPHOS_DEVICE_TYPE_S ""
+#endif
+
 #define NUMWORKITEMS_PER_WORKGROUP_STRING STRINGIZE(NUMWORKITEMS_PER_WORKGROUP) 
 
 // algorithm parameters
@@ -62,9 +70,7 @@ public:
 	virtual bool check_output();
 protected:
 	void clusterAndColor(
-		#if defined (OPENCL_EPHOS)
 		OCL_Struct* OCL_objs,
-		#endif
 		const PointCloud in_cloud_ptr,
 		int cloud_size,
 		PointCloudRGB *out_cloud_ptr,
@@ -82,9 +88,7 @@ protected:
 	 * so that points farther away in the cloud also get assigned to a cluster.
 	 */
 	void segmentByDistance(
-		#if defined (OPENCL_EPHOS)
 		OCL_Struct* OCL_objs,
-		#endif
 		/*const PointCloud *in_cloud_ptr,*/
 		const PointCloud in_cloud_ptr,
 		int cloud_size,
@@ -1276,7 +1280,17 @@ OCL_Struct find_compute_platform(
 			}
 		}
 		if (supportedDevices.size() == 0) {
-			throw std::logic_error("No device that supports the required extensions");
+			std::ostringstream sError;
+			sError << "No device found that supports the required extensions: " << std::endl;
+			for (std::vector<std::string> extensionSet : extensions) {
+				sError << "{ ";
+				for (std::string ext : extensionSet) {
+					sError << ext << " ";
+				}
+				sError << "} ";
+			}
+			sError << std::endl;
+			throw std::logic_error(sError.str());
 		}
 	} else {
 		// all devices pass
@@ -1306,7 +1320,8 @@ void euclidean_clustering::run(int p) {
 	OCL_Struct OCL_objs;
 	try {
 		std::vector<std::vector<std::string>> requiredExtensions = { {"cl_khr_fp64", "cl_amd_fp64"} };
-		OCL_objs = find_compute_platform(EPHOS_PLATFORM_HINT, EPHOS_DEVICE_HINT, EPHOS_DEVICE_TYPE, requiredExtensions);
+		OCL_objs = find_compute_platform(EPHOS_PLATFORM_HINT_S, EPHOS_DEVICE_HINT_S, 
+			EPHOS_DEVICE_TYPE_S, requiredExtensions);
 		std::cout << "EPHoS OpenCL device: " << OCL_objs.device.getInfo<CL_DEVICE_NAME>() << std::endl;
 	} catch (std::logic_error& e) {
 		std::cerr << e.what() << std::endl;

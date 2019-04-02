@@ -26,6 +26,7 @@ echo " "
 # temporal file
 TMP=$KERNEL_DIR/stringify_tmp
 
+echo "" > $TMP
 echo "#ifndef STRINGIFY_H" >>$TMP
 echo "#define STRINGIFY_H" >>$TMP
 

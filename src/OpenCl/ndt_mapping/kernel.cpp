@@ -21,15 +21,23 @@
 #define MAX_TRANSLATION_EPS 0.001
 #define MAX_ROTATION_EPS 1.8
 
-// platform information
-#ifndef EPHOS_PLATFORM_HINT
-#define EPHOS_PLATFORM_HINT ""
+// opencl platform hints
+#if defined(EPHOS_PLATFORM_HINT)
+#define EPHOS_PLATFORM_HINT_S STRINGIZE(EPHOS_PLATFORM_HINT)
+#else 
+#define EPHOS_PLATFORM_HINT_S ""
 #endif
-#ifndef EPHOS_DEVICE_HINT
-#define EPHOS_DEVICE_HINT ""
+
+#if defined(EPHOS_DEVICE_HINT)
+#define EPHOS_DEVICE_HINT_S STRINGIZE(EPHOS_DEVICE_HINT)
+#else
+#define EPHOS_DEVICE_HINT_S ""
 #endif
-#ifndef EPHOS_DEVICE_TYPE
-#define EPHOS_DEVICE_TYPE "ALL"
+
+#if defined(EPHOS_DEVICE_TYPE)
+#define EPHOS_DEVICE_TYPE_S STRINGIZE(EPHOS_DEVICE_TYPE)
+#else
+#define EPHOS_DEVICE_TYPE_S ""
 #endif
 
 class ndt_mapping : public kernel {
@@ -1975,7 +1983,17 @@ OCL_Struct find_compute_platform(
 			}
 		}
 		if (supportedDevices.size() == 0) {
-			throw std::logic_error("No device that supports the required extensions");
+			std::ostringstream sError;
+			sError << "No device found that supports the required extensions: " << std::endl;
+			for (std::vector<std::string> extensionSet : extensions) {
+				sError << "{ ";
+				for (std::string ext : extensionSet) {
+					sError << ext << " ";
+				}
+				sError << "} ";
+			}
+			sError << std::endl;
+			throw std::logic_error(sError.str());
 		}
 	} else {
 		// all devices pass
@@ -2004,8 +2022,12 @@ void ndt_mapping::run(int p) {
 	
 	OCL_Struct OCL_objs;
 	try {
-		std::vector<std::vector<std::string>> requiredExtensions = { {"cl_khr_fp64", "cl_amd_fp64"} };
-		OCL_objs = find_compute_platform(EPHOS_PLATFORM_HINT, EPHOS_DEVICE_HINT, EPHOS_DEVICE_TYPE, requiredExtensions);
+		std::vector<std::vector<std::string>> requiredExtensions = { 
+			{"cl_khr_fp64", "cl_amd_fp64"}//,
+			//{ "cl_khr_int64_base_atomics" } // TODO: enable and test for null abort
+		};
+		OCL_objs = find_compute_platform(EPHOS_PLATFORM_HINT_S, EPHOS_DEVICE_HINT_S,
+			EPHOS_DEVICE_TYPE_S, requiredExtensions);
 		std::cout << "EPHoS OpenCL device: " << OCL_objs.device.getInfo<CL_DEVICE_NAME>() << std::endl;
 	} catch (std::logic_error& e) {
 		std::cerr << e.what() << std::endl;

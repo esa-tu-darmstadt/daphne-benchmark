@@ -1,3 +1,5 @@
+.DEFAULT_GOAL := all
+
 KERNELS =  points2image euclidean_cluster ndt_mapping
 
 .PHONY: clean $(KERNELS)

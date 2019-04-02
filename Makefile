@@ -1,5 +1,5 @@
-
-.PHONY: clean
+.DEFAULT_GOAL := all
+.PHONY: clean all cpu cuda opencl openmp
 
 cpu:
 	$(MAKE) -C src/CPU

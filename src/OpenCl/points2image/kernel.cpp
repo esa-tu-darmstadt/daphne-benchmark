@@ -9,19 +9,30 @@
 #include "stringify.h"
 #include "ocl_header.h"
 
+#define STRINGIZE2(s) #s
+#define STRINGIZE(s) STRINGIZE2(s)
 
 #define MAX_NUM_WORKITEMS 32
 // maximum allowed deviation from the reference results
 #define MAX_EPS 0.001
 
-#ifndef EPHOS_PLATFORM_HINT
-#define EPHOS_PLATFORM_HINT ""
+// opencl platform hints
+#if defined(EPHOS_PLATFORM_HINT)
+#define EPHOS_PLATFORM_HINT_S STRINGIZE(EPHOS_PLATFORM_HINT)
+#else 
+#define EPHOS_PLATFORM_HINT_S ""
 #endif
-#ifndef EPHOS_DEVICE_HINT
-#define EPHOS_DEVICE_HINT ""
+
+#if defined(EPHOS_DEVICE_HINT)
+#define EPHOS_DEVICE_HINT_S STRINGIZE(EPHOS_DEVICE_HINT)
+#else
+#define EPHOS_DEVICE_HINT_S ""
 #endif
-#ifndef EPHOS_DEVICE_TYPE
-#define EPHOS_DEVICE_TYPE "ALL"
+
+#if defined(EPHOS_DEVICE_TYPE)
+#define EPHOS_DEVICE_TYPE_S STRINGIZE(EPHOS_DEVICE_TYPE)
+#else
+#define EPHOS_DEVICE_TYPE_S ""
 #endif
 
 class points2image : public kernel {
@@ -500,7 +511,8 @@ void points2image::run(int p) {
 	OCL_Struct OCL_objs;
 	try {
 	    std::vector<std::vector<std::string>> extensions = { {"cl_khr_fp64", "cl_amd_fp64" } };
-	    OCL_objs = find_compute_platform(EPHOS_PLATFORM_HINT, EPHOS_DEVICE_HINT, EPHOS_DEVICE_TYPE, extensions);
+	    OCL_objs = find_compute_platform(EPHOS_PLATFORM_HINT_S, EPHOS_DEVICE_HINT_S, 
+			EPHOS_DEVICE_TYPE_S, extensions);
 	} catch (std::logic_error& e) {
 	    std::cerr << "OpenCL setup failed. " << e.what() << std::endl;
 	}
