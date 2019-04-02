@@ -1,18 +1,7 @@
-/**
-Calculate firstPass
-*/
-
-// Atomic addition of doubles requires extension
 #if defined (DOUBLE_FP)
 #pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
 
-// Only atom_cmpxchg() works on doubles. This link was used:
-// https://streamhpc.com/blog/2016-02-09/atomic-operations-for-floats-in-opencl-improved/
-
-// Remember that 64-bit flavors have different names than 32-bit ones (atom_<> rather than atomic_<>)
-// https://community.amd.com/thread/230784
-// https://www.khronos.org/registry/OpenCL/sdk/2.0/docs/man/xhtml/atom_cmpxchg.html
-// https://www.khronos.org/registry/OpenCL/sdk/2.0/docs/man/xhtml/atomic_cmpxchg.html
+// Source: https://streamhpc.com/blog/2016-02-09/atomic-operations-for-floats-in-opencl-improved/
 void atomicAdd_global_double(volatile __global double *addr, double val)
 {
 	union{
@@ -46,96 +35,79 @@ void atomicAdd_global_singleFP(volatile __global float *addr, float val)
 }
 #endif
 
+/**
+ * Reduces a multi dimensional voxel index to one dimension.
+ */
 inline int linearizeAddr(
-                         const int x, const int y, const int z,
-                         const int voxelDimension_0, const int voxelDimension_1
-                        )
+	const int x, const int y, const int z,
+	const int voxelDimension_0, const int voxelDimension_1)
 {
-    return  (x + voxelDimension_0 * (y + voxelDimension_1 * z));
+	return  (x + voxelDimension_0 * (y + voxelDimension_1 * z));
 }
-
+/**
+ * Reduces a continuous, multi dimensional coordinate inside a voxel grid to one dimension.
+ */
 inline int linearizeCoord(
-                          const float x, const float y, const float z, 
-                          const PointXYZI minVoxel,
-			  const float     inv_resolution,
-                          const int       voxelDimension_0, const int       voxelDimension_1
-			 )
+	const float x, const float y, const float z, const PointXYZI minVoxel,
+	const float inv_resolution, const int voxelDimension_0, const int voxelDimension_1)
 {
-    int idx_x = (x - minVoxel.data[0]) * inv_resolution;
-    int idx_y = (y - minVoxel.data[1]) * inv_resolution;
-    int idx_z = (z - minVoxel.data[2]) * inv_resolution;
-
-    return linearizeAddr( 
-                         idx_x, idx_y, idx_z,
-                         voxelDimension_0, voxelDimension_1
-                        );
+	int idx_x = (x - minVoxel.data[0]) * inv_resolution;
+	int idx_y = (y - minVoxel.data[1]) * inv_resolution;
+	int idx_z = (z - minVoxel.data[2]) * inv_resolution;
+	return linearizeAddr(idx_x, idx_y, idx_z, voxelDimension_0, voxelDimension_1);
 }
 
+/**
+ * Assigns each point to its cell in a voxel grid.
+ * input: point cloud
+ * input_size: number of points in the cloud
+ * targetcells: voxel grid
+ * targetcells_size: number of cells in the voxel grid
+ * minVoxel: voxel grid starting coordinates
+ * inv_resolution: inverted cell distance
+ * voxelDimension: multi dimensional voxel grid size
+ */
 __kernel
 void __attribute__ ((reqd_work_group_size(NUMWORKITEMS_PER_WORKGROUP,1,1)))
 firstPass(
-	  __global const PointXYZI*              restrict input,       // host: target_
-                         int                              input_size,  // host: target_->size()
-	  __global       TargetGridLeadConstPtr* restrict targetcells, // host: target_cells_
-                         int                              targetcells_size,  // host: target_cells->size()
-                         PointXYZI                        minVoxel,
-                         float                            inv_resolution,
-	                 int                              voxelDimension_0,
-	                 int                              voxelDimension_1
-         )
+	__global const PointXYZI* restrict input,
+	int input_size,
+	__global TargetGridLeadConstPtr* restrict targetcells,
+	int targetcells_size,
+	PointXYZI minVoxel,
+	float inv_resolution,
+	int voxelDimension_0,
+	int voxelDimension_1)
 {
-    // Indices
-    int gid = get_global_id(0);
+	// Indices
+	int gid = get_global_id(0);
+	if (gid < input_size) {
+		// Each work-item gets a different input target_ data element from global memory
+		PointXYZI temp_target = input [gid];
+		// index of the cell the point belongs to
+		int voxelIndex = linearizeCoord (
+			temp_target.data[0], temp_target.data[1], temp_target.data[2],
+			minVoxel,
+			inv_resolution,
+			voxelDimension_0, voxelDimension_1
+		);
+		// increase the number of assigned points for normalization
+		atomic_inc(&targetcells[voxelIndex].numberPoints);
+		// calculating mean and covariance
+		for (char row = 0; row < 3; row ++) {
+			#if defined (DOUBLE_FP)
+			atomicAdd_global_double(&targetcells[voxelIndex].mean[row], temp_target.data[row]);
+			#else
+			atomicAdd_global_singleFP(&targetcells[voxelIndex].mean[row], temp_target.data[row]);
+			#endif
+			for (char col = 0; col < 3; col ++) {
+				#if defined (DOUBLE_FP)
+				atomicAdd_global_double(&targetcells[voxelIndex].invCovariance.data[row][col], temp_target.data[row] * temp_target.data[col]);
+				#else
+				atomicAdd_global_singleFP(&targetcells[voxelIndex].invCovariance.data[row][col], temp_target.data[row] * temp_target.data[col]);
+				#endif
+			}
+		}
 
-    if (gid < input_size) {
-
-        // Each work-item gets a different input target_ data element from global memory
-        PointXYZI temp_target = input [gid];
-
-        // Getting voxelIndex value carried by each work-item
-        int voxelIndex = linearizeCoord (
-                                         temp_target.data[0], temp_target.data[1], temp_target.data[2],
-                                         minVoxel,
-                                         inv_resolution,
-                                         voxelDimension_0, voxelDimension_1
-                                        );
-/*
-	// Added to detect wrong accesses (i.e. beyond boundaries)
-	if (voxelIndex >= targetcells_size) {
-            printf("gid: %i, voxelIndex: %i, targetcells_size: %i -> ERROR\n", gid, voxelIndex, targetcells_size);
 	}
-*/
-
-        // Reducing atomically
-/*
-        atomicAdd_global_double(&targetcells[voxelIndex].mean[0], temp_target.data[0]);
-        atomicAdd_global_double(&targetcells[voxelIndex].mean[1], temp_target.data[1]);
-        atomicAdd_global_double(&targetcells[voxelIndex].mean[2], temp_target.data[2]);
-*/
-/*
-	for (int k=0; k<3; k++) {
-            atomicAdd_global_double(&targetcells[voxelIndex].mean[k], temp_target.data[k]);
-	}
-*/
-
-        atomic_inc             (&targetcells[voxelIndex].numberPoints);
-
-        // Calculating covariance atomically
-        for (char row = 0; row < 3; row ++) {
-            #if defined (DOUBLE_FP)
-            atomicAdd_global_double(&targetcells[voxelIndex].mean[row], temp_target.data[row]);
-            #else
-            atomicAdd_global_singleFP(&targetcells[voxelIndex].mean[row], temp_target.data[row]);
-            #endif
-
-            for (char col = 0; col < 3; col ++) {
-                #if defined (DOUBLE_FP)
-	        atomicAdd_global_double(&targetcells[voxelIndex].invCovariance.data[row][col], temp_target.data[row] * temp_target.data[col]);
-                #else
-	        atomicAdd_global_singleFP(&targetcells[voxelIndex].invCovariance.data[row][col], temp_target.data[row] * temp_target.data[col]);
-                #endif
-            }
-        }
-
-    }
 } 
