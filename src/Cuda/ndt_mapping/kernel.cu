@@ -290,11 +290,12 @@ int ndt_mapping::voxelRadiusSearch(VoxelGrid &grid, const PointXYZI& point, doub
 	int result = 0;
 	indices.clear();
 	distances.clear();
-
+	// make sure to find all near voxels
+	float radiusFinal = radius + 0.001f;
 	// test all voxels in the vicinity
-	for (float x = point.data[0] - radius; x <= point.data[0]+radius; x+= resolution_)
-		for (float y = point.data[1] - radius; y <= point.data[1]+radius; y+= resolution_)
-			for (float z = point.data[2] - radius; z <= point.data[2]+radius; z+= resolution_)
+	for (float z = point.data[2] - radius; z <= point.data[2] + radiusFinal; z += resolution_)
+		for (float y = point.data[1] - radius; y <= point.data[1] + radiusFinal; y += resolution_)
+			for (float x = point.data[0] - radius; x <= point.data[0] + radiusFinal; x += resolution_)
 			{
 				// avoid accesses out of bounds
 				if ((x < minVoxel.data[0]) ||
