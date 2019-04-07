@@ -1,11 +1,15 @@
-.DEFAULT_GOAL := kernel
+.DEFAULT_GOAL := all
+.PHONY: all clean checkdata
 
 -include Makefile.deps
 
-CFLAGS=-O3 -std=c++11 -fopenmp
+CXXFLAGS=-O3
+CXXFLAGS+= -std=c++11 -fopenmp
+
+all: kernel checkdata
 
 kernel: ../common/main.o kernel.o 
-	$(CXX) $^ -fopenmp -o $@
+	$(CXX) $(CXXFLAGS) $^ -o $@
 
 ../common/main.o: ../common/main.cpp
 	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
@@ -13,7 +17,14 @@ kernel: ../common/main.o kernel.o
 kernel.o: kernel.cpp
 	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
 
-.PHONY: clean
+checkdata:
+ifeq ($(wildcard ../../../data/ndt_input.dat),)
+	$(warning ndt_input.dat not found. Did you forget to extract the test data?)
+endif
+ifeq ($(wildcard ../../../data/ndt_output.dat),)
+	$(warning ndt_output.dat not found. Did you forget to extract the test data?)
+endif
+
 clean:
 	rm -f kernel kernel.o ../common/main.o Makefile.deps
 

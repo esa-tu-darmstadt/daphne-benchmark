@@ -1,55 +1,50 @@
-.DEFAULT_GOAL := kernel
-.PHONY: clean stringify
+.DEFAULT_GOAL := all
+.PHONY: all clean stringify checkdata
 
 -include Makefile.deps
 
-CPPFLAGS = -std=c++11
-
-# DEBUG capabilities in host
-DEBUG=0
-ifeq ($(DEBUG),1)
-	CPPFLAGS += -g -Wall -O0
-else
-	CPPFLAGS += -O3
-endif
+CXXFLAGS=-O3
+CXXFLAGS+= -std=c++11
 
 # opencl headers and library
 OPENCL_INCLUDE_PATH=
 OPENCL_LIBRARY_PATH=
 ifneq ($(OPENCL_INCLUDE_PATH),)
-	CPPFLAGS += -I$(OPENCL_INCLUDE_PATH)
+	CPPFLAGS+= -I$(OPENCL_INCLUDE_PATH)
 endif
-CPPFLAGS += -I./ -I./ocl/host
+CPPFLAGS+= -I./ -I./ocl/host
 ifneq ($(OPENCL_LIBRARY_PATH),)
-	LDDFLAGS += -L$(OPENCL_LIBRARY_PATH)
+	LDDFLAGS+= -L$(OPENCL_LIBRARY_PATH)
 endif
-LDDFLAGS += -lOpenCL
+LDDFLAGS+= -lOpenCL
 
 # number of work items per work group
 LOCAL_SIZE=256
-CPPFLAGS += -DNUMWORKITEMS_PER_WORKGROUP=$(LOCAL_SIZE)
+CPPFLAGS+= -DNUMWORKITEMS_PER_WORKGROUP=$(LOCAL_SIZE)
 
 # double precision floating point
-CPPFLAGS += -DDOUBLE_FP
+CPPFLAGS+= -DDOUBLE_FP
 
 # opencl platform
 OPENCL_PLATFORM_ID=
 OPENCL_DEVICE_ID=
 OPENCL_DEVICE_TYPE=
 ifneq ($(OPENCL_PLATFORM_ID),)
-	CPPFLAGS += -DEPHOS_PLATFORM_HINT=$(OPENCL_PLATFORM_ID)
+	CPPFLAGS+= -DEPHOS_PLATFORM_HINT=$(OPENCL_PLATFORM_ID)
 endif
 ifneq ($(OPENCL_DEVICE_ID),)
-	CPPFLAGS += -DEPHOS_DEVICE_HINT=$(OPENCL_DEVICE_ID)
+	CPPFLAGS+= -DEPHOS_DEVICE_HINT=$(OPENCL_DEVICE_ID)
 endif
 ifneq ($(OPENCL_DEVICE_TYPE),)
-	CPPFLAGS += -DEPHOS_DEVICE_TYPE=$(OPENCL_DEVICE_TYPE)
+	CPPFLAGS+= -DEPHOS_DEVICE_TYPE=$(OPENCL_DEVICE_TYPE)
 endif
+
+all: kernel checkdata
 
 stringify:
 	./stringify_ocl_krnls.sh
 
-kernel: ../common/main.o kernel.o 
+kernel: ../common/main.o kernel.o
 	$(CXX) $^ -o $@ $(LDDFLAGS)
 
 ../common/main.o: ../common/main.cpp
@@ -57,6 +52,14 @@ kernel: ../common/main.o kernel.o
 
 kernel.o: kernel.cpp stringify
 	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
+
+checkdata:
+ifeq ($(wildcard ../../../data/ec_input.dat),)
+	$(warning ec_input.dat not found. Did you forget to extract the test data?)
+endif
+ifeq ($(wildcard ../../../data/ec_output.dat),)
+	$(warning ec_output.dat not found. Did you forget to extract the test data?)
+endif
 
 clean:
 	rm -f kernel kernel.o ../common/main.o Makefile.deps ocl/device/stringify_tmp
