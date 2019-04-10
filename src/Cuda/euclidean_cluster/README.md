@@ -1,8 +1,8 @@
 * Preparation
 
   Extract the test case data files
-  * p2i_input.dat.gz
-  * p2i_output.dat.gz 
+  * ec_input.dat.gz
+  * ec_output.dat.gz
   inside the data folder
 
   Make sure that nvcc is available
@@ -13,20 +13,20 @@
 
 * Compilation
 
-  Navigate to src/Cuda/points2image and type:
+  Navigate to src/Cuda/eucldean_cluster and type:
 
   $ make
 
   The CUDA target architecture can be set with the CUDA_DEVICE_ARCH argument
-  To select 6.2 compute capability type:
+  To select 6.0 compute capability type:
 
-  $ make CUDA_DEVICE_ARCH=compute_62
+  $ make CUDA_DEVICE_ARCH=compute_60
 
-  The default compute capability selected is 6.2
+  The default compute capability selected is 6.0
 
 * Running the benchmark
 
-  Inside the src/Cuda/points2image folder:
+  Inside the src/Cuda/euclidean_cluster folder:
 
   $ ./kernel
 
