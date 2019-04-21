@@ -1833,190 +1833,7 @@ CallbackResult ndt_mapping::partial_points_callback(
 	result.converged = converged_;
 	return result;
 }
-/**
- * Searches through the available OpenCL platforms to find one that suits the given arguments.
- * platformHint: platform name or index, empty for no restriction
- * deviceHint: device name or index, empty for no restriction
- * deviceType: can be one of ALL, CPU, GPU, ACC, DEF to only allow certaind devices
- * extensions: a chosen device must support at least one extension from each given extension set
- */
-OCL_Struct find_compute_platform(
-	std::string platformHint, std::string deviceHint, std::string deviceType,
-	std::vector<std::vector<std::string>> extensions) {
-	
-	OCL_Struct result;
-	
-	// query all platforms
-	std::vector<cl::Platform> availablePlatforms;
-	try {
-		cl::Platform::get(&availablePlatforms);
-	} catch (cl::Error& e) {
-		throw std::logic_error("Platform query failed: " + std::string(e.what()));
-	}
-	if (availablePlatforms.size() == 0) {
-		throw std::logic_error("No platforms found");
-	}
-	// select a platform
-	std::vector<cl::Platform> selectedPlatforms;
-	if (platformHint.length() > 0) {
-		// select certain platforms
-		int iPlatform;
-		if (sscanf(platformHint.c_str(), "%d", &iPlatform) == 1) {
-			// select platform by index
-			if (iPlatform < availablePlatforms.size()) {
-				selectedPlatforms.push_back(availablePlatforms[iPlatform]);
-			} else {
-				throw std::logic_error("Platform of index" + std::to_string(iPlatform) + " does not exist");
-			}
-			
-		} else {
-			// search for platforms that match a given name
-			bool found = false;
-			for (cl::Platform p : availablePlatforms) {
-				std::string platformName = p.getInfo<CL_PLATFORM_NAME>();
-				if (platformName.find(platformHint) != std::string::npos) {
-					selectedPlatforms.push_back(p);
-					found = true;
-				}
-			}
-			if (!found) {
-				throw std::logic_error("No platform that matches " + platformHint);
-			}
-		}
-	} else {
-		// consider all platforms
-		for (cl::Platform p : availablePlatforms) {
-			selectedPlatforms.push_back(p);
-		}
-	}
-	// query devices
-	// filter devices by type
-	std::vector<cl::Device> filteredDevices;
-	// detect the device type
-	cl_device_type type = CL_DEVICE_TYPE_ALL;
-	if (deviceType.find("CPU") != std::string::npos) {
-		type = CL_DEVICE_TYPE_CPU;
-	} else if (deviceType.find("GPU") != std::string::npos) {
-		type = CL_DEVICE_TYPE_GPU;
-	} else if (deviceType.find("ACC") != std::string::npos) {
-		type = CL_DEVICE_TYPE_ACCELERATOR;
-	} else if (deviceType.find("DEF") != std::string::npos) {
-		type = CL_DEVICE_TYPE_DEFAULT;
-	}
-	std::ostringstream sQueryError;
-	bool errorDetected = false;
-	// filter devices
-	for (cl::Platform p : selectedPlatforms) {
-		std::vector<cl::Device> devices;
-		try {
-			p.getDevices(type, &devices);
-		} catch (cl::Error& e) {
-			sQueryError << e.what() << " (" << e.err() << ")" << std::endl;
-			errorDetected = true;
-		}
-		for (cl::Device d : devices) {
-			filteredDevices.push_back(d);
-		}
-	}
-	if (filteredDevices.size() == 0) {
-		std::ostringstream sError;
-		sError << "No devices found.";
-		if (errorDetected) {
-			sError << " Failed queries:" << std::endl;
-			sError << sQueryError.str();
-		}
-		throw std::logic_error(sError.str());
-	}
-	// select devices
-	std::vector<cl::Device> selectedDevices;
-	if (deviceHint.length() > 0) {
-		// select specific devices
-		int iDevice;
-		if (sscanf(deviceHint.c_str(), "%d", &iDevice) == 1) {
-			// select by index
-			if (iDevice < filteredDevices.size()) {
-				selectedDevices.push_back(filteredDevices[iDevice]);
-			} else {
-				throw std::logic_error("Device of index " + std::to_string(iDevice) + " does not exist");
-			}
-		} else {
-			// select by name
-			bool found = false;
-			for (cl::Device d : filteredDevices) {
-				std::string deviceName = d.getInfo<CL_DEVICE_NAME>();
-				if (deviceName.find(deviceHint) != std::string::npos) {
-					selectedDevices.push_back(d);
-					found = true;
-				}
-			} 
-			if (!found) {
-				throw std::logic_error("No device that matches " + deviceHint);
-			}
-		}
-	} else {
-		// select all devices
-		for (cl::Device d : filteredDevices) {
-			selectedDevices.push_back(d);
-		}
-	}
-	// filter by extensions
-	std::vector<cl::Device> supportedDevices;
-	if (extensions.size() > 0) {
-		// request at least one extension
-		bool found = false;
-		for (cl::Device d : selectedDevices) {
-			std::string supportedExtensions = d.getInfo<CL_DEVICE_EXTENSIONS>();
-			// for each extension set at least one extension must be supported
-			bool deviceSupported = true;
-			for (std::vector<std::string> extensionSet : extensions) {
-				bool extFound = false;
-				for (std::string ext : extensionSet) {
-					if (supportedExtensions.find(ext) != std::string::npos) {
-						extFound = true;
-					}
-				}
-				if (!extFound) {
-					deviceSupported = false;
-				}
-			}
-			if (deviceSupported) {
-				supportedDevices.push_back(d);
-			}
-		}
-		if (supportedDevices.size() == 0) {
-			std::ostringstream sError;
-			sError << "No device found that supports the required extensions: " << std::endl;
-			for (std::vector<std::string> extensionSet : extensions) {
-				sError << "{ ";
-				for (std::string ext : extensionSet) {
-					sError << ext << " ";
-				}
-				sError << "} ";
-			}
-			sError << std::endl;
-			throw std::logic_error(sError.str());
-		}
-	} else {
-		// all devices pass
-		for (cl::Device d : selectedDevices) {
-			supportedDevices.push_back(d);
-		}
-	}
-	// create context and queue
-	// select the first supported device
-	result.device = supportedDevices[0];
-	try {
-		result.context = cl::Context(supportedDevices[0]);
-	} catch (cl::Error& e) {
-		throw std::logic_error("Context creation failed: " + std::string(e.what()));
-	}
-	try {
-		result.cmdqueue = cl::CommandQueue(result.context, supportedDevices[0]);
-	} catch (cl::Error& e) {
-		throw std::logic_error("Command queue creation failed: " + std::string(e.what()));
-	}
-	return result;
-}
+
 void ndt_mapping::run(int p) {
 	// do not measure the initialization
 	pause_func();
@@ -2027,54 +1844,47 @@ void ndt_mapping::run(int p) {
 			{"cl_khr_fp64", "cl_amd_fp64"}//,
 			//{ "cl_khr_int64_base_atomics" } // TODO: enable and test for null abort
 		};
-		OCL_objs = find_compute_platform(EPHOS_PLATFORM_HINT_S, EPHOS_DEVICE_HINT_S,
+		OCL_objs = OCL_Tools::find_compute_platform(EPHOS_PLATFORM_HINT_S, EPHOS_DEVICE_HINT_S,
 			EPHOS_DEVICE_TYPE_S, requiredExtensions);
 		std::cout << "EPHoS OpenCL device: " << OCL_objs.device.getInfo<CL_DEVICE_NAME>() << std::endl;
 	} catch (std::logic_error& e) {
 		std::cerr << e.what() << std::endl;
 		exit(EXIT_FAILURE);
 	}
-	// Kernel code was stringified, rather than read from file
+	// stringified kernel code
 	std::string sourceCode = all_ocl_krnl;
-	
-	//cl::Program::Sources sourcesCL = cl::Program::Sources(1, std::make_pair(sourceCode.c_str(), sourceCode.size()));
 	cl::Program::Sources sourcesCL;
 	#if defined(CL_HPP_ENABLE_PROGRAM_CONSTRUCTION_FROM_ARRAY_COMPATIBILITY)
 	sourcesCL.push_back(std::make_pair(sourceCode.c_str(), sourceCode.size()));
 	#else
 	sourcesCL.push_back(sourceCode);
 	#endif
-
-	// Create program
-	cl::Program program(OCL_objs.context, sourcesCL);
-
+	// build program
+	std::vector<cl::Kernel> kernels;
 	try {
 		std::ostringstream sBuildOptions;
+
 		sBuildOptions << " -I ./ocl/device/";
 		sBuildOptions << " -DNUMWORKITEMS_PER_WORKGROUP=" << NUMWORKITEMS_PER_WORKGROUP_STRING;
 		#if defined(DOUBLE_FP)
 		sBuildOptions << " -DDOUBLE_FP";
 		#endif
-		std::string buildOptions(sBuildOptions.str());
-		std::cout << "Kernel compilation flags passed to OpenCL device: " << std::endl << buildOptions << std::endl;
-		program.build(buildOptions.c_str());
-	} catch (const cl::Error&) {
-		std::cerr
-			<< "Kernel compilation error" << std::endl
-			<< program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(OCL_objs.device)
-			<< std::endl;
+		std::vector<std::string> kernelNames({
+			"findMinMax",
+			"initTargetCells",
+			"firstPass",
+			"secondPass"
+		});
+		cl::Program program = OCL_Tools::build_program(OCL_objs, sourcesCL, sBuildOptions.str(),
+			kernelNames, kernels);
+	} catch (std::logic_error& e) {
+		std::cerr << e.what() << std::endl;
 		exit(EXIT_FAILURE);
 	}
-
-	cl::Kernel findMinMax_kernel     (program, "findMinMax");
-	cl::Kernel initTargetCells_kernel(program, "initTargetCells");
-	cl::Kernel firstPass_kernel      (program, "firstPass");
-	cl::Kernel secondPass_kernel     (program, "secondPass");
-
-	OCL_objs.kernel_findMinMax      = findMinMax_kernel;
-	OCL_objs.kernel_initTargetCells = initTargetCells_kernel;
-	OCL_objs.kernel_firstPass       = firstPass_kernel;
-	OCL_objs.kernel_secondPass      = secondPass_kernel;
+	OCL_objs.kernel_findMinMax      = kernels[0];
+	OCL_objs.kernel_initTargetCells = kernels[1];
+	OCL_objs.kernel_firstPass       = kernels[2];
+	OCL_objs.kernel_secondPass      = kernels[3];
 
 	while (read_testcases < testcases)
 	{
