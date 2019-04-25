@@ -44,7 +44,7 @@ all: kernel checkdata
 stringify:
 	./stringify_ocl_krnls.sh
 
-kernel: ../common/main.o kernel.o
+kernel: ../common/main.o kernel.o ocl/host/ocl_tools.o
 	$(CXX) $^ -o $@ $(LDDFLAGS)
 
 ../common/main.o: ../common/main.cpp
@@ -52,6 +52,9 @@ kernel: ../common/main.o kernel.o
 
 kernel.o: kernel.cpp stringify
 	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
+
+ocl/host/ocl_tools.o: ocl/host/ocl_tools.cpp
+	$(CXX) -c $(CLFAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
 
 checkdata:
 ifeq ($(wildcard ../../../data/ec_input.dat),)
@@ -62,7 +65,7 @@ ifeq ($(wildcard ../../../data/ec_output.dat),)
 endif
 
 clean:
-	rm -f kernel kernel.o ../common/main.o Makefile.deps ocl/device/stringify_tmp
+	rm -f kernel kernel.o ocl/tools/ocl_tools.o ../common/main.o Makefile.deps ocl/device/stringify_tmp
 
 Makefile.deps:
 	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include -MM ../common/main.cpp *.cpp > Makefile.deps
