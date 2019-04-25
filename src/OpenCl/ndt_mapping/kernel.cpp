@@ -1863,7 +1863,6 @@ void ndt_mapping::run(int p) {
 	std::vector<cl::Kernel> kernels;
 	try {
 		std::ostringstream sBuildOptions;
-
 		sBuildOptions << " -I ./ocl/device/";
 		sBuildOptions << " -DNUMWORKITEMS_PER_WORKGROUP=" << NUMWORKITEMS_PER_WORKGROUP_STRING;
 		#if defined(DOUBLE_FP)

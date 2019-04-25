@@ -314,29 +314,6 @@ void points2image::run(int p) {
 		exit(EXIT_FAILURE);
 	}
 	cl_kernel points2image_kernel = kernels[0];
-
-
-
-// 	// constructing the OpenCL program for the points2image function
-// 	cl_int err;
-// 	cl_program points2image_program = clCreateProgramWithSource(OCL_objs.context, 1, (const char **)&points2image_ocl_krnl, NULL, &err);
-// 	// building the OpenCL program for all the objects
-// 	err = clBuildProgram(points2image_program, 1, &OCL_objs.device, NULL, NULL, NULL);
-// 	if (err != CL_SUCCESS) {
-// 		std::vector<char> logBuffer(8192);
-// 		size_t logLength = 0;
-// 		err = clGetProgramBuildInfo(points2image_program, OCL_objs.device,
-// 			CL_PROGRAM_BUILD_LOG, logBuffer.size(), logBuffer.data(), &logLength);
-// 		std::string log(logBuffer.data(), logLength);
-// 		std::cerr << "Build failed" << std::endl;
-// 		std::cerr << log << std::endl;
-// 		exit(EXIT_FAILURE);
-// 	}
-// 	// kernel
-//
-//
-//
-// 	cl_kernel points2image_kernel = clCreateKernel(points2image_program, "pointcloud2_to_image", &err);
 	// getting max workgroup size
 	size_t local_size;
 	cl_int err = clGetDeviceInfo(OCL_objs.device, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(size_t), &local_size, NULL);
