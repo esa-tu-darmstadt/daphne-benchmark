@@ -20,9 +20,8 @@ typedef struct {
     Mat33 invCovariance;
     Vec3 mean;
 	int first;
-} TargetGridLeadConstPtr;
+} Voxel;
 
-// TODO: this kernel is not used -> remove it
 /**
  * Initializes a voxel grid.
  * targetcells: voxel grid
@@ -31,13 +30,13 @@ typedef struct {
 __kernel
 void __attribute__ ((reqd_work_group_size(NUMWORKITEMS_PER_WORKGROUP,1,1)))
 initTargetCells(
-	__global TargetGridLeadConstPtr* restrict targetcells,
+	__global Voxel* restrict targetcells,
 	int targetcells_size)
 {
     int gid = get_global_id(0);
 	if (gid < targetcells_size) {
 		#if defined (DOUBLE_FP)
-		TargetGridLeadConstPtr temp = {
+		Voxel temp = {
 			{{
 				{0.0, 0.0, 1.0},
 				{0.0, 1.0, 0.0},
@@ -47,7 +46,7 @@ initTargetCells(
 			-1
 		};
 		#else
-		TargetGridLeadConstPtr temp = {
+		Voxel temp = {
 			{{
 				{0.0f, 0.0f, 1.0f},
 				{0.0f, 1.0f, 0.0f},

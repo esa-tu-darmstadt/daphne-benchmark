@@ -44,14 +44,14 @@ void invertMatrix(Mat33* m)
 __kernel
 void __attribute__ ((reqd_work_group_size(NUMWORKITEMS_PER_WORKGROUP,1,1)))
 secondPass(
-	__global TargetGridLeadConstPtr* restrict targetcells,
+	__global Voxel* restrict targetcells,
 	__global const PointXYZI* input,
 	int targetcells_size,
 	int targetcells_size_minus_1)
 {
 	int gid = get_global_id(0);
 	if (gid < targetcells_size) {
-		TargetGridLeadConstPtr temp_tc = targetcells[gid];
+		Voxel temp_tc = targetcells[gid];
 		int pointNo = 0;
 		int iNext = temp_tc.first;
 		while (iNext > -1) {

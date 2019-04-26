@@ -35,7 +35,7 @@ void __attribute__ ((reqd_work_group_size(NUMWORKITEMS_PER_WORKGROUP,1,1)))
 firstPass(
 	__global PointXYZI* restrict input,
 	int input_size,
-	__global TargetGridLeadConstPtr* restrict targetcells,
+	__global Voxel* restrict targetcells,
 	int targetcells_size,
 	PointXYZI minVoxel,
 	float inv_resolution,

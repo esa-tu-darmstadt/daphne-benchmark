@@ -98,6 +98,7 @@ private:
 	PointCloud* maps = nullptr;
 	// voxel grid spanning over the cloud
 	VoxelGrid target_cells_;
+	cl::Buffer target_cells_buff;
 	// voxel grid extends
 	PointXYZI minVoxel, maxVoxel;
 	int voxelDimension[3];
@@ -105,6 +106,8 @@ private:
 	Matrix4f* init_guess = nullptr;
 	// algorithm results
 	CallbackResult* results = nullptr;
+public:
+	ndt_mapping();
 public:
 	virtual void init();
 	virtual void run(int p = 1);
@@ -287,6 +290,9 @@ void parseResult(std::ifstream& output_file, CallbackResult* goldenResult) {
 	}
 }
 
+ndt_mapping::ndt_mapping() :
+	target_cells_buff() {
+}
 int ndt_mapping::read_next_testcases(int count)
 {
 	int i;
@@ -722,47 +728,49 @@ void ndt_mapping::computePointDerivatives (Vec3 &x, bool compute_hessian)
 void ndt_mapping::computeHessian(
 	Mat66 &hessian, PointCloud &trans_cloud, Vec6 &)
 {
+	throw std::logic_error("Non anticipated computeHessian() function call");
 	// temporary data structures
-	PointXYZI  x_pt, x_trans_pt; // Original Point and Transformed Point
-	Vec3 x, x_trans; // Original Point and Transformed Point
-	Voxel cell; // Occupied Voxel
-	Mat33 c_inv; // Inverse Covariance of Occupied Voxel
-	#if defined (DOUBLE_FP)
-	memset(&(hessian.data[0][0]), 0, sizeof(double) * 6 * 6);
-	#else
-	memset(&(hessian.data[0][0]), 0, sizeof(float) * 6 * 6);
-	#endif
-	// Update hessian for each point, line 17 in Algorithm 2 [Magnusson 2009]
-	for (size_t idx = 0; idx < input_->size (); idx++)
-	{
-		x_trans_pt = trans_cloud[idx];
-		// Find neighbors
-		std::vector<Voxel> neighborhood;
-		std::vector<float> distances;
-		voxelRadiusSearch (target_cells_, x_trans_pt, resolution_, neighborhood, distances);
-		// execute for each neighbor
-		for (auto neighborhood_it = neighborhood.begin (); neighborhood_it != neighborhood.end (); neighborhood_it++)
-		{
-			cell = *neighborhood_it;
-			// extract point
-			x_pt = (*input_)[idx];
-			x[0] = x_pt.data[0];
-			x[1] = x_pt.data[1];
-			x[2] = x_pt.data[2];
-			x_trans[0] = x_trans_pt.data[0];
-			x_trans[1] = x_trans_pt.data[1];
-			x_trans[2] = x_trans_pt.data[2];
-			// Denorm point, x_k' in Equations 6.12 and 6.13 [Magnusson 2009]
-			x_trans[0] -= cell.mean[0];
-			x_trans[1] -= cell.mean[1];
-			x_trans[2] -= cell.mean[2];
-			c_inv = cell.invCovariance;
-			// Compute derivative of transform function w.r.t. transform vector, J_E and H_E in Equations 6.18 and 6.20 [Magnusson 2009]
-			computePointDerivatives (x);
-			// Update hessian, lines 21 in Algorithm 2, according to Equations 6.10, 6.12 and 6.13, respectively [Magnusson 2009]
-			updateHessian (hessian, x_trans, c_inv);
-		}
-	}
+	// TODO: call kernel and postprocess when the funktion is called
+// 	PointXYZI  x_pt, x_trans_pt; // Original Point and Transformed Point
+// 	Vec3 x, x_trans; // Original Point and Transformed Point
+// 	Voxel cell; // Occupied Voxel
+// 	Mat33 c_inv; // Inverse Covariance of Occupied Voxel
+// 	#if defined (DOUBLE_FP)
+// 	memset(&(hessian.data[0][0]), 0, sizeof(double) * 6 * 6);
+// 	#else
+// 	memset(&(hessian.data[0][0]), 0, sizeof(float) * 6 * 6);
+// 	#endif
+// 	// Update hessian for each point, line 17 in Algorithm 2 [Magnusson 2009]
+// 	for (size_t idx = 0; idx < input_->size (); idx++)
+// 	{
+// 		x_trans_pt = trans_cloud[idx];
+// 		// Find neighbors
+// 		std::vector<Voxel> neighborhood;
+// 		std::vector<float> distances;
+// 		voxelRadiusSearch (target_cells_, x_trans_pt, resolution_, neighborhood, distances);
+// 		// execute for each neighbor
+// 		for (auto neighborhood_it = neighborhood.begin (); neighborhood_it != neighborhood.end (); neighborhood_it++)
+// 		{
+// 			cell = *neighborhood_it;
+// 			// extract point
+// 			x_pt = (*input_)[idx];
+// 			x[0] = x_pt.data[0];
+// 			x[1] = x_pt.data[1];
+// 			x[2] = x_pt.data[2];
+// 			x_trans[0] = x_trans_pt.data[0];
+// 			x_trans[1] = x_trans_pt.data[1];
+// 			x_trans[2] = x_trans_pt.data[2];
+// 			// Denorm point, x_k' in Equations 6.12 and 6.13 [Magnusson 2009]
+// 			x_trans[0] -= cell.mean[0];
+// 			x_trans[1] -= cell.mean[1];
+// 			x_trans[2] -= cell.mean[2];
+// 			c_inv = cell.invCovariance;
+// 			// Compute derivative of transform function w.r.t. transform vector, J_E and H_E in Equations 6.18 and 6.20 [Magnusson 2009]
+// 			computePointDerivatives (x);
+// 			// Update hessian, lines 21 in Algorithm 2, according to Equations 6.10, 6.12 and 6.13, respectively [Magnusson 2009]
+// 			updateHessian (hessian, x_trans, c_inv);
+// 		}
+// 	}
 }
 
 void ndt_mapping::updateHessian (Mat66 &hessian, Vec3 &x_trans, Mat33 &c_inv)
@@ -838,6 +846,8 @@ float ndt_mapping::computeDerivatives (
 	bool compute_hessian)
 #endif
 {
+#if 0
+#else
 	// Original Point and Transformed Point
 	PointXYZI x_pt, x_trans_pt;
 	// Original Point and Transformed Point (for math)
@@ -892,6 +902,7 @@ float ndt_mapping::computeDerivatives (
 		}
 	}
 	return score;
+#endif
 }
 
 void ndt_mapping::computeAngleDerivatives (Vec6 &p, bool compute_hessian)
@@ -1674,8 +1685,9 @@ void ndt_mapping::initCompute(OCL_Struct* OCL_objs)
 	// find cloud extends
 	minVoxel = (*target_)[0];
 	maxVoxel = (*target_)[0];
+	int pointNo = target_->size();
 
-	for (int i = 1; i < target_->size(); i++)
+	for (int i = 1; i < pointNo; i++)
 	{
 		for (int elem = 0; elem < 3; elem++)
 		{
@@ -1690,9 +1702,13 @@ void ndt_mapping::initCompute(OCL_Struct* OCL_objs)
 	voxelDimension[2] = (maxVoxel.data[2] - minVoxel.data[2]) / resolution_ + 1;
 
 	// init the voxel grid
-	target_cells_.clear();
-	target_cells_.resize(voxelDimension[0] * voxelDimension[1] * voxelDimension[2]);
-	for (int i = 0; i < target_cells_.size(); i++)
+
+	int cellNo = voxelDimension[0] * voxelDimension[1] * voxelDimension[2];
+	target_cells_.resize(cellNo);
+
+
+
+	for (int i = 0; i < cellNo; i++)
 	{
 		target_cells_[i].first = -1;
 		target_cells_[i].mean[0] = 0;
@@ -1709,9 +1725,8 @@ void ndt_mapping::initCompute(OCL_Struct* OCL_objs)
 		target_cells_[i].invCovariance.data[0][2] = 1.0;
 
 	}
-	size_t nelems_target      = target_->size();
 	size_t size_single_target = sizeof(PointXYZI);
-	size_t nbytes_target      = nelems_target * size_single_target;
+	size_t nbytes_target      = pointNo * size_single_target;
 	size_t offset = 0;
 	// move point cloud to device
 	cl::Buffer buff_target (OCL_objs->context, CL_MEM_READ_ONLY, nbytes_target);
@@ -1719,18 +1734,33 @@ void ndt_mapping::initCompute(OCL_Struct* OCL_objs)
 	memcpy(tmp_target, target_->data(), nbytes_target);
 	OCL_objs->cmdqueue.enqueueUnmapMemObject(buff_target, tmp_target);
 
-	size_t nelems_targetcells      = target_cells_.size();
 	size_t size_single_targetcells = sizeof(Voxel);
-	size_t nbytes_targetcells      = nelems_targetcells * size_single_targetcells;
+	size_t nbytes_targetcells      = cellNo * size_single_targetcells;
 	// move voxel grid to device
-	cl::Buffer buff_targetcells (OCL_objs->context, CL_MEM_READ_WRITE, nbytes_targetcells);
-	Voxel* tmp_targetcells= (Voxel*) OCL_objs->cmdqueue.enqueueMapBuffer(buff_targetcells, CL_TRUE, CL_MAP_WRITE_INVALIDATE_REGION, 0, nbytes_targetcells);
-	memcpy(tmp_targetcells, target_cells_.data(), nbytes_targetcells);
-	OCL_objs->cmdqueue.enqueueUnmapMemObject(buff_targetcells, tmp_targetcells);
+	target_cells_buff = cl::Buffer(OCL_objs->context, CL_MEM_READ_WRITE, nbytes_targetcells);
+
+	OCL_objs->kernel_initTargetCells.setArg(0, target_cells_buff);
+	OCL_objs->kernel_initTargetCells.setArg(1, cellNo);
+	size_t local_size2 = NUMWORKITEMS_PER_WORKGROUP;
+	size_t num_workgroups2 = cellNo / local_size2 + 1;
+	size_t global_size2 = local_size2*num_workgroups2;
+	cl::NDRange ndrange_localsize2(local_size2);
+	cl::NDRange ndrange_globalsize2(global_size2);
+	cl::NDRange ndrange_offset2(offset);
+	OCL_objs->cmdqueue.enqueueNDRangeKernel(
+		OCL_objs->kernel_initTargetCells,
+		ndrange_offset2,
+		ndrange_globalsize2,
+		ndrange_localsize2);
+
+
+	//Voxel* tmp_targetcells= (Voxel*) OCL_objs->cmdqueue.enqueueMapBuffer(target_cells_buff, CL_TRUE, CL_MAP_WRITE_INVALIDATE_REGION, 0, nbytes_targetcells);
+	//memcpy(tmp_targetcells, target_cells_.data(), nbytes_targetcells);
+	//OCL_objs->cmdqueue.enqueueUnmapMemObject(target_cells_buff, tmp_targetcells);
 	
 	// call the kernel that assigns points to cells
 	size_t local_size3     = NUMWORKITEMS_PER_WORKGROUP;
-	size_t num_workgroups3 = nelems_target / local_size3 + 1;
+	size_t num_workgroups3 = pointNo / local_size3 + 1;
 	size_t global_size3    = local_size3 * num_workgroups3;
 
 	cl::NDRange ndrange_offset3    (offset);
@@ -1738,9 +1768,9 @@ void ndt_mapping::initCompute(OCL_Struct* OCL_objs)
 	cl::NDRange ndrange_globalsize3(global_size3);
 
 	OCL_objs->kernel_firstPass.setArg(0, buff_target);
-	OCL_objs->kernel_firstPass.setArg(1, static_cast<int>(nelems_target));
-	OCL_objs->kernel_firstPass.setArg(2, buff_targetcells);
-	OCL_objs->kernel_firstPass.setArg(3, static_cast<int>(nelems_targetcells));
+	OCL_objs->kernel_firstPass.setArg(1, static_cast<int>(pointNo));
+	OCL_objs->kernel_firstPass.setArg(2, target_cells_buff);
+	OCL_objs->kernel_firstPass.setArg(3, static_cast<int>(cellNo));
 	OCL_objs->kernel_firstPass.setArg(4, minVoxel);
 	OCL_objs->kernel_firstPass.setArg(5, (1/resolution_));
 	OCL_objs->kernel_firstPass.setArg(6, voxelDimension[0]);
@@ -1754,17 +1784,17 @@ void ndt_mapping::initCompute(OCL_Struct* OCL_objs)
 	
 	// call the kernel that normalizes the voxel grid
 	size_t local_size4     = NUMWORKITEMS_PER_WORKGROUP;
-	size_t num_workgroups4 = nelems_targetcells / local_size4 + 1; // rounded up, se we don't miss one    
-	size_t global_size4    = local_size4 * num_workgroups4;        // BEFORE: =nelems_targetcells;
+	size_t num_workgroups4 = cellNo / local_size4 + 1; // rounded up, se we don't miss one
+	size_t global_size4    = local_size4 * num_workgroups4;        // BEFORE: =cellNo;
 
 	cl::NDRange ndrange_offset4    (offset);
 	cl::NDRange ndrange_localsize4 (local_size4);
 	cl::NDRange ndrange_globalsize4(global_size4);
 
-	OCL_objs->kernel_secondPass.setArg(0, buff_targetcells);
+	OCL_objs->kernel_secondPass.setArg(0, target_cells_buff);
 	OCL_objs->kernel_secondPass.setArg(1, buff_target);
-	OCL_objs->kernel_secondPass.setArg(2, static_cast<int>(nelems_targetcells));
-	OCL_objs->kernel_secondPass.setArg(3, static_cast<int>(nelems_targetcells-1));
+	OCL_objs->kernel_secondPass.setArg(2, static_cast<int>(cellNo));
+	OCL_objs->kernel_secondPass.setArg(3, static_cast<int>(cellNo-1));
 
 	OCL_objs->cmdqueue.enqueueNDRangeKernel(
 		OCL_objs->kernel_secondPass, 
@@ -1775,9 +1805,9 @@ void ndt_mapping::initCompute(OCL_Struct* OCL_objs)
 	// wait for the result
 	// and move the voxel grid into host memory
 	Voxel* tmp4_= (Voxel *) OCL_objs->cmdqueue.enqueueMapBuffer(
-		buff_targetcells, CL_TRUE, CL_MAP_READ, 0, nbytes_targetcells);
+		target_cells_buff, CL_TRUE, CL_MAP_READ, 0, nbytes_targetcells);
 	memcpy(target_cells_.data(), tmp4_, nbytes_targetcells);
-	OCL_objs->cmdqueue.enqueueUnmapMemObject(buff_targetcells, tmp4_);
+	OCL_objs->cmdqueue.enqueueUnmapMemObject(target_cells_buff, tmp4_);
 }
 
 void ndt_mapping::ndt_align(OCL_Struct* OCL_objs, const Matrix4f& guess)

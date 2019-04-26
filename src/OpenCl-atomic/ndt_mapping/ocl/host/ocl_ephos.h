@@ -17,7 +17,7 @@ struct OCL_Struct {
 	cl::Context      context;
 	cl::CommandQueue cmdqueue;
 	cl::Kernel       kernel_findMinMax;
-        cl::Kernel       kernel_initTargetCells;
+	cl::Kernel       kernel_initTargetCells;
 	cl::Kernel       kernel_firstPass;
 	cl::Kernel       kernel_secondPass;
 };
