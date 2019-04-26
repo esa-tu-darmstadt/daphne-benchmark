@@ -847,6 +847,7 @@ float ndt_mapping::computeDerivatives (
 #endif
 {
 #if 0
+
 #else
 	// Original Point and Transformed Point
 	PointXYZI x_pt, x_trans_pt;

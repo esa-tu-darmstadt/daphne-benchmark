@@ -22,6 +22,12 @@ typedef struct {
 	int first;
 } Voxel;
 
+typedef struct {
+	Mat33 invCovariance;
+	Vec3 mean;
+	int index;
+} PointVoxel;
+
 /**
  * Initializes a voxel grid.
  * targetcells: voxel grid
