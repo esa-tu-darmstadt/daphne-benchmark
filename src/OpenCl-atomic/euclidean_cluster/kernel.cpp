@@ -640,12 +640,13 @@ void extractEuclideanClusters (
 		// grow the candidate until convergence
 		while (new_elements > 0)
 		{
+			// zero result counter
+			int nn_indices_no = 0;
+			OCL_objs->cmdqueue.enqueueWriteBuffer(buff_nn_indices_no, CL_FALSE, 0, sizeof(int), &nn_indices_no);
 			// move the seed queue to device memory
 			int* tmp_seed_queue = (int *) OCL_objs->cmdqueue.enqueueMapBuffer(buff_seed_queue, CL_TRUE, CL_MAP_WRITE_INVALIDATE_REGION, 0, nbytes_seed_queue);
 			memcpy(tmp_seed_queue, seed_queue, nbytes_seed_queue);
 			OCL_objs->cmdqueue.enqueueUnmapMemObject(buff_seed_queue, tmp_seed_queue);
-			int zeroNo = 0;
-			OCL_objs->cmdqueue.enqueueFillBuffer(buff_nn_indices_no, zeroNo, 0, sizeof(int));
 			// call the radius search kernel
 			OCL_objs->kernel_parallelRS.setArg(0, buff_seed_queue);
 			OCL_objs->kernel_parallelRS.setArg(1, buff_nn_indices);
@@ -665,22 +666,16 @@ void extractEuclideanClusters (
 
 			// move the indices of near points into host memory
 			new_elements = 0;
-			int nn_indices_no = cloud_size;
-			//OCL_objs->cmdqueue.enqueueReadBuffer(buff_nn_indices_no, CL_TRUE, 0, sizeof(int), &nn_indices_no);
+			OCL_objs->cmdqueue.enqueueReadBuffer(buff_nn_indices_no, CL_TRUE, 0, sizeof(int), &nn_indices_no);
 			if (nn_indices_no > 0) {
 				int* nn_indices = (int*) OCL_objs->cmdqueue.enqueueMapBuffer(buff_nn_indices, CL_TRUE, CL_MAP_READ, 0, nn_indices_no*sizeof(int));
-				OCL_objs->cmdqueue.finish();
-
-				// add new near points to the candidate cluster
 				for (size_t j = 0; j < nn_indices_no; ++j)
 				{
-					if (nn_indices[j] < 0)
-						continue;
-					if (processed[j])
+					if (processed[nn_indices[j]])
 						continue;
 					seed_queue[queue_last_element++] = nn_indices[j];
-					processed[j] = true;
-					new_elements++;
+					processed[nn_indices[j]] = true;
+					new_elements += 1;
 				}
 				OCL_objs->cmdqueue.enqueueUnmapMemObject(buff_nn_indices, nn_indices);
 			}
