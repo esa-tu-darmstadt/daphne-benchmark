@@ -583,19 +583,21 @@ void extractEuclideanClusters (
 	// indicates the processed status for each point
 	std::vector<bool> processed (cloud_size, false);
 	// temporary radius search results
-	bool* nn_indices;
-	size_t nbytes_nn_indices = cloud_size * sizeof(bool);
 	cl_int err;
-	cl::Buffer buff_nn_indices (OCL_objs->context, CL_MEM_WRITE_ONLY | CL_MEM_ALLOC_HOST_PTR, nbytes_nn_indices);
+	cl::Buffer buff_nn_indices (OCL_objs->context, CL_MEM_WRITE_ONLY | CL_MEM_ALLOC_HOST_PTR, cloud_size*sizeof(int));
+	cl::Buffer buff_nn_indices_no(OCL_objs->context, CL_MEM_READ_WRITE, sizeof(int));
 	
 	// cluster candidate buffer
 	int* seed_queue;
 	size_t nbytes_seed_queue = cloud_size * sizeof(int);
 	seed_queue = (int*) malloc(nbytes_seed_queue);
 	cl::Buffer buff_seed_queue (OCL_objs->context, CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR, nbytes_seed_queue);
-	
+
+
 	// cloud memory
 	// move point cloud to device
+	cl::Buffer buff_processed(OCL_objs->context, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, sizeof(bool)*cloud_size);
+	OCL_objs->cmdqueue.enqueueFillBuffer(buff_processed, false, 0, sizeof(bool)*cloud_size);
 	size_t nbytes_cloud = sizeof(Point) * (cloud_size);
 	cl::Buffer buff_cloud (OCL_objs->context, CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR, nbytes_cloud);
 	Point* tmp_cloud = (Point *) OCL_objs->cmdqueue.enqueueMapBuffer(buff_cloud, CL_TRUE, CL_MAP_WRITE_INVALIDATE_REGION, 0, nbytes_cloud);
@@ -642,13 +644,19 @@ void extractEuclideanClusters (
 			int* tmp_seed_queue = (int *) OCL_objs->cmdqueue.enqueueMapBuffer(buff_seed_queue, CL_TRUE, CL_MAP_WRITE_INVALIDATE_REGION, 0, nbytes_seed_queue);
 			memcpy(tmp_seed_queue, seed_queue, nbytes_seed_queue);
 			OCL_objs->cmdqueue.enqueueUnmapMemObject(buff_seed_queue, tmp_seed_queue);
+			int zeroNo = 0;
+			OCL_objs->cmdqueue.enqueueFillBuffer(buff_nn_indices_no, zeroNo, 0, sizeof(int));
 			// call the radius search kernel
 			OCL_objs->kernel_parallelRS.setArg(0, buff_seed_queue);
 			OCL_objs->kernel_parallelRS.setArg(1, buff_nn_indices);
 			OCL_objs->kernel_parallelRS.setArg(2, buff_sqr_distances);
-			OCL_objs->kernel_parallelRS.setArg(3, queue_last_element - new_elements);
-			OCL_objs->kernel_parallelRS.setArg(4, queue_last_element);
-			OCL_objs->kernel_parallelRS.setArg(5, cloud_size);
+			OCL_objs->kernel_parallelRS.setArg(3, buff_processed);
+			OCL_objs->kernel_parallelRS.setArg(4, buff_nn_indices_no);
+			OCL_objs->kernel_parallelRS.setArg(5, cl::Local(sizeof(int)));
+			OCL_objs->kernel_parallelRS.setArg(6, cl::Local(sizeof(int)));
+			OCL_objs->kernel_parallelRS.setArg(7, queue_last_element - new_elements);
+			OCL_objs->kernel_parallelRS.setArg(8, queue_last_element);
+			OCL_objs->kernel_parallelRS.setArg(9, cloud_size);
 
 			OCL_objs->cmdqueue.enqueueNDRangeKernel(OCL_objs->kernel_parallelRS, 
 				ndrange_offset,
@@ -656,21 +664,26 @@ void extractEuclideanClusters (
 				ndrange_localsize);
 
 			// move the indices of near points into host memory
-			bool* nn_indices = (bool *) OCL_objs->cmdqueue.enqueueMapBuffer(buff_nn_indices, CL_TRUE, CL_MAP_READ, 0, nbytes_nn_indices);
-			OCL_objs->cmdqueue.finish();
 			new_elements = 0;
-			// add new near points to the candidate cluster
-			for (size_t j = 0; j < cloud_size; ++j)
-			{
-				if (nn_indices[j] == false)
-					continue;
-				if (processed[j])
-					continue;
-				seed_queue[queue_last_element++] = j;
-				processed[j] = true;
-				new_elements++; 
+			int nn_indices_no = cloud_size;
+			//OCL_objs->cmdqueue.enqueueReadBuffer(buff_nn_indices_no, CL_TRUE, 0, sizeof(int), &nn_indices_no);
+			if (nn_indices_no > 0) {
+				int* nn_indices = (int*) OCL_objs->cmdqueue.enqueueMapBuffer(buff_nn_indices, CL_TRUE, CL_MAP_READ, 0, nn_indices_no*sizeof(int));
+				OCL_objs->cmdqueue.finish();
+
+				// add new near points to the candidate cluster
+				for (size_t j = 0; j < nn_indices_no; ++j)
+				{
+					if (nn_indices[j] < 0)
+						continue;
+					if (processed[j])
+						continue;
+					seed_queue[queue_last_element++] = nn_indices[j];
+					processed[j] = true;
+					new_elements++;
+				}
+				OCL_objs->cmdqueue.enqueueUnmapMemObject(buff_nn_indices, nn_indices);
 			}
-			OCL_objs->cmdqueue.enqueueUnmapMemObject(buff_nn_indices, nn_indices);
 		}
 		// addd the cluster candidate if it is inside satisfactory size bounds
 		if (queue_last_element >= min_pts_per_cluster && queue_last_element <= max_pts_per_cluster)
