@@ -55,18 +55,17 @@ parallelRadiusSearch(
 				}
 			}
 			if (found) {
-				iResult = atomic_inc(g_indexNo);
+				iResult = atomic_inc(l_indexNo);
 				processed[id] = true;
 			}
 		}
 	}
 	barrier(CLK_LOCAL_MEM_FENCE);
-	if (*l_indexNo > 0) {
-		//*l_indexStart = atomic_add(g_indexNo, *l_indexNo);
+	if (*l_indexNo > 0 && get_local_id(0) == 0) {
+		*l_indexStart = atomic_add(g_indexNo, *l_indexNo);
 	}
 	barrier(CLK_LOCAL_MEM_FENCE);
 	if (iResult > -1) {
-		//indices[*l_indexStart + iResult] = id;
-		indices[iResult] = id;
+		indices[*l_indexStart + iResult] = id;
 	}
 }
