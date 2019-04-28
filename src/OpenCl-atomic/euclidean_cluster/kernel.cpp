@@ -585,7 +585,7 @@ void extractEuclideanClusters (
 	// temporary radius search results
 	cl_int err;
 	cl::Buffer buff_nn_indices (OCL_objs->context, CL_MEM_WRITE_ONLY | CL_MEM_ALLOC_HOST_PTR, cloud_size*sizeof(int));
-	cl::Buffer buff_nn_indices_no(OCL_objs->context, CL_MEM_READ_WRITE, sizeof(int));
+	cl::Buffer buff_nn_indices_no(OCL_objs->context, CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, sizeof(int));
 	
 	// cluster candidate buffer
 	int* seed_queue;
@@ -597,7 +597,6 @@ void extractEuclideanClusters (
 	// cloud memory
 	// move point cloud to device
 	cl::Buffer buff_processed(OCL_objs->context, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, sizeof(bool)*cloud_size);
-	OCL_objs->cmdqueue.enqueueFillBuffer(buff_processed, false, 0, sizeof(bool)*cloud_size);
 	size_t nbytes_cloud = sizeof(Point) * (cloud_size);
 	cl::Buffer buff_cloud (OCL_objs->context, CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR, nbytes_cloud);
 	Point* tmp_cloud = (Point *) OCL_objs->cmdqueue.enqueueMapBuffer(buff_cloud, CL_TRUE, CL_MAP_WRITE_INVALIDATE_REGION, 0, nbytes_cloud);
@@ -626,6 +625,12 @@ void extractEuclideanClusters (
 	OCL_objs->cmdqueue.enqueueNDRangeKernel(
 		OCL_objs->kernel_initRS, ndrange_offset, ndrange_globalsize, ndrange_localsize);
 
+	OCL_objs->kernel_parallelRS.setArg(0, buff_seed_queue);
+	OCL_objs->kernel_parallelRS.setArg(1, buff_nn_indices);
+	OCL_objs->kernel_parallelRS.setArg(2, buff_sqr_distances);
+	OCL_objs->kernel_parallelRS.setArg(3, buff_nn_indices_no);
+	OCL_objs->kernel_parallelRS.setArg(4, cl::Local(sizeof(int)));
+	OCL_objs->kernel_parallelRS.setArg(5, cl::Local(sizeof(int)));
 	// Process all points in the indices vector
 	for (int i = 0; i < cloud_size; ++i)
 	{
@@ -648,16 +653,10 @@ void extractEuclideanClusters (
 			memcpy(tmp_seed_queue, seed_queue, nbytes_seed_queue);
 			OCL_objs->cmdqueue.enqueueUnmapMemObject(buff_seed_queue, tmp_seed_queue);
 			// call the radius search kernel
-			OCL_objs->kernel_parallelRS.setArg(0, buff_seed_queue);
-			OCL_objs->kernel_parallelRS.setArg(1, buff_nn_indices);
-			OCL_objs->kernel_parallelRS.setArg(2, buff_sqr_distances);
-			OCL_objs->kernel_parallelRS.setArg(3, buff_processed);
-			OCL_objs->kernel_parallelRS.setArg(4, buff_nn_indices_no);
-			OCL_objs->kernel_parallelRS.setArg(5, cl::Local(sizeof(int)));
-			OCL_objs->kernel_parallelRS.setArg(6, cl::Local(sizeof(int)));
-			OCL_objs->kernel_parallelRS.setArg(7, queue_last_element - new_elements);
-			OCL_objs->kernel_parallelRS.setArg(8, queue_last_element);
-			OCL_objs->kernel_parallelRS.setArg(9, cloud_size);
+			
+			OCL_objs->kernel_parallelRS.setArg(6, queue_last_element - new_elements);
+			OCL_objs->kernel_parallelRS.setArg(7, queue_last_element);
+			OCL_objs->kernel_parallelRS.setArg(8, cloud_size);
 
 			OCL_objs->cmdqueue.enqueueNDRangeKernel(OCL_objs->kernel_parallelRS, 
 				ndrange_offset,

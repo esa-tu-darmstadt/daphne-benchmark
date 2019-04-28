@@ -37,6 +37,8 @@ initRadiusSearch(
 			int array_index = i*number_points + j;
 			sqr_distances[array_index] = ((dx*dx + dy*dy + dz*dz) <= radius_sqr );
 		}
+		sqr_distances[j*number_points + j] = false; // processed indicator
 	}
+
 }
 

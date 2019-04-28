@@ -15,8 +15,7 @@ void __attribute__ ((reqd_work_group_size(NUMWORKITEMS_PER_WORKGROUP,1,1)))
 parallelRadiusSearch(
 	__global const int*  restrict point_index,
 	__global       int* restrict indices,
-	__global const bool* restrict sqr_distances,
-	__global bool* processed,
+	__global bool* restrict sqr_distances,
 	__global int* g_indexNo,
 	__local int* l_indexNo,
 	__local int* l_indexStart,
@@ -32,7 +31,7 @@ parallelRadiusSearch(
 	barrier(CLK_LOCAL_MEM_FENCE);
 	int iResult = -1;
 	if (id < cloud_size) {
-		if (!processed[id]) {
+		if (!sqr_distances[id*cloud_size + id]) { // processed indicator
 			bool found = false;
 			bool is_skipped = false;
 			for (int search_point_index = start_index; search_point_index < search_points; search_point_index++)
@@ -41,10 +40,6 @@ parallelRadiusSearch(
 				{
 					found = true;
 					is_skipped = true;
-				}
-				else
-				{
-					is_skipped = false;
 				}
 				if (!is_skipped)
 				{
@@ -56,7 +51,7 @@ parallelRadiusSearch(
 			}
 			if (found) {
 				iResult = atomic_inc(l_indexNo);
-				processed[id] = true;
+				sqr_distances[id*cloud_size + id] = true;
 			}
 		}
 	}
