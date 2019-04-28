@@ -25,7 +25,7 @@ typedef struct {
 typedef struct {
 	Mat33 invCovariance;
 	Vec3 mean;
-	int index;
+	int point;
 } PointVoxel;
 
 /**

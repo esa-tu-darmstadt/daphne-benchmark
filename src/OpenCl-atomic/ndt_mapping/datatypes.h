@@ -73,20 +73,26 @@ typedef std::vector<PointXYZI> PointCloudSource;
 typedef PointCloudSource PointCloud;
 
 typedef struct CallbackResult {
-    bool converged;
-    Matrix4f final_transformation;
-    #if defined (DOUBLE_FP)
-    double fitness_score;
-    #else
-    float fitness_score;
-    #endif
+	bool converged;
+	Matrix4f final_transformation;
+	#if defined (DOUBLE_FP)
+	double fitness_score;
+	#else
+	float fitness_score;
+	#endif
 } CallbackResult;
 
 typedef struct Voxel {
-    Mat33 invCovariance;
-    Vec3 mean;
+	Mat33 invCovariance;
+	Vec3 mean;
 	int first;
 } Voxel;
+
+typedef struct PointVoxel {
+	Mat33 invCovariance;
+	Vec3 mean;
+	int point;
+} PointVoxel;
 
 
 typedef std::vector<Voxel> VoxelGrid;

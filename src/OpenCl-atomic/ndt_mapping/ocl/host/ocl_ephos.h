@@ -13,13 +13,14 @@
 
 // Struct for passing OpenCL objects
 struct OCL_Struct {
-	cl::Device       device;
-	cl::Context      context;
+	cl::Device device;
+	cl::Context context;
 	cl::CommandQueue cmdqueue;
-	cl::Kernel       kernel_findMinMax;
-	cl::Kernel       kernel_initTargetCells;
-	cl::Kernel       kernel_firstPass;
-	cl::Kernel       kernel_secondPass;
+	cl::Kernel kernel_findMinMax;
+	cl::Kernel kernel_initTargetCells;
+	cl::Kernel kernel_firstPass;
+	cl::Kernel kernel_secondPass;
+	cl::Kernel kernel_radiusSearch;
 };
 
 class OCL_Tools {

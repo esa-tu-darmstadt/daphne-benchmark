@@ -2,3 +2,5 @@
 *.o
 **/Makefile.deps
 **/kernel
+**/stringify.h
+**/stringify_tmp

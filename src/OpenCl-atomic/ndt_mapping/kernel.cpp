@@ -98,7 +98,10 @@ private:
 	PointCloud* maps = nullptr;
 	// voxel grid spanning over the cloud
 	VoxelGrid target_cells_;
-	cl::Buffer target_cells_buff;
+	cl::Buffer buff_target_cells;
+	cl::Buffer buff_target;
+	cl::Buffer buff_subvoxel;
+	cl::Buffer buff_counter;
 	// voxel grid extends
 	PointXYZI minVoxel, maxVoxel;
 	int voxelDimension[3];
@@ -291,7 +294,10 @@ void parseResult(std::ifstream& output_file, CallbackResult* goldenResult) {
 }
 
 ndt_mapping::ndt_mapping() :
-	target_cells_buff() {
+	buff_target_cells(),
+	buff_target(),
+	buff_subvoxel(),
+	buff_counter() {
 }
 int ndt_mapping::read_next_testcases(int count)
 {
@@ -1730,17 +1736,19 @@ void ndt_mapping::initCompute(OCL_Struct* OCL_objs)
 	size_t nbytes_target      = pointNo * size_single_target;
 	size_t offset = 0;
 	// move point cloud to device
-	cl::Buffer buff_target (OCL_objs->context, CL_MEM_READ_ONLY, nbytes_target);
+	buff_target = cl::Buffer(OCL_objs->context, CL_MEM_READ_ONLY, nbytes_target);
 	PointXYZI* tmp_target = (PointXYZI*) OCL_objs->cmdqueue.enqueueMapBuffer(buff_target, CL_TRUE, CL_MAP_WRITE_INVALIDATE_REGION, 0, nbytes_target);
 	memcpy(tmp_target, target_->data(), nbytes_target);
 	OCL_objs->cmdqueue.enqueueUnmapMemObject(buff_target, tmp_target);
+	buff_subvoxel = cl::Buffer(OCL_objs->context, CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY, sizeof(PointVoxel)*pointNo);
+	buff_counter = cl::Buffer(OCL_objs->context, CL_MEM_READ_WRITE, sizeof(int));
 
 	size_t size_single_targetcells = sizeof(Voxel);
 	size_t nbytes_targetcells      = cellNo * size_single_targetcells;
 	// move voxel grid to device
-	target_cells_buff = cl::Buffer(OCL_objs->context, CL_MEM_READ_WRITE, nbytes_targetcells);
+	buff_target_cells = cl::Buffer(OCL_objs->context, CL_MEM_READ_WRITE, nbytes_targetcells);
 
-	OCL_objs->kernel_initTargetCells.setArg(0, target_cells_buff);
+	OCL_objs->kernel_initTargetCells.setArg(0, buff_target_cells);
 	OCL_objs->kernel_initTargetCells.setArg(1, cellNo);
 	size_t local_size2 = NUMWORKITEMS_PER_WORKGROUP;
 	size_t num_workgroups2 = cellNo / local_size2 + 1;
@@ -1755,9 +1763,9 @@ void ndt_mapping::initCompute(OCL_Struct* OCL_objs)
 		ndrange_localsize2);
 
 
-	//Voxel* tmp_targetcells= (Voxel*) OCL_objs->cmdqueue.enqueueMapBuffer(target_cells_buff, CL_TRUE, CL_MAP_WRITE_INVALIDATE_REGION, 0, nbytes_targetcells);
+	//Voxel* tmp_targetcells= (Voxel*) OCL_objs->cmdqueue.enqueueMapBuffer(buff_target_cells, CL_TRUE, CL_MAP_WRITE_INVALIDATE_REGION, 0, nbytes_targetcells);
 	//memcpy(tmp_targetcells, target_cells_.data(), nbytes_targetcells);
-	//OCL_objs->cmdqueue.enqueueUnmapMemObject(target_cells_buff, tmp_targetcells);
+	//OCL_objs->cmdqueue.enqueueUnmapMemObject(buff_target_cells, tmp_targetcells);
 	
 	// call the kernel that assigns points to cells
 	size_t local_size3     = NUMWORKITEMS_PER_WORKGROUP;
@@ -1770,12 +1778,25 @@ void ndt_mapping::initCompute(OCL_Struct* OCL_objs)
 
 	OCL_objs->kernel_firstPass.setArg(0, buff_target);
 	OCL_objs->kernel_firstPass.setArg(1, static_cast<int>(pointNo));
-	OCL_objs->kernel_firstPass.setArg(2, target_cells_buff);
+	OCL_objs->kernel_firstPass.setArg(2, buff_target_cells);
 	OCL_objs->kernel_firstPass.setArg(3, static_cast<int>(cellNo));
 	OCL_objs->kernel_firstPass.setArg(4, minVoxel);
 	OCL_objs->kernel_firstPass.setArg(5, (1/resolution_));
 	OCL_objs->kernel_firstPass.setArg(6, voxelDimension[0]);
 	OCL_objs->kernel_firstPass.setArg(7, voxelDimension[1]);
+
+	OCL_objs->kernel_radiusSearch.setArg(0, buff_target);
+	OCL_objs->kernel_radiusSearch.setArg(1, buff_target_cells);
+	OCL_objs->kernel_radiusSearch.setArg(2, buff_subvoxel);
+	OCL_objs->kernel_radiusSearch.setArg(3, buff_counter);
+	OCL_objs->kernel_radiusSearch.setArg(4, cl::Local(sizeof(int)));
+	OCL_objs->kernel_radiusSearch.setArg(5, cl::Local(sizeof(int)));
+	// point number set in radius search
+	OCL_objs->kernel_radiusSearch.setArg(7, minVoxel);
+	OCL_objs->kernel_radiusSearch.setArg(8, maxVoxel);
+	OCL_objs->kernel_radiusSearch.setArg(9, voxelDimension[0]);
+	OCL_objs->kernel_radiusSearch.setArg(10, voxelDimension[1]);
+
 
 	OCL_objs->cmdqueue.enqueueNDRangeKernel(
 		OCL_objs->kernel_firstPass, 
@@ -1792,7 +1813,7 @@ void ndt_mapping::initCompute(OCL_Struct* OCL_objs)
 	cl::NDRange ndrange_localsize4 (local_size4);
 	cl::NDRange ndrange_globalsize4(global_size4);
 
-	OCL_objs->kernel_secondPass.setArg(0, target_cells_buff);
+	OCL_objs->kernel_secondPass.setArg(0, buff_target_cells);
 	OCL_objs->kernel_secondPass.setArg(1, buff_target);
 	OCL_objs->kernel_secondPass.setArg(2, static_cast<int>(cellNo));
 	OCL_objs->kernel_secondPass.setArg(3, static_cast<int>(cellNo-1));
@@ -1806,9 +1827,9 @@ void ndt_mapping::initCompute(OCL_Struct* OCL_objs)
 	// wait for the result
 	// and move the voxel grid into host memory
 	Voxel* tmp4_= (Voxel *) OCL_objs->cmdqueue.enqueueMapBuffer(
-		target_cells_buff, CL_TRUE, CL_MAP_READ, 0, nbytes_targetcells);
+		buff_target_cells, CL_TRUE, CL_MAP_READ, 0, nbytes_targetcells);
 	memcpy(target_cells_.data(), tmp4_, nbytes_targetcells);
-	OCL_objs->cmdqueue.enqueueUnmapMemObject(target_cells_buff, tmp4_);
+	OCL_objs->cmdqueue.enqueueUnmapMemObject(buff_target_cells, tmp4_);
 }
 
 void ndt_mapping::ndt_align(OCL_Struct* OCL_objs, const Matrix4f& guess)
@@ -1905,7 +1926,8 @@ void ndt_mapping::run(int p) {
 			"findMinMax",
 			"initTargetCells",
 			"firstPass",
-			"secondPass"
+			"secondPass",
+			"radiusSearch"
 		});
 		cl::Program program = OCL_Tools::build_program(OCL_objs, sourcesCL, sBuildOptions.str(),
 			kernelNames, kernels);
@@ -1913,10 +1935,11 @@ void ndt_mapping::run(int p) {
 		std::cerr << e.what() << std::endl;
 		exit(EXIT_FAILURE);
 	}
-	OCL_objs.kernel_findMinMax      = kernels[0];
+	OCL_objs.kernel_findMinMax = kernels[0];
 	OCL_objs.kernel_initTargetCells = kernels[1];
-	OCL_objs.kernel_firstPass       = kernels[2];
-	OCL_objs.kernel_secondPass      = kernels[3];
+	OCL_objs.kernel_firstPass = kernels[2];
+	OCL_objs.kernel_secondPass = kernels[3];
+	OCL_objs.kernel_radiusSearch = kernels[4];
 
 	while (read_testcases < testcases)
 	{
