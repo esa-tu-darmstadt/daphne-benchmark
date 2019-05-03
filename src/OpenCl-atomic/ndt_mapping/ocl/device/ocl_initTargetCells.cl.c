@@ -1,33 +1,3 @@
-#if defined (DOUBLE_FP)
-#pragma OPENCL EXTENSION cl_khr_fp64 : enable
-#endif
-
-typedef struct {
-  #if defined (DOUBLE_FP)
-  double data[3][3];
-  #else
-  float data[3][3];
-  #endif
-} Mat33;
-
-#if defined (DOUBLE_FP)
-typedef double Vec3[3];
-#else
-typedef float Vec3[3];
-#endif
-
-typedef struct {
-    Mat33 invCovariance;
-    Vec3 mean;
-	int first;
-} Voxel;
-
-typedef struct {
-	Mat33 invCovariance;
-	Vec3 mean;
-	int point;
-} PointVoxel;
-
 /**
  * Initializes a voxel grid.
  * targetcells: voxel grid

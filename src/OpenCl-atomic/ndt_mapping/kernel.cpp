@@ -97,7 +97,6 @@ private:
 	PointCloud* filtered_scan_ptr = nullptr;
 	PointCloud* maps = nullptr;
 	// voxel grid spanning over the cloud
-	VoxelGrid target_cells_;
 	OCL_Struct OCL_objs;
 	cl::Buffer buff_target_cells;
 	cl::Buffer buff_target;
@@ -220,19 +219,6 @@ protected:
 		Matrix4f &init_guess,
 		PointCloud& target_cloud
 	);
-
-	/**
-	 * Helper function to select near voxels.
-	 */
-	#if defined (DOUBLE_FP)
-	int voxelRadiusSearch(VoxelGrid &grid, const PointXYZI& point, double radius,
-		std::vector<Voxel> & indices,
-		std::vector<float> distances);
-	#else
-	int voxelRadiusSearch(VoxelGrid &grid, const PointXYZI& point, float radius,
-		std::vector<Voxel> & indices,
-		std::vector<float> distances);
-	#endif
 };
 
 /**
@@ -349,55 +335,6 @@ inline int ndt_mapping::linearizeCoord(const float x, const float y, const float
 	int idx_y = (y - minVoxel.data[1]) / resolution_;
 	int idx_z = (z - minVoxel.data[2]) / resolution_;
 	return linearizeAddr(idx_x, idx_y, idx_z);
-}
-
-
-#if defined (DOUBLE_FP)
-int ndt_mapping::voxelRadiusSearch(VoxelGrid &grid, const PointXYZI& point, double radius,
-				   std::vector<Voxel> & indices,
-				   std::vector<float> distances)
-#else
-int ndt_mapping::voxelRadiusSearch(VoxelGrid &grid, const PointXYZI& point, float radius,
-				   std::vector<Voxel> & indices,
-				   std::vector<float> distances)
-#endif
-{
-    int result = 0;
-	indices.clear();
-	distances.clear();
-	// make sure to find all near voxels
-	float radiusFinal = radius + 0.001f;
-	// test all voxels in the vicinity
-	for (float z = point.data[2] - radius; z <= point.data[2] + radiusFinal; z += resolution_)
-		for (float y = point.data[1] - radius; y <= point.data[1] + radiusFinal; y += resolution_)
-			for (float x = point.data[0] - radius; x <= point.data[0] + radiusFinal; x += resolution_)
-			{
-				// avoid accesses out of bounds
-				if ((x < minVoxel.data[0]) ||
-					(x > maxVoxel.data[0]) ||
-					(y < minVoxel.data[1]) ||
-					(y > maxVoxel.data[1]) ||
-					(z < minVoxel.data[2]) ||
-					(z > maxVoxel.data[2]))
-				{
-					continue;
-				}
-				// determine the distance to the voxel mean
-				int idx =  linearizeCoord(x, y, z);
-				Vec3 &c =  grid[idx].mean;
-				float dx = c[0] - point.data[0];
-				float dy = c[1] - point.data[1];
-				float dz = c[2] - point.data[2];
-				float dist = sqrt(dx * dx + dy * dy + dz * dz);
-				// add near cells to the results
-				if (dist < radius)
-				{
-					result++;
-					indices.push_back(grid[idx]);
-					distances.push_back(dist);
-				}
-			}
-	return result;
 }
 
 /**
@@ -883,12 +820,12 @@ float ndt_mapping::computeDerivatives (
 		cl::NDRange(local_size));
 	// move near voxels to host
 	OCL_objs.cmdqueue.enqueueReadBuffer(buff_counter, CL_TRUE, 0, sizeof(int), &nearVoxelNo);
-	std::vector<PointVoxel> subvoxelStorage(nearVoxelNo);
 	size_t nbytes_subvoxel = sizeof(PointVoxel)*nearVoxelNo;
-	OCL_objs.cmdqueue.enqueueReadBuffer(buff_subvoxel, CL_TRUE, 0, nbytes_subvoxel, subvoxelStorage.data());
+	PointVoxel* storage_subvoxel = (PointVoxel*)OCL_objs.cmdqueue.enqueueMapBuffer(buff_subvoxel,
+		CL_TRUE, CL_MAP_READ, 0, nbytes_subvoxel);
 	// process near voxels
 	for (int i = 0; i < nearVoxelNo; i++) {
-		int iPoint = subvoxelStorage[i].point;
+		int iPoint = storage_subvoxel[i].point;
 		PointXYZI* x_pt = &input_->at(iPoint);
 		Vec3 x = {
 			x_pt->data[0],
@@ -896,16 +833,17 @@ float ndt_mapping::computeDerivatives (
 			x_pt->data[2]
 		};
 		computePointDerivatives(x);
-		Vec3* mean = &subvoxelStorage[i].mean;
+		Vec3* mean = &storage_subvoxel[i].mean;
 		PointXYZI* x_trans_pt = &trans_cloud.at(iPoint);
 		Vec3 x_trans = {
 			x_trans_pt->data[0] - (*mean)[0],
 			x_trans_pt->data[1] - (*mean)[1],
 			x_trans_pt->data[2] - (*mean)[2]
 		};
-		Mat33 c_inv = subvoxelStorage[i].invCovariance;
+		Mat33 c_inv = storage_subvoxel[i].invCovariance;
 		score += updateDerivatives(score_gradient, hessian, x_trans, c_inv, compute_hessian);
 	}
+	OCL_objs.cmdqueue.enqueueUnmapMemObject(buff_subvoxel, storage_subvoxel);
 	return score;
 }
 
@@ -1706,44 +1644,25 @@ void ndt_mapping::initCompute()
 	voxelDimension[2] = (maxVoxel.data[2] - minVoxel.data[2]) / resolution_ + 1;
 
 	// init the voxel grid
-
 	int cellNo = voxelDimension[0] * voxelDimension[1] * voxelDimension[2];
-	target_cells_.resize(cellNo);
-
-
-
-	for (int i = 0; i < cellNo; i++)
-	{
-		target_cells_[i].first = -1;
-		target_cells_[i].mean[0] = 0;
-		target_cells_[i].mean[1] = 0;
-		target_cells_[i].mean[2] = 0;
-
-		#if defined (DOUBLE_FP)
-		memset(target_cells_[i].invCovariance.data, 0, sizeof(double) * 3 * 3);
-		#else
-		memset(target_cells_[i].invCovariance.data, 0, sizeof(float) * 3 * 3);
-		#endif
-		target_cells_[i].invCovariance.data[2][0] = 1.0;
-		target_cells_[i].invCovariance.data[1][1] = 1.0;
-		target_cells_[i].invCovariance.data[0][2] = 1.0;
-
-	}
 	size_t size_single_target = sizeof(PointXYZI);
 	size_t nbytes_target      = pointNo * size_single_target;
 	size_t offset = 0;
 	// move point cloud to device
-	buff_target = cl::Buffer(OCL_objs.context, CL_MEM_READ_ONLY, nbytes_target);
-	PointXYZI* tmp_target = (PointXYZI*) OCL_objs.cmdqueue.enqueueMapBuffer(buff_target, CL_TRUE, CL_MAP_WRITE_INVALIDATE_REGION, 0, nbytes_target);
+	buff_target = cl::Buffer(OCL_objs.context, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, nbytes_target);
+	PointXYZI* tmp_target = (PointXYZI*)OCL_objs.cmdqueue.enqueueMapBuffer(buff_target,
+		CL_TRUE, CL_MAP_WRITE_INVALIDATE_REGION, 0, nbytes_target);
 	memcpy(tmp_target, target_->data(), nbytes_target);
 	OCL_objs.cmdqueue.enqueueUnmapMemObject(buff_target, tmp_target);
-	buff_subvoxel = cl::Buffer(OCL_objs.context, CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY, sizeof(PointVoxel)*pointNo);
+	buff_subvoxel = cl::Buffer(OCL_objs.context,
+		CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY, sizeof(PointVoxel)*pointNo);
 	buff_counter = cl::Buffer(OCL_objs.context, CL_MEM_READ_WRITE, sizeof(int));
 
 	size_t size_single_targetcells = sizeof(Voxel);
 	size_t nbytes_targetcells      = cellNo * size_single_targetcells;
 	// move voxel grid to device
-	buff_target_cells = cl::Buffer(OCL_objs.context, CL_MEM_READ_WRITE, nbytes_targetcells);
+	buff_target_cells = cl::Buffer(OCL_objs.context,
+		CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, nbytes_targetcells);
 
 	OCL_objs.kernel_initTargetCells.setArg(0, buff_target_cells);
 	OCL_objs.kernel_initTargetCells.setArg(1, cellNo);
@@ -1758,11 +1677,6 @@ void ndt_mapping::initCompute()
 		ndrange_offset2,
 		ndrange_globalsize2,
 		ndrange_localsize2);
-
-
-	//Voxel* tmp_targetcells= (Voxel*) OCL_objs.cmdqueue.enqueueMapBuffer(buff_target_cells, CL_TRUE, CL_MAP_WRITE_INVALIDATE_REGION, 0, nbytes_targetcells);
-	//memcpy(tmp_targetcells, target_cells_.data(), nbytes_targetcells);
-	//OCL_objs.cmdqueue.enqueueUnmapMemObject(buff_target_cells, tmp_targetcells);
 	
 	// call the kernel that assigns points to cells
 	size_t local_size3     = NUMWORKITEMS_PER_WORKGROUP;
@@ -1778,9 +1692,8 @@ void ndt_mapping::initCompute()
 	OCL_objs.kernel_firstPass.setArg(2, buff_target_cells);
 	OCL_objs.kernel_firstPass.setArg(3, static_cast<int>(cellNo));
 	OCL_objs.kernel_firstPass.setArg(4, minVoxel);
-	OCL_objs.kernel_firstPass.setArg(5, (1/resolution_));
-	OCL_objs.kernel_firstPass.setArg(6, voxelDimension[0]);
-	OCL_objs.kernel_firstPass.setArg(7, voxelDimension[1]);
+	OCL_objs.kernel_firstPass.setArg(5, voxelDimension[0]);
+	OCL_objs.kernel_firstPass.setArg(6, voxelDimension[1]);
 
 	OCL_objs.kernel_radiusSearch.setArg(0, buff_target);
 	OCL_objs.kernel_radiusSearch.setArg(1, buff_target_cells);
@@ -1820,13 +1733,7 @@ void ndt_mapping::initCompute()
 		ndrange_offset4,
 		ndrange_globalsize4,
 		ndrange_localsize4);
-
-	// wait for the result
-	// and move the voxel grid into host memory
-	Voxel* tmp4_= (Voxel *) OCL_objs.cmdqueue.enqueueMapBuffer(
-		buff_target_cells, CL_TRUE, CL_MAP_READ, 0, nbytes_targetcells);
-	memcpy(target_cells_.data(), tmp4_, nbytes_targetcells);
-	OCL_objs.cmdqueue.enqueueUnmapMemObject(buff_target_cells, tmp4_);
+	// the result will be used in the radius search kernel
 }
 
 void ndt_mapping::ndt_align(const Matrix4f& guess)

@@ -1,3 +1,44 @@
+#ifndef RESOUTION
+#define RESOLUTION 1
+#endif
+#ifndef INV_RESOLUTION
+#define INV_RESOLUTION 1
+#endif
+#ifndef RADIUS
+#define RADIUS 1
+#endif
+#ifndef RADIUS_FINAL
+#define RADIUS_FINAL 1.001f
+#endif
+#if defined (DOUBLE_FP)
+#pragma OPENCL EXTENSION cl_khr_fp64 : enable
+#endif
+
+typedef struct {
+  #if defined (DOUBLE_FP)
+  double data[3][3];
+  #else
+  float data[3][3];
+  #endif
+} Mat33;
+
+#if defined (DOUBLE_FP)
+typedef double Vec3[3];
+#else
+typedef float Vec3[3];
+#endif
+
+typedef struct {
+    Mat33 invCovariance;
+    Vec3 mean;
+	int first;
+} Voxel;
+
+typedef struct {
+	Mat33 invCovariance;
+	Vec3 mean;
+	int point;
+} PointVoxel;
 
 typedef struct {
     float data[4];

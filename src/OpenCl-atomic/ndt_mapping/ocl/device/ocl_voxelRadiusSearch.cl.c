@@ -1,16 +1,17 @@
-#ifndef RESOUTION
-#define RESOLUTION 1
-#endif
-#ifndef INV_RESOLUTION
-#define INV_RESOLUTION 1
-#endif
-#ifndef RADIUS
-#define RADIUS 1
-#endif
-#ifndef RADIUS_FINAL
-#define RADIUS_FINAL 1.001f
-#endif
-
+/**
+ * Performs radius search on a voxel grid and multiple points at once.
+ * In that each work item determines the near voxels of one point.
+ * input: point cloud
+ * target_cells: voxel grid
+ * result: pairs of voxels and point indices
+ * l_startIndex: start index of the work group in the result buffer
+ * l_resultNo: number of entries written to the result buffer by a work group
+ * pointNo: number of points in the input
+ * minVoxel: corner of the grid with minumum coordinates
+ * maxVoxel: corner of the grid with maximum coordinates
+ * voxelDimension_0: voxel grid size
+ * voxelDimension_1: voxel grid size
+ */
 __kernel
 void __attribute__ ((reqd_work_group_size(NUMWORKITEMS_PER_WORKGROUP,1,1)))
 radiusSearch(
@@ -51,7 +52,7 @@ radiusSearch(
 						// skip
 					} else {
 						// determine the distance to the voxel mean
-						int iVoxel =  linearizeCoord(x, y, z, minVoxel, INV_RESOLUTION, voxelDimension_0, voxelDimension_1);
+						int iVoxel =  linearizeCoord(x, y, z, minVoxel, voxelDimension_0, voxelDimension_1);
 						float dx = target_cells[iVoxel].mean[0] - point.data[0];
 						float dy = target_cells[iVoxel].mean[1] - point.data[1];
 						float dz = target_cells[iVoxel].mean[2] - point.data[2];

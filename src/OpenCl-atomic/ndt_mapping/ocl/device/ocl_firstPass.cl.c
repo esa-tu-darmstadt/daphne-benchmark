@@ -12,11 +12,11 @@ inline int linearizeAddr(
  */
 inline int linearizeCoord(
 	const float x, const float y, const float z, const PointXYZI minVoxel,
-	const float inv_resolution, const int voxelDimension_0, const int voxelDimension_1)
+	const int voxelDimension_0, const int voxelDimension_1)
 {
-	int idx_x = (x - minVoxel.data[0]) * inv_resolution;
-	int idx_y = (y - minVoxel.data[1]) * inv_resolution;
-	int idx_z = (z - minVoxel.data[2]) * inv_resolution;
+	int idx_x = (x - minVoxel.data[0]) * INV_RESOLUTION;
+	int idx_y = (y - minVoxel.data[1]) * INV_RESOLUTION;
+	int idx_z = (z - minVoxel.data[2]) * INV_RESOLUTION;
 	return linearizeAddr(idx_x, idx_y, idx_z, voxelDimension_0, voxelDimension_1);
 }
 
@@ -27,7 +27,6 @@ inline int linearizeCoord(
  * targetcells: voxel grid
  * targetcells_size: number of cells in the voxel grid
  * minVoxel: voxel grid starting coordinates
- * inv_resolution: inverted cell distance
  * voxelDimension: multi dimensional voxel grid size
  */
 __kernel
@@ -38,7 +37,6 @@ firstPass(
 	__global Voxel* restrict targetcells,
 	int targetcells_size,
 	PointXYZI minVoxel,
-	float inv_resolution,
 	int voxelDimension_0,
 	int voxelDimension_1)
 {
@@ -51,7 +49,6 @@ firstPass(
 		int voxelIndex = linearizeCoord (
 			temp_target.data[0], temp_target.data[1], temp_target.data[2],
 			minVoxel,
-			inv_resolution,
 			voxelDimension_0, voxelDimension_1
 		);
 		// append point to queue front
