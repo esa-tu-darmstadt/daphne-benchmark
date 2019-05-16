@@ -264,11 +264,11 @@ void points2image::init() {
  * imageSize: the size of the resulting image
  * returns: the two dimensional image of transformed points
  */
-PointsImage
-pointcloud2_to_image(const PointCloud2& pointcloud2,
-                     const Mat44& cameraExtrinsicMat,
-                     const Mat33& cameraMat, const Vec5& distCoeff,
-                     const ImageSize& imageSize)
+PointsImage pointcloud2_to_image(
+	const PointCloud2& pointcloud2,
+	const Mat44& cameraExtrinsicMat,
+	const Mat33& cameraMat, const Vec5& distCoeff,
+	const ImageSize& imageSize)
 {
         // initialize the resulting image data structure
 	int w = imageSize.width;
