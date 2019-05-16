@@ -1460,6 +1460,7 @@ void ndt_mapping::check_next_outputs(int count)
 		}
 		// compare the matrices
 		for (int h = 0; h < 4; h++)
+		{
 			for (int w = 0; w < 4; w++)
 			{
 				float delta = std::fabs(reference.final_transformation.data[h][w] - results[i].final_transformation.data[h][w]);
@@ -1476,6 +1477,7 @@ void ndt_mapping::check_next_outputs(int count)
 					}
 				}
 			}
+		}
 	}
 }
 
