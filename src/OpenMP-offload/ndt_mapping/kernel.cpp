@@ -1546,7 +1546,9 @@ void ndt_mapping::initCompute() // kann als ganzes geoffloaded werden
   //  bool a =false;
 //    bool b =false;
 
-  Mat33 invCovarianceDeepCopy[sizeOfDatacell];
+  //Mat33 invCovarianceDeepCopy[sizeOfDatacell];
+	std::vector<Mat33> invCovarianceDeepCopyStorage(sizeOfDatacell);
+	Mat33* invCovarianceDeepCopy = invCovarianceDeepCopyStorage.data();
 // https://e-reports-ext.llnl.gov/pdf/884915.pdf
 
 
@@ -1727,6 +1729,7 @@ void ndt_mapping::run(int p) {
     //int corenum  ;
     //std::cin >> corenum;
     //omp_set_num_threads(corenum);
+	//std::cout << "Threads: " << omp_get_num_threads() << std::endl;
 
     while (read_testcases < testcases)
 	{
