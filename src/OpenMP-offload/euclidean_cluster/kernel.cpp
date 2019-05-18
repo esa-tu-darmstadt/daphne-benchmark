@@ -580,6 +580,8 @@ void extractEuclideanClusters (
 	// compute the pairwise distance matrix
 	bool *sqr_distances;
 	initRadiusSearch(cloud, &sqr_distances, tolerance);
+	std::vector<int> clusterAssignment(cloud_size, -1);
+	int currentCluster = 0;
 	// process all points
 	for (int i = 0; i < cloud.size(); ++i)
 	{
@@ -591,6 +593,7 @@ void extractEuclideanClusters (
 		int sq_idx = 0;
 		seed_queue.push_back (i);
 		processed[i] = true;
+		clusterAssignment[i] = currentCluster;
 		// grow the candidate cluster
 		while (sq_idx < seed_queue.size())
 		{
@@ -605,19 +608,42 @@ void extractEuclideanClusters (
 			{
 				seed_queue.push_back (nn_indices[j]);
 				processed[nn_indices[j]] = true;
+				clusterAssignment[nn_indices[j]] = currentCluster;
 			}
 			sq_idx++;
 		}
-
+		currentCluster += 1;
 		// finally add the candidate if it is of satisfactory size
-		if (seed_queue.size () >= min_pts_per_cluster && seed_queue.size () <= max_pts_per_cluster)
+		/*if (seed_queue.size () >= min_pts_per_cluster && seed_queue.size () <= max_pts_per_cluster)
 		{
 			PointIndices r;
 			r.indices.resize (seed_queue.size ());
 			for (size_t j = 0; j < seed_queue.size (); ++j)
-			r.indices[j] = seed_queue[j];
+				r.indices[j] = seed_queue[j];
 			std::sort (r.indices.begin (), r.indices.end ());
 			clusters.push_back (r);   // We could avoid a copy by working directly in the vector
+			currentCluster += 1;
+		}*/
+	}
+	clusters.clear(); // ensure size 0
+	// move points into clusters
+	for (int i = 0; i < cloud_size; i++) {
+		if (clusterAssignment[i] > -1) {
+			int iCluster = clusterAssignment[i];
+			// insert into result
+			// ensure cluster exists
+			while (iCluster >= clusters.size()) {
+				clusters.push_back(PointIndices());
+			}
+			clusters[iCluster].indices.push_back(i);
+		}
+	}
+	// postprocess clusters
+	for (auto it = clusters.begin(); it != clusters.end();) {
+		if (it->indices.size() < min_pts_per_cluster || it->indices.size() > max_pts_per_cluster) {
+			clusters.erase(it);
+		} else {
+			it++;
 		}
 	}
 	free(sqr_distances);
@@ -1063,6 +1089,8 @@ void euclidean_clustering::check_next_outputs(int count)
 		// test for size differences
 		if (reference_out_cloud.size() != out_cloud_ptr[i].size())
 		{
+			std::cout << "Deviating size (" << out_cloud_ptr[i].size() << "!=";
+			std::cout <<  reference_out_cloud.size() << ")" << std::endl;
 			error_so_far = true;
 			continue;
 		}
