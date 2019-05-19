@@ -574,7 +574,7 @@ void extractEuclideanClusters (
 	int nn_start_idx = 0;
 	// data structures for cluster extraction
 	int cloud_size = cloud.size();
-	bool* processed = (bool*) malloc(sizeof(bool)*cloud_size);
+	bool* processed = new bool[cloud_size];//(bool*) malloc(sizeof(bool)*cloud_size);
 	int* clusterAssignment = new int[cloud_size];
 	int* clusterCandidate = new int[cloud_size];
 	#pragma omp parallel for default(none) shared(cloud_size, processed, clusterAssignment)
@@ -583,8 +583,21 @@ void extractEuclideanClusters (
 		clusterAssignment[i] = -1;
 	}
 	// compute the pairwise distance matrix
-	bool *sqr_distances;
-	initRadiusSearch(cloud, &sqr_distances, tolerance);
+	bool *sqr_distances = new bool[cloud_size*cloud_size];
+	const Point* points = cloud.data();
+	#pragma omp parallel for default(none) shared(points, sqr_distances, cloud_size, tolerance)
+	for (int j = 0; j < cloud_size; j++) {
+		// determine pairwise point distances
+		for (int i = 0; i < cloud_size; i++) {
+			float dx = points[i].x - points[j].x;
+			float dy = points[i].y - points[j].y;
+			float dz = points[i].z - points[j].z;
+			float dist = dx*dx + dy*dy + dz*dz;
+			sqr_distances[j*cloud_size + i] = dist <= tolerance*tolerance;
+		}
+		// make a point far away from itself
+		sqr_distances[j*cloud_size + j] = false;
+	}
 	// progress indicators
 	//int currentCluster = 0;
 	int iCandidate = 0;
@@ -663,8 +676,8 @@ void extractEuclideanClusters (
 	}
 	delete clusterCandidate;
 	delete clusterAssignment;
-	free(sqr_distances);
-	free(processed);
+	delete sqr_distances;
+	delete processed;
 }
 
 /**
