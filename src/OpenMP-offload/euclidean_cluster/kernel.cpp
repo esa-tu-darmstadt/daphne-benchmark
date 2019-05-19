@@ -15,6 +15,7 @@ const bool _pose_estimation = true;
 
 // maximum allowed deviation from the reference data
 #define MAX_EPS 0.001
+#define PARALLEL_REGION_SIZE 10
 
 class euclidean_clustering : public kernel {
 private:
@@ -510,7 +511,7 @@ void initRadiusSearch(const std::vector<Point> &points, bool**  sqr_distances, c
 	*sqr_distances = (bool*) malloc(n * n * sizeof(bool));
 	float sqr_radius = radius * radius;
 	#pragma omp parallel for default(none) shared(points, sqr_distances, n, sqr_radius) schedule(dynamic)
-	for (int j = 0; j < n; j++){
+	for (int j = 0; j < n; j++) {
 		for (int i = 0; i < n; i++){
 			float dx = points[i].x - points[j].x;
 			float dy = points[i].y - points[j].y;
@@ -518,6 +519,8 @@ void initRadiusSearch(const std::vector<Point> &points, bool**  sqr_distances, c
 			float sqr_dist = dx*dx + dy*dy + dz*dz;
 			(*sqr_distances)[j*n+i] = sqr_dist <= sqr_radius;
 		}
+		// a point is not near to itself
+		(*sqr_distances)[j*n+j] = false;
 	}
 }
 
@@ -569,61 +572,73 @@ void extractEuclideanClusters (
 	unsigned int max_pts_per_cluster)
 {
 	int nn_start_idx = 0;
-	// Create a bool vector of processed point indices, and initialize it to false
-	bool* processed = (bool*) malloc(sizeof(bool) * cloud.size());
+	// data structures for cluster extraction
 	int cloud_size = cloud.size();
-	#pragma omp parallel for default(none) shared(cloud_size, processed)
-	for(int i = 0; i < cloud_size; ++i){
+	bool* processed = (bool*) malloc(sizeof(bool)*cloud_size);
+	int* clusterAssignment = new int[cloud_size];
+	int* clusterCandidate = new int[cloud_size];
+	#pragma omp parallel for default(none) shared(cloud_size, processed, clusterAssignment)
+	for (int i = 0; i < cloud_size; ++i){
 		processed[i] = false;
+		clusterAssignment[i] = -1;
 	}
-	std::vector<int> nn_indices;
 	// compute the pairwise distance matrix
 	bool *sqr_distances;
 	initRadiusSearch(cloud, &sqr_distances, tolerance);
-	std::vector<int> clusterAssignment(cloud_size, -1);
-	int currentCluster = 0;
+	// progress indicators
+	//int currentCluster = 0;
+	int iCandidate = 0;
+	std::vector<int> nn_indices;
 	// process all points
-	for (int i = 0; i < cloud.size(); ++i)
+	for (int i = 0; i < cloud_size; ++i)
 	{
 		// discard the iteration for points that have already been looked at
 		if (processed[i])
 			continue;
 		// begin with a cluster of one element
-		std::vector<int> seed_queue;
-		int sq_idx = 0;
-		seed_queue.push_back (i);
+		//int sq_idx = 0;
+		clusterCandidate[0] = i;
+		int candidateSize = 1;
+		int iPivot = 0;
 		processed[i] = true;
-		clusterAssignment[i] = currentCluster;
+		clusterAssignment[i] = iCandidate;
 		// grow the candidate cluster
-		while (sq_idx < seed_queue.size())
+		while (iPivot < candidateSize)
 		{
-			// add near points to the candidate and mark them as processed
-			int ret = radiusSearch(seed_queue[sq_idx], nn_indices, sqr_distances, processed, cloud.size());
-			if (!ret)
-			{
-				sq_idx++;
-				continue;
+			int pivot = clusterCandidate[iPivot];
+			// iterate until all elements for the pivot have been processed
+			#pragma omp parallel for default(none) shared(iCandidate, pivot, cloud_size, sqr_distances, processed, clusterAssignment, clusterCandidate, candidateSize)
+			for (int regionStart = 0; regionStart < cloud_size + PARALLEL_REGION_SIZE; regionStart += PARALLEL_REGION_SIZE) { 
+				// find near points in the current region
+				int regionEnd = std::min(regionStart + PARALLEL_REGION_SIZE, cloud_size);
+				int subCandidateNo = 0;
+				int subCandidates[PARALLEL_REGION_SIZE];
+				// find near points in the current region
+				for (int j = regionStart; j < regionEnd; j++) {
+					if (sqr_distances[pivot*cloud_size + j] && !processed[j]) {
+						subCandidates[subCandidateNo] = j;
+						subCandidateNo += 1;
+					}
+				}
+				// allocate a region in the result buffer
+				if (subCandidateNo > 0) {
+					#pragma omp atomic capture
+					{
+						regionStart = candidateSize;
+						candidateSize += subCandidateNo;
+					}
+				}
+				// fill the allocated region
+				for (int i = 0; i < subCandidateNo; i++) {
+					int point = subCandidates[i];
+					clusterCandidate[regionStart + i] = point;
+					processed[point] = true;
+					clusterAssignment[point] = iCandidate;
+				}
 			}
-			for (size_t j = nn_start_idx; j < nn_indices.size (); ++j)
-			{
-				seed_queue.push_back (nn_indices[j]);
-				processed[nn_indices[j]] = true;
-				clusterAssignment[nn_indices[j]] = currentCluster;
-			}
-			sq_idx++;
+			iPivot += 1;
 		}
-		currentCluster += 1;
-		// finally add the candidate if it is of satisfactory size
-		/*if (seed_queue.size () >= min_pts_per_cluster && seed_queue.size () <= max_pts_per_cluster)
-		{
-			PointIndices r;
-			r.indices.resize (seed_queue.size ());
-			for (size_t j = 0; j < seed_queue.size (); ++j)
-				r.indices[j] = seed_queue[j];
-			std::sort (r.indices.begin (), r.indices.end ());
-			clusters.push_back (r);   // We could avoid a copy by working directly in the vector
-			currentCluster += 1;
-		}*/
+		iCandidate += 1;
 	}
 	clusters.clear(); // ensure size 0
 	// move points into clusters
@@ -646,6 +661,8 @@ void extractEuclideanClusters (
 			it++;
 		}
 	}
+	delete clusterCandidate;
+	delete clusterAssignment;
 	free(sqr_distances);
 	free(processed);
 }
