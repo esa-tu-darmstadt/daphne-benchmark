@@ -43,6 +43,9 @@ For their licenses see license folder.
 
 class ndt_mapping : public kernel {
 private:
+	// openmp device
+	int deviceId;
+private:
 	// the number of testcases read
 	int read_testcases = 0;
 	PointCloud* filtered_scan_ptr = nullptr;
@@ -81,15 +84,26 @@ private:
 	PointCloud* input_ = nullptr;
 	PointCloud* target_ = nullptr;
 	// voxel grid spanning over all points
+	Voxel* voxelGrid;
 	VoxelGrid target_cells_;
 	// voxel grid extend
 	PointXYZI minVoxel, maxVoxel;
 	int voxelDimension[3];
 public:
+	ndt_mapping();
+public:
 	virtual void init();
 	virtual void run(int p = 1);
 	virtual bool check_output();
 protected:
+	/**
+	 * Allocates device memory
+	 */
+	void* deviceAlloc(size_t size);
+	/**
+	 * Frees device memory
+	 */
+	void deviceFree(void* ptr);
 	/**
 	 * Reads the number of testcases in the data file
 	 */
@@ -158,7 +172,20 @@ protected:
 		std::vector<float> distances);
 };
 
-
+void ndt_mapping::deviceFree(void* ptr) {
+	if (deviceId > 0) {
+		omp_target_free(ptr, deviceId);
+	} else {
+		free(ptr);
+	}
+}
+void* ndt_mapping::deviceAlloc(size_t size) {
+	if (deviceId > 0) {
+		return omp_target_alloc(size, deviceId);
+	} else {
+		return malloc(size);
+	}
+}
 /**
  * Reads the next point cloud.
  */
@@ -374,7 +401,10 @@ void solve(Vec6& result, Mat66 A, Vec6& b)
 		result[i]=(b[i]-sum)/A.data[i][i];
 	}
 }
-
+ndt_mapping::ndt_mapping() :
+	deviceId(0),
+	voxelGrid(nullptr)
+	{}
 
 void ndt_mapping::init() {
 	std::cout << "init\n";
@@ -407,7 +437,11 @@ void ndt_mapping::init() {
 	init_guess = nullptr;
 	filtered_scan_ptr = nullptr;
 	results = nullptr;
-	std::cout << "Target devices: " << omp_get_num_devices() << std::endl;
+	// TODO: pass device as argument?
+	deviceId = std::max(0, omp_get_num_devices() - 1);
+	int deviceNo = omp_get_num_devices();
+	std::cout << "Selected target device " << deviceId;
+	std::cout << " out of " << deviceNo << std::endl;
 	std::cout << "done\n" << std::endl;
 }
 
@@ -603,7 +637,7 @@ void ndt_mapping::computePointDerivatives (Vec3 &x, bool compute_hessian)
 void ndt_mapping::computeHessian (Mat66 &hessian,
 	PointCloud &trans_cloud, Vec6 &)
 {
-	memset(&(hessian.data[0][0]), 0, sizeof(double) * 6 * 6);
+	/*memset(&(hessian.data[0][0]), 0, sizeof(double) * 6 * 6);
 
 	// Precompute Angular Derivatives unessisary because only used after regular derivative calculation
 	// Update hessian for each point, line 17 in Algorithm 2 [Magnusson 2009]
@@ -641,7 +675,10 @@ void ndt_mapping::computeHessian (Mat66 &hessian,
 			// Update hessian, lines 21 in Algorithm 2, according to Equations 6.10, 6.12 and 6.13, respectively [Magnusson 2009]
 			updateHessian (hessian, x_trans, c_inv);
 		}
-	}
+	}*/
+	// TODO: implement on device
+	throw new std::logic_error("unanticipated region");
+	
 }
 
 void ndt_mapping::updateHessian (Mat66 &hessian, Vec3 &x_trans, Mat33 &c_inv)
@@ -1365,12 +1402,19 @@ void ndt_mapping::initCompute()
 	target_cells_.clear();
 	target_cells_.resize(voxelDimension[0] * voxelDimension[1] * voxelDimension[2]);
 
-	int sizeOfDatacell = voxelDimension[0] * voxelDimension[1] * voxelDimension[2]; // erreicht 3millionen
+	int sizeOfDatacell = voxelDimension[0] * voxelDimension[1] * voxelDimension[2];
 	Voxel* dataCell = target_cells_.data();
 	int targetSize = target_->size();
 	PointXYZI *targetData = target_->data();
+	//int* nextTarget = new int[targetSize];
+	//int* nextTarget = (int*)omp_target_alloc(sizeof(int)*targetSize);
+	if (voxelGrid != nullptr) {
+		deviceFree(voxelGrid);
+	}
+	voxelGrid = (Voxel*)deviceAlloc(sizeof(Voxel)*sizeOfDatacell);
+	//int* nextTarget = (int*)deviceAlloc(sizeof(int)*targetSize);
 	int* nextTarget = new int[targetSize];
-
+	
 	PointXYZI minVoxelTransferable = minVoxel;
 	int voxelDim[3];
 	for (int i = 0; i < 3; i++) {
@@ -1463,6 +1507,7 @@ void ndt_mapping::initCompute()
 				{1,0,0}
 			}};
 		}
+		#pragma omp flush
 		// first pass to put everything in the right voxel leaf
 		#pragma omp target teams distribute parallel for
 		for (int i = 0; i < targetSize; i++) // Reduction sum
@@ -1477,6 +1522,7 @@ void ndt_mapping::initCompute()
 			}
 			nextTarget[i] = iNext;
 		}
+		#pragma omp flush
 		// second pass to finalize average and sum of all leafs
 		#pragma omp target teams distribute parallel for
 		for (int i = 0; i < sizeOfDatacell; i++)
@@ -1521,6 +1567,7 @@ void ndt_mapping::initCompute()
 		dataCell[i].invCovariance = invCovarianceDeepCopy[i];
 	}
 	delete invCovarianceDeepCopy;
+	//deviceFree(nextTarget);
 	delete nextTarget;
 }
 
@@ -1619,12 +1666,16 @@ void ndt_mapping::check_next_outputs(int count)
 bool ndt_mapping::check_output() {
 	std::cout << "checking output \n";
 	// complement to init()
+	if (voxelGrid != nullptr) {
+		deviceFree(voxelGrid);
+	}
 	input_file.close();
 	output_file.close();
 	// check for error
 	std::cout << "max delta: " << max_delta << "\n";
 	return !error_so_far;
 }
+
 
 ndt_mapping a = ndt_mapping();
 kernel& myKernel = a;
