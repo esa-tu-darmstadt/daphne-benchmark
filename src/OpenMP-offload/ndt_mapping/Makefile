@@ -5,6 +5,7 @@
 
 CXXFLAGS=-O3
 CXXFLAGS+= -std=c++11 -fopenmp
+CXXFLAGS+= -lm -foffload=-lm
 
 all: kernel checkdata
 

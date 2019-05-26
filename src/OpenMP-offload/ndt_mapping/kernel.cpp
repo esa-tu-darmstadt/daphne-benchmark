@@ -407,6 +407,7 @@ void ndt_mapping::init() {
 	init_guess = nullptr;
 	filtered_scan_ptr = nullptr;
 	results = nullptr;
+	std::cout << "Target devices: " << omp_get_num_devices() << std::endl;
 	std::cout << "done\n" << std::endl;
 }
 
@@ -1376,7 +1377,9 @@ void ndt_mapping::initCompute()
 	}
 	float resolution = resolution_;
 	Mat33* invCovarianceDeepCopy = new Mat33[sizeOfDatacell];
-	#pragma omp target map(to:sizeOfDatacell,targetSize,targetData[:targetSize],resolution,minVoxelTransferable.data[:4],voxelDim[:3]) map(from:dataCell[:sizeOfDatacell],invCovarianceDeepCopy[:sizeOfDatacell])// map(tofrom:a)
+	/*#pragma omp target \
+	map(to:sizeOfDatacell,targetSize,targetData[:targetSize],resolution,minVoxelTransferable.data[:4],voxelDim[:3]) \
+	map(from:dataCell[:sizeOfDatacell],invCovarianceDeepCopy[:sizeOfDatacell])
 	{
 		#pragma omp teams distribute parallel for
 		for (int i = 0; i < sizeOfDatacell; i++)
@@ -1393,6 +1396,8 @@ void ndt_mapping::initCompute()
 				{1,0,0}
 			}};
 		}
+	//}
+	//{
 		// first pass to put everything in the right voxel leaf
 		for (int i = 0; i <targetSize; i++) // Reduction sum
 		{
@@ -1408,8 +1413,72 @@ void ndt_mapping::initCompute()
 				for (int col = 0; col < 3; col ++)
 					invCovarianceDeepCopy[voxelIndex].data[row][col] += targetData[i].data[row] * targetData[i].data[col];
 		}
+	//}
+	//#pragma omp target \
+	//map(to: sizeOfDatacell,resolution,minVoxelTransferable.data[:4],voxelDim[:3]) \
+	//map(tofrom: dataCell[:sizeOfDatacell], invCovarianceDeepCopy[:sizeOfDatacell])
+	//{
+	
 		// second pass to finalize average and sum of all leafs
 		#pragma omp teams distribute parallel for
+		for (int i = 0; i < sizeOfDatacell; i++)
+		{
+			Vec3 pointSum = {dataCell[i].mean[0], dataCell[i].mean[1], dataCell[i].mean[2]};
+
+			dataCell[i].mean[0] /= dataCell[i].numberPoints;
+			dataCell[i].mean[1] /= dataCell[i].numberPoints;
+			dataCell[i].mean[2] /= dataCell[i].numberPoints;
+
+			for (int row = 0; row < 3; row++) {
+				for (int col = 0; col < 3; col++)
+				{
+					invCovarianceDeepCopy[i].data[row][col] = (invCovarianceDeepCopy[i].data[row][col] -
+						2 * (pointSum[row] * dataCell[i].mean[col])) / sizeOfDatacell +
+						dataCell[i].mean[row]*dataCell[i].mean[col];
+
+					invCovarianceDeepCopy[i].data[row][col] *= (sizeOfDatacell -1.0) / dataCell[i].numberPoints;
+				}
+			}
+			invertMatrix(invCovarianceDeepCopy[i]);
+		}
+	}*/
+	#pragma omp target data \
+	map(to:sizeOfDatacell,targetSize,targetData[:targetSize],resolution,minVoxelTransferable.data[:4],voxelDim[:3]) \
+	map(from:dataCell[:sizeOfDatacell],invCovarianceDeepCopy[:sizeOfDatacell])
+	{
+		#pragma omp target teams distribute parallel for
+		for (int i = 0; i < sizeOfDatacell; i++)
+		{
+			dataCell[i].numberPoints = 0;
+			dataCell[i].mean[0] = 0;
+			dataCell[i].mean[1] = 0;
+			dataCell[i].mean[2] = 0;
+
+			//#pragma omp simd
+			invCovarianceDeepCopy[i] = {.data ={
+				{0,0,1},
+				{0,1,0},
+				{1,0,0}
+			}};
+		}
+		// first pass to put everything in the right voxel leaf
+		#pragma omp target
+		for (int i = 0; i < targetSize; i++) // Reduction sum
+		{
+			int voxelIndex = linearizeCoordOFF( targetData[i].data[0], targetData[i].data[1], targetData[i].data[2],resolution,minVoxelTransferable,voxelDim);
+
+			dataCell[voxelIndex].mean[0] += targetData[i].data[0];
+			dataCell[voxelIndex].mean[1] += targetData[i].data[1];
+			dataCell[voxelIndex].mean[2] += targetData[i].data[2];
+			dataCell[voxelIndex].numberPoints++;
+
+			// sum up x * xT for single pass covariance calculation
+			for (int row = 0; row < 3; row ++)
+				for (int col = 0; col < 3; col ++)
+					invCovarianceDeepCopy[voxelIndex].data[row][col] += targetData[i].data[row] * targetData[i].data[col];
+		}
+		// second pass to finalize average and sum of all leafs
+		#pragma omp target teams distribute parallel for
 		for (int i = 0; i < sizeOfDatacell; i++)
 		{
 			Vec3 pointSum = {dataCell[i].mean[0], dataCell[i].mean[1], dataCell[i].mean[2]};
