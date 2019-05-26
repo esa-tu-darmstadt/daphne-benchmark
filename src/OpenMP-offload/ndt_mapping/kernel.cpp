@@ -44,7 +44,7 @@ For their licenses see license folder.
 class ndt_mapping : public kernel {
 private:
 	// openmp device
-	int deviceId;
+	int deviceId = 0;
 private:
 	// the number of testcases read
 	int read_testcases = 0;
@@ -89,8 +89,6 @@ private:
 	// voxel grid extend
 	PointXYZI minVoxel, maxVoxel;
 	int voxelDimension[3];
-public:
-	ndt_mapping();
 public:
 	virtual void init();
 	virtual void run(int p = 1);
@@ -401,10 +399,6 @@ void solve(Vec6& result, Mat66 A, Vec6& b)
 		result[i]=(b[i]-sum)/A.data[i][i];
 	}
 }
-ndt_mapping::ndt_mapping() :
-	deviceId(0),
-	voxelGrid(nullptr)
-	{}
 
 void ndt_mapping::init() {
 	std::cout << "init\n";
@@ -438,8 +432,8 @@ void ndt_mapping::init() {
 	filtered_scan_ptr = nullptr;
 	results = nullptr;
 	// TODO: pass device as argument?
-	deviceId = std::max(0, omp_get_num_devices() - 1);
 	int deviceNo = omp_get_num_devices();
+	deviceId = std::max(0, deviceNo - 1);
 	std::cout << "Selected target device " << deviceId;
 	std::cout << " out of " << deviceNo << std::endl;
 	std::cout << "done\n" << std::endl;

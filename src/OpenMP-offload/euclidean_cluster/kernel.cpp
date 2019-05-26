@@ -19,6 +19,8 @@ const bool _pose_estimation = true;
 
 class euclidean_clustering : public kernel {
 private:
+	int deviceId = 0;
+private:
 	// input point cloud
 	PointCloud *in_cloud_ptr = nullptr;
 	// colored point cloud
@@ -620,7 +622,9 @@ void extractEuclideanClusters (
 		{
 			int pivot = clusterCandidate[iPivot];
 			// iterate until all elements for the pivot have been processed
-			#pragma omp parallel for default(none) shared(iCandidate, pivot, cloud_size, sqr_distances, processed, clusterAssignment, clusterCandidate, candidateSize)
+			#pragma omp parallel for \
+			default(none) \
+			shared(iCandidate, pivot, cloud_size, sqr_distances, processed, clusterAssignment, clusterCandidate, candidateSize)
 			for (int regionStart = 0; regionStart < cloud_size + PARALLEL_REGION_SIZE; regionStart += PARALLEL_REGION_SIZE) { 
 				// find near points in the current region
 				int regionEnd = std::min(regionStart + PARALLEL_REGION_SIZE, cloud_size);
@@ -1013,6 +1017,11 @@ void euclidean_clustering::init() {
 		std::cerr << e.what() << std::endl;
 		exit(-3);
 	}
+	// select device
+	int deviceNo = omp_get_num_devices();
+	deviceId = std::max(0, deviceNo - 1);
+	std::cout << "Selected device " << deviceId;
+	std::cout << " out of " << deviceNo << std::endl;
 	// prepare for the first iteration
 	error_so_far = false;
 	max_delta = 0.0;

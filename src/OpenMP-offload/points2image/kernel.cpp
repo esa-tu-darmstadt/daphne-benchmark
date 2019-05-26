@@ -26,6 +26,8 @@
 
 class points2image : public kernel {
 private:
+	int deviceId = 0;
+private:
 	// the number of testcases read
 	int read_testcases = 0;
 	// testcase and reference data streams
@@ -253,6 +255,11 @@ void points2image::init() {
 		std::cerr << e.what() << std::endl;
 		exit(-3);
 	}
+	// device selection
+	int deviceNo = omp_get_num_devices();
+	deviceId = std::max(0, deviceNo -1);
+	std::cout << "Selected device " << deviceId;
+	std::cout << " out of " << deviceNo << std::endl;
 
 	// prepare the first iteration
 	error_so_far = false;
@@ -328,7 +335,10 @@ PointsImage pointcloud2_to_image(
 	int pCStepsize = pointcloud2.point_step;
 
 	// point transformation
-	#pragma omp target map(from:pointValue2Times100Array[:sizeMat],imagePointArray[:sizeMat]) map(to:cp[:sizeMaxCp],distCoeff,cameraMat,invT,invR,pCHeight,pCWidth,pCStepsize)
+	#pragma omp target \
+	map(from:pointValue2Times100Array[:sizeMat],imagePointArray[:sizeMat]) \
+	map(to:cp[:sizeMaxCp],distCoeff,cameraMat,invT,invR,pCHeight,pCWidth,pCStepsize)
+	{
 	#pragma omp teams distribute parallel for collapse(2)
 	for (uint32_t x = 0; x < pCWidth; ++x) {
 		for (uint32_t y = 0; y < pCHeight; ++y) {
@@ -375,6 +385,7 @@ PointsImage pointcloud2_to_image(
 			imagePointArray[indexMat] = imagepoint;
 			}
 		}
+	}
 	// image formation
 	for (uint32_t x = 0; x < pointcloud2.width; ++x) {
 		for (uint32_t y = 0; y < pointcloud2.height; ++y) {
