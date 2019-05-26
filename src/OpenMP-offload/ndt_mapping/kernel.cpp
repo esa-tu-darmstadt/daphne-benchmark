@@ -1369,6 +1369,7 @@ void ndt_mapping::initCompute()
 	Voxel* dataCell = target_cells_.data();
 	int targetSize = target_->size();
 	PointXYZI *targetData = target_->data();
+	int* nextTarget = new int[targetSize];
 
 	PointXYZI minVoxelTransferable = minVoxel;
 	int voxelDim[3];
@@ -1444,12 +1445,13 @@ void ndt_mapping::initCompute()
 	}*/
 	#pragma omp target data \
 	map(to:sizeOfDatacell,targetSize,targetData[:targetSize],resolution,minVoxelTransferable.data[:4],voxelDim[:3]) \
+	map(alloc: nextTarget[:targetSize]) \
 	map(from:dataCell[:sizeOfDatacell],invCovarianceDeepCopy[:sizeOfDatacell])
 	{
 		#pragma omp target teams distribute parallel for
 		for (int i = 0; i < sizeOfDatacell; i++)
 		{
-			dataCell[i].numberPoints = 0;
+			dataCell[i].point = -1;
 			dataCell[i].mean[0] = 0;
 			dataCell[i].mean[1] = 0;
 			dataCell[i].mean[2] = 0;
@@ -1462,31 +1464,46 @@ void ndt_mapping::initCompute()
 			}};
 		}
 		// first pass to put everything in the right voxel leaf
-		#pragma omp target
+		#pragma omp target teams distribute parallel for
 		for (int i = 0; i < targetSize; i++) // Reduction sum
 		{
 			int voxelIndex = linearizeCoordOFF( targetData[i].data[0], targetData[i].data[1], targetData[i].data[2],resolution,minVoxelTransferable,voxelDim);
-
-			dataCell[voxelIndex].mean[0] += targetData[i].data[0];
-			dataCell[voxelIndex].mean[1] += targetData[i].data[1];
-			dataCell[voxelIndex].mean[2] += targetData[i].data[2];
-			dataCell[voxelIndex].numberPoints++;
-
-			// sum up x * xT for single pass covariance calculation
-			for (int row = 0; row < 3; row ++)
-				for (int col = 0; col < 3; col ++)
-					invCovarianceDeepCopy[voxelIndex].data[row][col] += targetData[i].data[row] * targetData[i].data[col];
+			// build the point index queue
+			int iNext;
+			#pragma omp atomic capture
+			{
+				iNext = dataCell[voxelIndex].point;
+				dataCell[voxelIndex].point = i;
+			}
+			nextTarget[i] = iNext;
 		}
 		// second pass to finalize average and sum of all leafs
 		#pragma omp target teams distribute parallel for
 		for (int i = 0; i < sizeOfDatacell; i++)
 		{
+			int pointNo = 0;
+			int iNext = dataCell[i].point;
+			while (iNext > -1) {
+				pointNo += 1;
+				// modify cell
+				dataCell[i].mean[0] += targetData[iNext].data[0];
+				dataCell[i].mean[1] += targetData[iNext].data[1];
+				dataCell[i].mean[2] += targetData[iNext].data[2];
+				for (int row = 0; row < 3; row ++) {
+					for (int col = 0; col < 3; col ++) {
+						invCovarianceDeepCopy[i].data[row][col] += targetData[iNext].data[row] * targetData[iNext].data[col];
+					}
+				}
+				// iterate
+				iNext = nextTarget[iNext];
+			}
+			// normalize
 			Vec3 pointSum = {dataCell[i].mean[0], dataCell[i].mean[1], dataCell[i].mean[2]};
-
-			dataCell[i].mean[0] /= dataCell[i].numberPoints;
-			dataCell[i].mean[1] /= dataCell[i].numberPoints;
-			dataCell[i].mean[2] /= dataCell[i].numberPoints;
-
+			if (pointNo > 0) {
+				dataCell[i].mean[0] /= pointNo;
+				dataCell[i].mean[1] /= pointNo;
+				dataCell[i].mean[2] /= pointNo;
+			}
 			for (int row = 0; row < 3; row++) {
 				for (int col = 0; col < 3; col++)
 				{
@@ -1494,7 +1511,7 @@ void ndt_mapping::initCompute()
 						2 * (pointSum[row] * dataCell[i].mean[col])) / sizeOfDatacell +
 						dataCell[i].mean[row]*dataCell[i].mean[col];
 
-					invCovarianceDeepCopy[i].data[row][col] *= (sizeOfDatacell -1.0) / dataCell[i].numberPoints;
+					invCovarianceDeepCopy[i].data[row][col] *= (sizeOfDatacell - 1.0)/pointNo;
 				}
 			}
 			invertMatrix(invCovarianceDeepCopy[i]);
@@ -1504,6 +1521,7 @@ void ndt_mapping::initCompute()
 		dataCell[i].invCovariance = invCovarianceDeepCopy[i];
 	}
 	delete invCovarianceDeepCopy;
+	delete nextTarget;
 }
 
 void ndt_mapping::ndt_align (const Matrix4f& guess)

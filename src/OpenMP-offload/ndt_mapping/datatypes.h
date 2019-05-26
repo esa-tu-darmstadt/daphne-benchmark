@@ -49,13 +49,18 @@ typedef struct CallbackResult {
     double fitness_score;
 } CallbackResult;
 
-typedef struct Voxel {
+/*typedef struct Voxel {
     Mat33 invCovariance;
     Vec3 mean;
     int numberPoints;
     int voxel_x;
     int voxel_y;
     int voxel_z;
+} Voxel;*/
+typedef struct Voxel {
+	Mat33 invCovariance;
+	Vec3 mean;
+	int point;
 } Voxel;
 
 typedef std::vector<Voxel> VoxelGrid;
