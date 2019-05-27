@@ -84,8 +84,7 @@ private:
 	PointCloud* input_ = nullptr;
 	PointCloud* target_ = nullptr;
 	// voxel grid spanning over all points
-	Voxel* voxelGrid = nullptr;
-	Mat33* voxelMat = nullptr;
+	Voxel* voxelGrid;
 	VoxelGrid target_cells_;
 	// voxel grid extend
 	PointXYZI minVoxel, maxVoxel;
@@ -426,8 +425,6 @@ void ndt_mapping::init() {
 			exit(-3);
 	}
 	// prepare the first iteration
-	voxelGrid = nullptr;
-	voxelMat = nullptr;
 	error_so_far = false;
 	max_delta = 0.0;
 	maps = nullptr;
@@ -634,7 +631,7 @@ void ndt_mapping::computePointDerivatives (Vec3 &x, bool compute_hessian)
 void ndt_mapping::computeHessian (Mat66 &hessian,
 	PointCloud &trans_cloud, Vec6 &)
 {
-	memset(&(hessian.data[0][0]), 0, sizeof(double) * 6 * 6);
+	/*memset(&(hessian.data[0][0]), 0, sizeof(double) * 6 * 6);
 
 	// Precompute Angular Derivatives unessisary because only used after regular derivative calculation
 	// Update hessian for each point, line 17 in Algorithm 2 [Magnusson 2009]
@@ -672,9 +669,9 @@ void ndt_mapping::computeHessian (Mat66 &hessian,
 			// Update hessian, lines 21 in Algorithm 2, according to Equations 6.10, 6.12 and 6.13, respectively [Magnusson 2009]
 			updateHessian (hessian, x_trans, c_inv);
 		}
-	}
+	}*/
 	// TODO: implement on device
-	//throw new std::logic_error("unanticipated region");
+	throw new std::logic_error("unanticipated region");
 	
 }
 
@@ -1395,14 +1392,22 @@ void ndt_mapping::initCompute()
 	voxelDimension[1] = (maxVoxel.data[1] - minVoxel.data[1]) / resolution_ + 1;
 	voxelDimension[2] = (maxVoxel.data[2] - minVoxel.data[2]) / resolution_ + 1;
 
+	// init the voxel array
+	target_cells_.clear();
+	target_cells_.resize(voxelDimension[0] * voxelDimension[1] * voxelDimension[2]);
+
 	int sizeOfDatacell = voxelDimension[0] * voxelDimension[1] * voxelDimension[2];
+	Voxel* dataCell = target_cells_.data();
 	int targetSize = target_->size();
 	PointXYZI *targetData = target_->data();
-	deviceFree(voxelGrid);
-	deviceFree(voxelMat);
+	//int* nextTarget = new int[targetSize];
+	//int* nextTarget = (int*)omp_target_alloc(sizeof(int)*targetSize);
+	if (voxelGrid != nullptr) {
+		deviceFree(voxelGrid);
+	}
 	voxelGrid = (Voxel*)deviceAlloc(sizeof(Voxel)*sizeOfDatacell);
-	voxelMat = (Mat33*)deviceAlloc(sizeof(Mat33)*sizeOfDatacell);
-	int* nextTarget = (int*)deviceAlloc(sizeof(int)*targetSize);
+	//int* nextTarget = (int*)deviceAlloc(sizeof(int)*targetSize);
+	int* nextTarget = new int[targetSize];
 	
 	PointXYZI minVoxelTransferable = minVoxel;
 	int voxelDim[3];
@@ -1410,21 +1415,87 @@ void ndt_mapping::initCompute()
 		voxelDim[i] = voxelDimension[i];
 	}
 	float resolution = resolution_;
-	//Mat33* invCovarianceDeepCopy = new Mat33[sizeOfDatacell];
-	#pragma omp target data \
-	map(to:sizeOfDatacell,targetSize,targetData[:targetSize],resolution,minVoxelTransferable.data[:4],voxelDim[:3])
+	Mat33* invCovarianceDeepCopy = new Mat33[sizeOfDatacell];
+	/*#pragma omp target \
+	map(to:sizeOfDatacell,targetSize,targetData[:targetSize],resolution,minVoxelTransferable.data[:4],voxelDim[:3]) \
+	map(from:dataCell[:sizeOfDatacell],invCovarianceDeepCopy[:sizeOfDatacell])
 	{
-		#pragma omp target teams distribute parallel for \
-		is_device_ptr(voxelGrid, voxelMat, nextTarget)
+		#pragma omp teams distribute parallel for
 		for (int i = 0; i < sizeOfDatacell; i++)
 		{
-			voxelGrid[i].point = -1;
-			voxelGrid[i].mean[0] = 0;
-			voxelGrid[i].mean[1] = 0;
-			voxelGrid[i].mean[2] = 0;
+			dataCell[i].numberPoints = 0;
+			dataCell[i].mean[0] = 0;
+			dataCell[i].mean[1] = 0;
+			dataCell[i].mean[2] = 0;
 
 			//#pragma omp simd
-			voxelMat[i] = {.data ={
+			invCovarianceDeepCopy[i] = {.data ={
+				{0,0,1},
+				{0,1,0},
+				{1,0,0}
+			}};
+		}
+	//}
+	//{
+		// first pass to put everything in the right voxel leaf
+		for (int i = 0; i <targetSize; i++) // Reduction sum
+		{
+			int voxelIndex = linearizeCoordOFF( targetData[i].data[0], targetData[i].data[1], targetData[i].data[2],resolution,minVoxelTransferable,voxelDim);
+
+			dataCell[voxelIndex].mean[0] += targetData[i].data[0];
+			dataCell[voxelIndex].mean[1] += targetData[i].data[1];
+			dataCell[voxelIndex].mean[2] += targetData[i].data[2];
+			dataCell[voxelIndex].numberPoints++;
+
+			// sum up x * xT for single pass covariance calculation
+			for (int row = 0; row < 3; row ++)
+				for (int col = 0; col < 3; col ++)
+					invCovarianceDeepCopy[voxelIndex].data[row][col] += targetData[i].data[row] * targetData[i].data[col];
+		}
+	//}
+	//#pragma omp target \
+	//map(to: sizeOfDatacell,resolution,minVoxelTransferable.data[:4],voxelDim[:3]) \
+	//map(tofrom: dataCell[:sizeOfDatacell], invCovarianceDeepCopy[:sizeOfDatacell])
+	//{
+	
+		// second pass to finalize average and sum of all leafs
+		#pragma omp teams distribute parallel for
+		for (int i = 0; i < sizeOfDatacell; i++)
+		{
+			Vec3 pointSum = {dataCell[i].mean[0], dataCell[i].mean[1], dataCell[i].mean[2]};
+
+			dataCell[i].mean[0] /= dataCell[i].numberPoints;
+			dataCell[i].mean[1] /= dataCell[i].numberPoints;
+			dataCell[i].mean[2] /= dataCell[i].numberPoints;
+
+			for (int row = 0; row < 3; row++) {
+				for (int col = 0; col < 3; col++)
+				{
+					invCovarianceDeepCopy[i].data[row][col] = (invCovarianceDeepCopy[i].data[row][col] -
+						2 * (pointSum[row] * dataCell[i].mean[col])) / sizeOfDatacell +
+						dataCell[i].mean[row]*dataCell[i].mean[col];
+
+					invCovarianceDeepCopy[i].data[row][col] *= (sizeOfDatacell -1.0) / dataCell[i].numberPoints;
+				}
+			}
+			invertMatrix(invCovarianceDeepCopy[i]);
+		}
+	}*/
+	#pragma omp target data \
+	map(to:sizeOfDatacell,targetSize,targetData[:targetSize],resolution,minVoxelTransferable.data[:4],voxelDim[:3]) \
+	map(alloc: nextTarget[:targetSize]) \
+	map(from:dataCell[:sizeOfDatacell],invCovarianceDeepCopy[:sizeOfDatacell])
+	{
+		#pragma omp target teams distribute parallel for
+		for (int i = 0; i < sizeOfDatacell; i++)
+		{
+			dataCell[i].point = -1;
+			dataCell[i].mean[0] = 0;
+			dataCell[i].mean[1] = 0;
+			dataCell[i].mean[2] = 0;
+
+			//#pragma omp simd
+			invCovarianceDeepCopy[i] = {.data ={
 				{0,0,1},
 				{0,1,0},
 				{1,0,0}
@@ -1432,8 +1503,7 @@ void ndt_mapping::initCompute()
 		}
 		#pragma omp flush
 		// first pass to put everything in the right voxel leaf
-		#pragma omp target teams distribute parallel for \
-		is_device_ptr(voxelGrid, nextTarget)
+		#pragma omp target teams distribute parallel for
 		for (int i = 0; i < targetSize; i++) // Reduction sum
 		{
 			int voxelIndex = linearizeCoordOFF( targetData[i].data[0], targetData[i].data[1], targetData[i].data[2],resolution,minVoxelTransferable,voxelDim);
@@ -1441,66 +1511,58 @@ void ndt_mapping::initCompute()
 			int iNext;
 			#pragma omp atomic capture
 			{
-				iNext = voxelGrid[voxelIndex].point;
-				voxelGrid[voxelIndex].point = i;
+				iNext = dataCell[voxelIndex].point;
+				dataCell[voxelIndex].point = i;
 			}
 			nextTarget[i] = iNext;
 		}
 		#pragma omp flush
 		// second pass to finalize average and sum of all leafs
-		#pragma omp target teams distribute parallel for \
-		is_device_ptr(voxelGrid, voxelMat, nextTarget)
+		#pragma omp target teams distribute parallel for
 		for (int i = 0; i < sizeOfDatacell; i++)
 		{
 			int pointNo = 0;
-			int iNext = voxelGrid[i].point;
+			int iNext = dataCell[i].point;
 			while (iNext > -1) {
 				pointNo += 1;
 				// modify cell
-				voxelGrid[i].mean[0] += targetData[iNext].data[0];
-				voxelGrid[i].mean[1] += targetData[iNext].data[1];
-				voxelGrid[i].mean[2] += targetData[iNext].data[2];
+				dataCell[i].mean[0] += targetData[iNext].data[0];
+				dataCell[i].mean[1] += targetData[iNext].data[1];
+				dataCell[i].mean[2] += targetData[iNext].data[2];
 				for (int row = 0; row < 3; row ++) {
 					for (int col = 0; col < 3; col ++) {
-						voxelMat[i].data[row][col] += targetData[iNext].data[row] * targetData[iNext].data[col];
+						invCovarianceDeepCopy[i].data[row][col] += targetData[iNext].data[row] * targetData[iNext].data[col];
 					}
 				}
 				// iterate
 				iNext = nextTarget[iNext];
 			}
 			// normalize
-			Vec3 pointSum = {voxelGrid[i].mean[0], voxelGrid[i].mean[1], voxelGrid[i].mean[2]};
+			Vec3 pointSum = {dataCell[i].mean[0], dataCell[i].mean[1], dataCell[i].mean[2]};
 			if (pointNo > 0) {
-				voxelGrid[i].mean[0] /= pointNo;
-				voxelGrid[i].mean[1] /= pointNo;
-				voxelGrid[i].mean[2] /= pointNo;
+				dataCell[i].mean[0] /= pointNo;
+				dataCell[i].mean[1] /= pointNo;
+				dataCell[i].mean[2] /= pointNo;
 			}
 			for (int row = 0; row < 3; row++) {
 				for (int col = 0; col < 3; col++)
 				{
-					voxelMat[i].data[row][col] = (voxelMat[i].data[row][col] -
-						2 * (pointSum[row] * voxelGrid[i].mean[col])) / sizeOfDatacell +
-						voxelGrid[i].mean[row]*voxelGrid[i].mean[col];
+					invCovarianceDeepCopy[i].data[row][col] = (invCovarianceDeepCopy[i].data[row][col] -
+						2 * (pointSum[row] * dataCell[i].mean[col])) / sizeOfDatacell +
+						dataCell[i].mean[row]*dataCell[i].mean[col];
 
-					voxelMat[i].data[row][col] *= (sizeOfDatacell - 1.0)/pointNo;
+					invCovarianceDeepCopy[i].data[row][col] *= (sizeOfDatacell - 1.0)/pointNo;
 				}
 			}
-			invertMatrix(voxelMat[i]);
+			invertMatrix(invCovarianceDeepCopy[i]);
 		}
 	}
-	target_cells_.clear();
-	target_cells_.resize(sizeOfDatacell);
-	std::vector<Mat33> invCovarianceDeepCopy(sizeOfDatacell);
-	if (deviceId > 0) {
-		throw new std::logic_error("not implemented");
-	} else {
-		std::memcpy(target_cells_.data(), voxelGrid, sizeof(Voxel)*sizeOfDatacell);
-		std::memcpy(invCovarianceDeepCopy.data(), voxelMat, sizeof(Mat33)*sizeOfDatacell);
-	}
 	for (int i = 0; i < sizeOfDatacell; i++) {
-		target_cells_[i].invCovariance = invCovarianceDeepCopy[i];
+		dataCell[i].invCovariance = invCovarianceDeepCopy[i];
 	}
-	deviceFree(nextTarget);
+	delete invCovarianceDeepCopy;
+	//deviceFree(nextTarget);
+	delete nextTarget;
 }
 
 void ndt_mapping::ndt_align (const Matrix4f& guess)
@@ -1598,8 +1660,9 @@ void ndt_mapping::check_next_outputs(int count)
 bool ndt_mapping::check_output() {
 	std::cout << "checking output \n";
 	// complement to init()
-	deviceFree(voxelGrid);
-	deviceFree(voxelMat);
+	if (voxelGrid != nullptr) {
+		deviceFree(voxelGrid);
+	}
 	input_file.close();
 	output_file.close();
 	// check for error
