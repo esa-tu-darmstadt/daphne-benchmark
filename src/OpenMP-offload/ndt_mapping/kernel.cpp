@@ -726,7 +726,7 @@ void ndt_mapping::updateHessian (Mat66 &hessian, Vec3 &x_trans, Mat33 &c_inv)
 }
 
 // from /usr/include/pcl-1.7/pcl/registration/impl/ndt.hpp
-double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
+/*double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 					Mat66 &hessian,
 					PointCloudSource &trans_cloud,
 					Vec6 &p,
@@ -776,8 +776,116 @@ double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 		}
 	}
 	return (score);
-}
+}*/
 
+double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
+					Mat66 &hessian,
+					PointCloudSource &trans_cloud,
+					Vec6 &p,
+					bool compute_hessian)
+{
+	memset(&(score_gradient[0]), 0, sizeof(double) * 6 );
+	memset(&(hessian.data[0][0]), 0, sizeof(double) * 6 * 6);
+	double score = 0.0;
+
+	// Precompute Angular Derivatives (eq. 6.19 and 6.21)[Magnusson 2009]
+	computeAngleDerivatives (p);
+	// Update gradient and hessian for each point, line 17 in Algorithm 2 [Magnusson 2009]
+	int pointNo = input_->size();
+	//std::vector<Voxel> neighborhood;
+	Voxel* neighborhood = new Voxel[pointNo*3*3*3];
+	std::vector<int> pointIndices;
+	int neighborNo = 0;
+	double radiusStart = resolution_;
+	double radiusFinal = resolution_;
+	double step = resolution_;
+	double radius = resolution_;
+	PointXYZI* transCloudData = trans_cloud.data();
+	float* voxelMaxBuffer = maxVoxel.data;
+	float* voxelMinBuffer = minVoxel.data;
+	Voxel* voxelGrid = this->voxelGrid;
+	Mat33* voxelMat = this->voxelMat;
+	/*#pragma omp target data \
+	map(to: radiusStart, radiusFinal, step, radius, voxelMinBuffer, voxelMaxBuffer) \
+	map(to: transCloudData[:pointNo]) \
+	map(tofrom: neighborNo) \
+	map(from: neighborhood[:pointNo*3*3*3]) \
+	map(to: voxelMat[:target_cells_.size()], voxelGrid[:target_cells_.size()])
+	#pragma omp target teams distribute parallel for \
+	default(none) \
+	firstprivate(radiusStart, radiusFinal, step, radius, pointNo, voxelMinBuffer, voxelMaxBuffer) \
+	shared(neighborNo, neighborhood, transCloudData, voxelGrid, voxelMat)*/
+	//is_device_ptr(voxelGrid, voxelMat) // can never use is_device_ptr with host memory?
+	#pragma omp parallel for \
+	default(none) \
+	firstprivate(pointNo, radiusStart, radiusFinal, step, radius, voxelMinBuffer, voxelMaxBuffer) \
+	shared(neighborNo, neighborhood, transCloudData, voxelGrid, voxelMat)
+	for (size_t idx = 0; idx < pointNo; idx++)
+	{
+		PointXYZI x_trans_pt = transCloudData[idx];
+		for (float z = x_trans_pt.data[2] - radiusStart; z <= x_trans_pt.data[2] + radiusFinal; z += step) {
+			for (float y = x_trans_pt.data[1] - radiusStart; y <= x_trans_pt.data[1] + radiusFinal; y += step) {
+				for (float x = x_trans_pt.data[0] - radiusStart; x <= x_trans_pt.data[0] + radiusFinal; x += step) {
+					if ((x < voxelMinBuffer[0]) || (x > voxelMaxBuffer[0]) ||
+						(y < voxelMinBuffer[1]) || (y > voxelMaxBuffer[1]) ||
+						(z < voxelMinBuffer[2]) || (z > voxelMaxBuffer[2])) {
+						// skip
+					} else {
+						int iVoxel = linearizeCoord(x, y, z);
+						float dx = voxelGrid[iVoxel].mean[0] - x_trans_pt.data[0];
+						float dy = voxelGrid[iVoxel].mean[1] - x_trans_pt.data[1];
+						float dz = voxelGrid[iVoxel].mean[2] - x_trans_pt.data[2];
+						float dist = dx*dx + dy*dy + dz*dz;
+						if (dist < radius*radius) {
+							Voxel pointVoxel = voxelGrid[iVoxel];
+							pointVoxel.invCovariance = voxelMat[iVoxel];
+							pointVoxel.point = idx;
+							int iNeighbor;
+							#pragma omp atomic capture
+							{
+								iNeighbor = neighborNo;
+								neighborNo++;
+							}
+							neighborhood[iNeighbor] = pointVoxel;
+							//printf("neighbor no %d\n", neighborNo);
+						}
+					}
+				}
+			}
+		}
+	}
+	std::cout << "grid: " << target_cells_.size() << std::endl;
+	std::cout << "neighbors: " << neighborNo << std::endl;
+		for (int i = 0; i < neighborNo; i++)
+		{
+			int iPoint = neighborhood[i].point;
+			PointXYZI x_pt = input_->at(iPoint);
+			PointXYZI x_trans_pt = trans_cloud[iPoint];
+			Vec3 x, x_trans;
+			x[0] = x_pt.data[0];
+			x[1] = x_pt.data[1];
+			x[2] = x_pt.data[2];
+
+			x_trans[0] = x_trans_pt.data[0];
+			x_trans[1] = x_trans_pt.data[1];
+			x_trans[2] = x_trans_pt.data[2];
+
+			// Denorm point, x_k' in Equations 6.12 and 6.13 [Magnusson 2009]
+			x_trans[0] -= neighborhood[i].mean[0];
+			x_trans[1] -= neighborhood[i].mean[1];
+			x_trans[2] -= neighborhood[i].mean[2];
+			// Uses precomputed covariance for speed.
+			Mat33 c_inv = neighborhood[i].invCovariance;
+
+			// Compute derivative of transform function w.r.t. transform vector, J_E and H_E in Equations 6.18 and 6.20 [Magnusson 2009]
+			computePointDerivatives (x);
+			// Update score, gradient and hessian, lines 19-21 in Algorithm 2, according to Equations 6.10, 6.12 and 6.13, respectively [Magnusson 2009]
+			score += updateDerivatives (score_gradient, hessian, x_trans, c_inv, compute_hessian);
+
+		}
+	delete neighborhood;
+	return (score);
+}
 void ndt_mapping::computeAngleDerivatives (Vec6 &p, bool compute_hessian)
 {
 	// Simplified math for near 0 angles
