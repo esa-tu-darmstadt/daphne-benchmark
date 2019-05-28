@@ -810,13 +810,12 @@ double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 	map(to: radiusStart, radiusFinal, step, radius, voxelMinBuffer, voxelMaxBuffer) \
 	map(to: transCloudData[:pointNo]) \
 	map(tofrom: pNeighborNo[:1]) \
-	map(from: neighborhood[:pointNo*3*3*3]) \
-	map(to: voxelMat[:target_cells_.size()], voxelGrid[:target_cells_.size()])
+	map(from: neighborhood[:pointNo*3*3*3])
 	#pragma omp target teams distribute parallel for \
 	default(none) \
 	firstprivate(radiusStart, radiusFinal, step, radius, pointNo, voxelMinBuffer, voxelMaxBuffer) \
-	shared(pNeighborNo, neighborhood, transCloudData, voxelGrid, voxelMat)
-	//is_device_ptr(voxelGrid, voxelMat) // can never use is_device_ptr with host memory?
+	shared(pNeighborNo, neighborhood, transCloudData, voxelGrid, voxelMat) \
+	is_device_ptr(voxelGrid, voxelMat)
 	//#pragma omp parallel for \
 	//default(none) \
 	//firstprivate(pointNo, radiusStart, radiusFinal, step, radius, voxelMinBuffer, voxelMaxBuffer) \
@@ -848,42 +847,39 @@ double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 								*pNeighborNo += 1;
 							}
 							neighborhood[iNeighbor] = pointVoxel;
-							//printf("neighbor no %d\n", neighborNo);
 						}
 					}
 				}
 			}
 		}
 	}
-	std::cout << "grid: " << target_cells_.size() << std::endl;
-	std::cout << "neighbors: " << neighborNo << std::endl;
-		for (int i = 0; i < neighborNo; i++)
-		{
-			int iPoint = neighborhood[i].point;
-			PointXYZI x_pt = input_->at(iPoint);
-			PointXYZI x_trans_pt = trans_cloud[iPoint];
-			Vec3 x, x_trans;
-			x[0] = x_pt.data[0];
-			x[1] = x_pt.data[1];
-			x[2] = x_pt.data[2];
+	for (int i = 0; i < neighborNo; i++)
+	{
+		int iPoint = neighborhood[i].point;
+		PointXYZI x_pt = input_->at(iPoint);
+		PointXYZI x_trans_pt = trans_cloud[iPoint];
+		Vec3 x, x_trans;
+		x[0] = x_pt.data[0];
+		x[1] = x_pt.data[1];
+		x[2] = x_pt.data[2];
 
-			x_trans[0] = x_trans_pt.data[0];
-			x_trans[1] = x_trans_pt.data[1];
-			x_trans[2] = x_trans_pt.data[2];
+		x_trans[0] = x_trans_pt.data[0];
+		x_trans[1] = x_trans_pt.data[1];
+		x_trans[2] = x_trans_pt.data[2];
 
-			// Denorm point, x_k' in Equations 6.12 and 6.13 [Magnusson 2009]
-			x_trans[0] -= neighborhood[i].mean[0];
-			x_trans[1] -= neighborhood[i].mean[1];
-			x_trans[2] -= neighborhood[i].mean[2];
-			// Uses precomputed covariance for speed.
-			Mat33 c_inv = neighborhood[i].invCovariance;
+		// Denorm point, x_k' in Equations 6.12 and 6.13 [Magnusson 2009]
+		x_trans[0] -= neighborhood[i].mean[0];
+		x_trans[1] -= neighborhood[i].mean[1];
+		x_trans[2] -= neighborhood[i].mean[2];
+		// Uses precomputed covariance for speed.
+		Mat33 c_inv = neighborhood[i].invCovariance;
 
-			// Compute derivative of transform function w.r.t. transform vector, J_E and H_E in Equations 6.18 and 6.20 [Magnusson 2009]
-			computePointDerivatives (x);
-			// Update score, gradient and hessian, lines 19-21 in Algorithm 2, according to Equations 6.10, 6.12 and 6.13, respectively [Magnusson 2009]
-			score += updateDerivatives (score_gradient, hessian, x_trans, c_inv, compute_hessian);
+		// Compute derivative of transform function w.r.t. transform vector, J_E and H_E in Equations 6.18 and 6.20 [Magnusson 2009]
+		computePointDerivatives (x);
+		// Update score, gradient and hessian, lines 19-21 in Algorithm 2, according to Equations 6.10, 6.12 and 6.13, respectively [Magnusson 2009]
+		score += updateDerivatives (score_gradient, hessian, x_trans, c_inv, compute_hessian);
 
-		}
+	}
 	delete neighborhood;
 	return (score);
 }
