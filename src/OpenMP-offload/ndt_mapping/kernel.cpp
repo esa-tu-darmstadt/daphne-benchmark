@@ -1593,7 +1593,8 @@ void ndt_mapping::initCompute()
 			invertMatrix(voxelMat[i]);
 		}
 	}
-	target_cells_.clear();
+	// TODO: remove if no longer required for testing
+	/*target_cells_.clear();
 	target_cells_.resize(sizeOfDatacell);
 	std::vector<Mat33> invCovarianceDeepCopy(sizeOfDatacell);
 	if (deviceId > 0) {
@@ -1604,7 +1605,7 @@ void ndt_mapping::initCompute()
 	}
 	for (int i = 0; i < sizeOfDatacell; i++) {
 		target_cells_[i].invCovariance = invCovarianceDeepCopy[i];
-	}
+	}*/
 	deviceFree(nextTarget);
 }
 
