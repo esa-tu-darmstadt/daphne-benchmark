@@ -796,6 +796,7 @@ double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 	Voxel* neighborhood = new Voxel[pointNo*3*3*3];
 	std::vector<int> pointIndices;
 	int neighborNo = 0;
+	int* pNeighborNo = &neighborNo;
 	double radiusStart = resolution_;
 	double radiusFinal = resolution_;
 	double step = resolution_;
@@ -805,21 +806,21 @@ double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 	float* voxelMinBuffer = minVoxel.data;
 	Voxel* voxelGrid = this->voxelGrid;
 	Mat33* voxelMat = this->voxelMat;
-	/*#pragma omp target data \
+	#pragma omp target data \
 	map(to: radiusStart, radiusFinal, step, radius, voxelMinBuffer, voxelMaxBuffer) \
 	map(to: transCloudData[:pointNo]) \
-	map(tofrom: neighborNo) \
+	map(tofrom: pNeighborNo[:1]) \
 	map(from: neighborhood[:pointNo*3*3*3]) \
 	map(to: voxelMat[:target_cells_.size()], voxelGrid[:target_cells_.size()])
 	#pragma omp target teams distribute parallel for \
 	default(none) \
 	firstprivate(radiusStart, radiusFinal, step, radius, pointNo, voxelMinBuffer, voxelMaxBuffer) \
-	shared(neighborNo, neighborhood, transCloudData, voxelGrid, voxelMat)*/
+	shared(pNeighborNo, neighborhood, transCloudData, voxelGrid, voxelMat)
 	//is_device_ptr(voxelGrid, voxelMat) // can never use is_device_ptr with host memory?
-	#pragma omp parallel for \
-	default(none) \
-	firstprivate(pointNo, radiusStart, radiusFinal, step, radius, voxelMinBuffer, voxelMaxBuffer) \
-	shared(neighborNo, neighborhood, transCloudData, voxelGrid, voxelMat)
+	//#pragma omp parallel for \
+	//default(none) \
+	//firstprivate(pointNo, radiusStart, radiusFinal, step, radius, voxelMinBuffer, voxelMaxBuffer) \
+	//shared(pNeighborNo, neighborhood, transCloudData, voxelGrid, voxelMat)
 	for (size_t idx = 0; idx < pointNo; idx++)
 	{
 		PointXYZI x_trans_pt = transCloudData[idx];
@@ -843,8 +844,8 @@ double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 							int iNeighbor;
 							#pragma omp atomic capture
 							{
-								iNeighbor = neighborNo;
-								neighborNo++;
+								iNeighbor = *pNeighborNo;
+								*pNeighborNo += 1;
 							}
 							neighborhood[iNeighbor] = pointVoxel;
 							//printf("neighbor no %d\n", neighborNo);
