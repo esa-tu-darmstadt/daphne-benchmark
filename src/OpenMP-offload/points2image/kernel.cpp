@@ -311,7 +311,7 @@ PointsImage pointcloud2_to_image(
 	int32_t max_y = -1;
 	int32_t min_y = h;
 
-	float* cp = (float *)pointcloud2.data;
+	float* cloud = (float *)pointcloud2.data;
 	// preprocess the given matrices
 	// transposed 3x3 camera extrinsic matrix
 	Mat33 invR;
@@ -328,22 +328,22 @@ PointsImage pointcloud2_to_image(
 	// various data sizes in bytes
 	int sizeMat = pointcloud2.width * pointcloud2.height;
 	int sizeMaxCp = pointcloud2.height * pointcloud2.width * pointcloud2.point_step;
-	double pointValue2Times100Array[sizeMat];
-	Point2d imagePointArray[sizeMat];
-	int pCHeight = pointcloud2.height;
-	int pCWidth = pointcloud2.width;
-	int pCStepsize = pointcloud2.point_step;
+	double* distanceArr = new double[sizeMat];
+	Point2d* imagePointArr = new Point2d[sizeMat];
+	int cloudHeight = pointcloud2.height;
+	int cloudWidth = pointcloud2.width;
+	int cloudStepSize = pointcloud2.point_step;
 
 	// point transformation
 	#pragma omp target \
-	map(from:pointValue2Times100Array[:sizeMat],imagePointArray[:sizeMat]) \
-	map(to:cp[:sizeMaxCp],distCoeff,cameraMat,invT,invR,pCHeight,pCWidth,pCStepsize)
+	map(from:distanceArr[:sizeMat],imagePointArr[:sizeMat]) \
+	map(to:cloud[:sizeMaxCp],distCoeff,cameraMat,invT,invR,cloudHeight,cloudWidth,cloudStepSize)
 	{
 	#pragma omp teams distribute parallel for collapse(2)
-	for (uint32_t x = 0; x < pCWidth; ++x) {
-		for (uint32_t y = 0; y < pCHeight; ++y) {
-			int indexMat =x + y * pCWidth;
-			float* fp = (float *)(((uintptr_t)cp) + (x + y*pCWidth) * pCStepsize);
+	for (uint32_t x = 0; x < cloudWidth; ++x) {
+		for (uint32_t y = 0; y < cloudHeight; ++y) {
+			int iPoint =x + y * cloudWidth;
+			float* fp = (float *)(((uintptr_t)cloud) + (x + y*cloudWidth) * cloudStepSize);
 
 			double intensity = fp[4];
 
@@ -357,18 +357,18 @@ PointsImage pointcloud2_to_image(
 				for (int col = 0; col < 3; col++)
 					point.data[row] += point2.data[col] * invR.data[row][col];
 			}
-			pointValue2Times100Array[indexMat] = point.data[2] * 100.0;
+			distanceArr[iPoint] = point.data[2] * 100.0;
 			// discard points that are too near
 			if (point.data[2] <= 2.5) {
 				Point2d imagepointError;
 				imagepointError.x = -1;
 				imagepointError.y = -1;
-				imagePointArray[indexMat] = imagepointError;
+				imagePointArr[iPoint] = imagepointError;
 				continue;
 			}
 			// determine image coordinates
 			double tmpx = point.data[0] / point.data[2];
-			double tmpy = point.data[1]/ point.data[2];
+			double tmpy = point.data[1] / point.data[2];
 			double r2 = tmpx * tmpx + tmpy * tmpy;
 			double tmpdist = 1 + distCoeff.data[0] * r2
 					+ distCoeff.data[1] * r2 * r2
@@ -382,50 +382,43 @@ PointsImage pointcloud2_to_image(
 				+ 2 * distCoeff.data[3] * tmpx * tmpy;
 			imagepoint.x = cameraMat.data[0][0] * imagepoint.x + cameraMat.data[0][2];
 			imagepoint.y = cameraMat.data[1][1] * imagepoint.y + cameraMat.data[1][2];
-			imagePointArray[indexMat] = imagepoint;
+			imagePointArr[iPoint] = imagepoint;
 			}
 		}
 	}
 	// image formation
-	for (uint32_t x = 0; x < pointcloud2.width; ++x) {
-		for (uint32_t y = 0; y < pointcloud2.height; ++y) {
-			int indexMat =x + y * pCWidth;
+	for (uint32_t x = 0; x < cloudWidth; ++x) {
+		for (uint32_t y = 0; y < cloudHeight; ++y) {
+			int iPoint =x + y * cloudWidth;
 			// restore values
-			double p2Times100 = pointValue2Times100Array[indexMat];
+			double distance = distanceArr[iPoint];
 			// discard near points again
-			if (p2Times100 <= (2.5 * 100.0)) {
+			if (distance <= (2.5 * 100.0)) {
 				continue;
 			}
-			float* fp = (float *)(((uintptr_t)cp) + (x + y*pointcloud2.width) * pointcloud2.point_step);
-			double intensity = fp[4]; //private
-			Point2d imagepoint = imagePointArray[indexMat];
-			int px = int(imagepoint.x + 0.5); // runde ab 0.5 auf ansonsten ab
+			float* fp = (float *)(((uintptr_t)cloud) + (x + y*cloudWidth) * cloudStepSize);
+			double intensity = fp[4];
+			Point2d imagepoint = imagePointArr[iPoint];
+			int px = int(imagepoint.x + 0.5);
 			int py = int(imagepoint.y + 0.5);
 			if(0 <= px && px < w && 0 <= py && py < h)
 			{
 				// write to image and update vertical extends
 				int pid = py * w + px;
-				if(msg.distance[pid] == 0 || msg.distance[pid] > p2Times100)
+				if(msg.distance[pid] == 0 || msg.distance[pid] > distance)
 				{
-					msg.distance[pid] = float(p2Times100); //msg is das problem beim paralelisieren
+					msg.distance[pid] = float(distance); //msg is das problem beim paralelisieren
 					msg.intensity[pid] = float(intensity);
 					msg.max_y = py > msg.max_y ? py : msg.max_y;
 					msg.min_y = py < msg.min_y ? py : msg.min_y;
 				}
-				if (0 == y && pointcloud2.height == 2)
-				{
-					float* fp2 = (float *)(cp + (x + (y+1)*pointcloud2.width) * pointcloud2.point_step);
-					msg.min_height[pid] = fp[2];
-					msg.max_height[pid] = fp2[2];
-				}
-				else
-				{
-					msg.min_height[pid] = -1.25;
-					msg.max_height[pid] = 0;
-				}
+				msg.min_height[pid] = -1.25;
+				msg.max_height[pid] = 0;
 			}
 		}
 	}
+	delete distanceArr;
+	delete imagePointArr;
 	return msg;
 }
 
