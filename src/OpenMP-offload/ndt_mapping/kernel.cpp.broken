@@ -44,8 +44,7 @@ For their licenses see license folder.
 class ndt_mapping : public kernel {
 private:
 	// openmp device
-	int targetDeviceId = 0;
-	int hostDeviceId = 0;
+	int deviceId = 0;
 private:
 	// the number of testcases read
 	int read_testcases = 0;
@@ -96,6 +95,14 @@ public:
 	virtual void run(int p = 1);
 	virtual bool check_output();
 protected:
+	/**
+	 * Allocates device memory
+	 */
+	void* deviceAlloc(size_t size);
+	/**
+	 * Frees device memory
+	 */
+	void deviceFree(void* ptr);
 	/**
 	 * Reads the number of testcases in the data file
 	 */
@@ -164,6 +171,20 @@ protected:
 		std::vector<float> distances);
 };
 
+void ndt_mapping::deviceFree(void* ptr) {
+	if (deviceId > 0) {
+		omp_target_free(ptr, deviceId);
+	} else {
+		free(ptr);
+	}
+}
+void* ndt_mapping::deviceAlloc(size_t size) {
+	if (deviceId > 0) {
+		return omp_target_alloc(size, deviceId);
+	} else {
+		return malloc(size);
+	}
+}
 /**
  * Reads the next point cloud.
  */
@@ -286,12 +307,6 @@ int linearizeCoordOFF(const float x, const float y, const float z,float res,Poin
 	int idx_y = (y - minVox.data[1]) / res;
 	int idx_z = (z - minVox.data[2]) / res;
 	return linearizeAddrOFF(idx_x, idx_y, idx_z,dim);
-}
-int linearizeCoordOFF(const float x, const float y, const float z, const float resolution, const float* voxelMin, const int* voxelDim) {
-	int dx = (x - voxelMin[0])/resolution;
-	int dy = (y - voxelMin[1])/resolution;
-	int dz = (z - voxelMin[2])/resolution;
-	return dx + (dy + dz*voxelDim[1])*voxelDim[2];
 }
 #pragma omp end declare target
 
@@ -421,10 +436,9 @@ void ndt_mapping::init() {
 	results = nullptr;
 	// TODO: pass device as argument?
 	int deviceNo = omp_get_num_devices();
-	targetDeviceId = omp_get_default_device();
-	hostDeviceId = omp_get_initial_device();
-	std::cout << "Selected target device: " << targetDeviceId << std::endl;
-	std::cout << "Selected host device: " << hostDeviceId << std::endl;
+	deviceId = std::max(0, deviceNo);
+	std::cout << "Selected target device " << deviceId;
+	std::cout << " out of " << deviceNo << std::endl;
 	std::cout << "done\n" << std::endl;
 }
 
@@ -783,7 +797,6 @@ double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 	std::vector<int> pointIndices;
 	int neighborNo = 0;
 	int* pNeighborNo = &neighborNo;
-	double resolution = resolution_;
 	double radiusStart = resolution_;
 	double radiusFinal = resolution_;
 	double step = resolution_;
@@ -793,19 +806,16 @@ double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 	float* voxelMinBuffer = minVoxel.data;
 	Voxel* voxelGrid = this->voxelGrid;
 	Mat33* voxelMat = this->voxelMat;
-	int voxelDimBuffer[3] =  {
-		voxelDimension[0], voxelDimension[1], voxelDimension[2]
-	};
-	#pragma omp target \
-	map(to: radiusStart, radiusFinal, step, radius, voxelMinBuffer[:3], voxelMaxBuffer[:3], resolution, voxelDimBuffer[:3]) \
+	#pragma omp target data \
+	map(to: radiusStart, radiusFinal, step, radius, voxelMinBuffer, voxelMaxBuffer) \
 	map(to: transCloudData[:pointNo]) \
 	map(tofrom: pNeighborNo[:1]) \
-	map(from: neighborhood[:pointNo*3*3*3]) \
-	is_device_ptr(voxelGrid, voxelMat)
-	#pragma omp teams distribute parallel for \
+	map(from: neighborhood[:pointNo*3*3*3])
+	#pragma omp target teams distribute parallel for \
 	default(none) \
-	firstprivate(radiusStart, radiusFinal, step, radius, pointNo, voxelMinBuffer, voxelMaxBuffer, voxelDimBuffer, resolution) \
-	shared(pNeighborNo, neighborhood, transCloudData, voxelGrid, voxelMat)
+	firstprivate(radiusStart, radiusFinal, step, radius, pointNo, voxelMinBuffer, voxelMaxBuffer) \
+	shared(pNeighborNo, neighborhood, transCloudData, voxelGrid, voxelMat) \
+	is_device_ptr(voxelGrid, voxelMat)
 	//#pragma omp parallel for \
 	//default(none) \
 	//firstprivate(pointNo, radiusStart, radiusFinal, step, radius, voxelMinBuffer, voxelMaxBuffer) \
@@ -821,7 +831,7 @@ double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 						(z < voxelMinBuffer[2]) || (z > voxelMaxBuffer[2])) {
 						// skip
 					} else {
-						int iVoxel = linearizeCoordOFF(x, y, z, resolution, voxelMinBuffer, voxelDimBuffer);
+						int iVoxel = linearizeCoord(x, y, z);
 						float dx = voxelGrid[iVoxel].mean[0] - x_trans_pt.data[0];
 						float dy = voxelGrid[iVoxel].mean[1] - x_trans_pt.data[1];
 						float dz = voxelGrid[iVoxel].mean[2] - x_trans_pt.data[2];
@@ -1493,68 +1503,44 @@ void ndt_mapping::initCompute()
 	int sizeOfDatacell = voxelDimension[0] * voxelDimension[1] * voxelDimension[2];
 	int targetSize = target_->size();
 	PointXYZI *targetData = target_->data();
-	//deviceFree(voxelGrid);
-	//deviceFree(voxelMat);
-	omp_target_free(voxelGrid, targetDeviceId);
-	omp_target_free(voxelMat, targetDeviceId);
+	deviceFree(voxelGrid);
+	deviceFree(voxelMat);
 	//voxelGrid = (Voxel*)deviceAlloc(sizeof(Voxel)*sizeOfDatacell);
 	//voxelMat = (Mat33*)deviceAlloc(sizeof(Mat33)*sizeOfDatacell);
-	voxelGrid = (Voxel*)omp_target_alloc(sizeof(Voxel)*sizeOfDatacell, targetDeviceId);
-	voxelMat = (Mat33*)omp_target_alloc(sizeof(Mat33)*sizeOfDatacell, targetDeviceId);
+	voxelGrid = (Voxel*)omp_target_alloc(sizeof(Voxel)*sizeOfDatacell, 0);
+	voxelMat = (Mat33*)omp_target_alloc(sizeof(Mat33)*sizeOfDatacell, 0);
 	std::cout << "Voxel " << voxelGrid << " Mat " << voxelMat << std::endl;
-	int* nextTarget = (int*)omp_target_alloc(sizeof(Voxel)*sizeOfDatacell, targetDeviceId);
-	// TODO: remove after testing
-	{
-		std::cout << "Test start" << std::endl;
-		int source[5];
-		#pragma omp target data map(from: source[:5])
-		{
-		#pragma omp target teams distribute parallel for default(none) shared(source, nextTarget) is_device_ptr(nextTarget)
-		for (int i = 0; i < 5; i++) {
-			nextTarget[i] = (i + 1)*2;
-		}
-		#pragma omp target teams distribute parallel for default(none) shared(source, nextTarget) is_device_ptr(nextTarget)
-		for (int i = 0; i < 5; i++) {
-			source[i] = nextTarget[i] - 1;
-		}
-		}
-		std::cout << "Result: ";
-		for (int i = 0; i < 5; i++) {
-			std::cout << source[i] << " ";
-		}
-		std::cout << std::endl;
-		std::cout << "Test finish" << std::endl;
-	}
+	int* nextTarget = (int*)deviceAlloc(sizeof(int)*targetSize);
 	
 	PointXYZI minVoxelTransferable = minVoxel;
-	int voxelDim[3] = {
-		voxelDimension[0], voxelDimension[1], voxelDimension[2]
-	};
+	int voxelDim[3];
+	for (int i = 0; i < 3; i++) {
+		voxelDim[i] = voxelDimension[i];
+	}
 	float resolution = resolution_;
 	//Mat33* invCovarianceDeepCopy = new Mat33[sizeOfDatacell];
-	#pragma omp target \
-	map(to:sizeOfDatacell,targetSize,targetData[:targetSize],resolution,minVoxelTransferable.data[:4],voxelDim[:3]) \
-	is_device_ptr(voxelGrid, voxelMat, nextTarget)
+	#pragma omp target data \
+	map(to:sizeOfDatacell,targetSize,targetData[:targetSize],resolution,minVoxelTransferable.data[:4],voxelDim[:3])
 	{
-		#pragma omp teams distribute parallel for \
-		shared(voxelGrid, voxelMat, sizeOfDatacell)
+		#pragma omp target teams distribute parallel for \
+		is_device_ptr(voxelGrid, voxelMat, nextTarget)
 		for (int i = 0; i < sizeOfDatacell; i++)
 		{
-			//voxelGrid[i].point = -1;
-			//voxelGrid[i].mean[0] = 0;
-			//voxelGrid[i].mean[1] = 0;
-			//voxelGrid[i].mean[2] = 0;
+			voxelGrid[i].point = -1;
+			voxelGrid[i].mean[0] = 0;
+			voxelGrid[i].mean[1] = 0;
+			voxelGrid[i].mean[2] = 0;
 
 			//#pragma omp simd
-			/*voxelMat[i] = {.data ={
+			voxelMat[i] = {.data ={
 				{0,0,1},
 				{0,1,0},
 				{1,0,0}
-			}};*/
+			}};
 		}
-		//#pragma omp flush
+		#pragma omp flush
 		// first pass to put everything in the right voxel leaf
-		/*#pragma omp target teams distribute parallel for \
+		#pragma omp target teams distribute parallel for \
 		is_device_ptr(voxelGrid, nextTarget)
 		for (int i = 0; i < targetSize; i++) // Reduction sum
 		{
@@ -1567,10 +1553,10 @@ void ndt_mapping::initCompute()
 				voxelGrid[voxelIndex].point = i;
 			}
 			nextTarget[i] = iNext;
-		}*/
-		//#pragma omp flush
+		}
+		#pragma omp flush
 		// second pass to finalize average and sum of all leafs
-		/*#pragma omp target teams distribute parallel for \
+		#pragma omp target teams distribute parallel for \
 		is_device_ptr(voxelGrid, voxelMat, nextTarget)
 		for (int i = 0; i < sizeOfDatacell; i++)
 		{
@@ -1608,27 +1594,23 @@ void ndt_mapping::initCompute()
 				}
 			}
 			invertMatrix(voxelMat[i]);
-		}*/
+		}
 	}
 	std::cout << " init finished" << std::endl;
 	// TODO: remove if no longer required for testing
 	target_cells_.clear();
 	target_cells_.resize(sizeOfDatacell);
 	std::vector<Mat33> invCovarianceDeepCopy(sizeOfDatacell);
-	omp_target_memcpy(target_cells_.data(), voxelGrid, sizeof(Voxel)*sizeOfDatacell,
-		0, 0, hostDeviceId, targetDeviceId);
-	omp_target_memcpy(invCovarianceDeepCopy.data(), voxelMat, sizeof(Mat33)*sizeOfDatacell,
-		0, 0, hostDeviceId, targetDeviceId);
-	//if (deviceId > 0) {
-	//	throw new std::logic_error("not implemented");
-	//} else {
-	//	std::memcpy(target_cells_.data(), voxelGrid, sizeof(Voxel)*sizeOfDatacell);
-	//	std::memcpy(invCovarianceDeepCopy.data(), voxelMat, sizeof(Mat33)*sizeOfDatacell);
-	//}
+	if (deviceId > 0) {
+		throw new std::logic_error("not implemented");
+	} else {
+		std::memcpy(target_cells_.data(), voxelGrid, sizeof(Voxel)*sizeOfDatacell);
+		std::memcpy(invCovarianceDeepCopy.data(), voxelMat, sizeof(Mat33)*sizeOfDatacell);
+	}
 	for (int i = 0; i < sizeOfDatacell; i++) {
 		target_cells_[i].invCovariance = invCovarianceDeepCopy[i];
 	}
-	omp_target_free(nextTarget, targetDeviceId);
+	deviceFree(nextTarget);
 }
 
 void ndt_mapping::ndt_align (const Matrix4f& guess)
@@ -1726,8 +1708,8 @@ void ndt_mapping::check_next_outputs(int count)
 bool ndt_mapping::check_output() {
 	std::cout << "checking output \n";
 	// complement to init()
-	omp_target_free(voxelGrid, targetDeviceId);
-	omp_target_free(voxelMat, targetDeviceId);
+	deviceFree(voxelGrid);
+	deviceFree(voxelMat);
 	input_file.close();
 	output_file.close();
 	// check for error

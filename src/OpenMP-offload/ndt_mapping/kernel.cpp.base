@@ -431,12 +431,27 @@ void ndt_mapping::init() {
 	init_guess = nullptr;
 	filtered_scan_ptr = nullptr;
 	results = nullptr;
+	bool offload = omp_is_initial_device();
+	
 	// TODO: pass device as argument?
 	int deviceNo = omp_get_num_devices();
-	deviceId = std::max(0, deviceNo - 1);
-	std::cout << "Selected target device " << deviceId;
-	std::cout << " out of " << deviceNo << std::endl;
+	deviceId = deviceNo - 1;
+	if (deviceId < 0) {
+		deviceId = omp_get_initial_device();
+		std::cout << "Selected initial device" << std::endl;
+	}
+	std::cout << "On initial device " << offload << std::endl;
+	std::cout << "Initial device " << omp_get_initial_device() << std::endl;
+	std::cout << "Default device " << omp_get_default_device() << std::endl;
+	std::cout << "Selected target device id " << deviceId;
+	std::cout << " out of " << deviceNo << " entries"<< std::endl;
 	std::cout << "done\n" << std::endl;
+	for (int i = -10; i < 10; i++) {
+		std::cout << "Device id " << i;
+		void* buff = omp_target_alloc(1024, i);
+		std::cout << " Buffer adress " << buff << std::endl;
+		omp_target_free(buff, i);
+	}
 }
 
 
@@ -1400,13 +1415,11 @@ void ndt_mapping::initCompute()
 	Voxel* dataCell = target_cells_.data();
 	int targetSize = target_->size();
 	PointXYZI *targetData = target_->data();
-	//int* nextTarget = new int[targetSize];
-	//int* nextTarget = (int*)omp_target_alloc(sizeof(int)*targetSize);
 	if (voxelGrid != nullptr) {
-		deviceFree(voxelGrid);
+		delete voxelGrid;//omp_target_free(voxelGrid, deviceId);
 	}
-	voxelGrid = (Voxel*)deviceAlloc(sizeof(Voxel)*sizeOfDatacell);
-	//int* nextTarget = (int*)deviceAlloc(sizeof(int)*targetSize);
+	voxelGrid = new Voxel[targetSize];//(Voxel*)omp_target_alloc(sizeof(int)*targetSize, deviceId);
+	//int* nextTarget = (int*)omp_target_alloc(sizeof(int)*targetSize, deviceId);
 	int* nextTarget = new int[targetSize];
 	
 	PointXYZI minVoxelTransferable = minVoxel;
@@ -1416,6 +1429,33 @@ void ndt_mapping::initCompute()
 	}
 	float resolution = resolution_;
 	Mat33* invCovarianceDeepCopy = new Mat33[sizeOfDatacell];
+	
+	// TODO: remove after testing
+	int* target = (int*)omp_target_alloc(sizeof(int)*5, 0);
+	std::cout << "Buffer: " << target << std::endl;
+	int source[5];
+	for (int i = 0; i < 5; i++) {
+		source[i] = i;
+	}
+	std::cout << "Test start" << std::endl;
+	#pragma omp target \
+	map(to: source[:5]) \
+	is_device_ptr(target)
+	{
+		#pragma omp teams distribute parallel for
+		for (int i = 0; i < 5; i++) {
+			target[i] = source[i]*2;
+		}
+	}
+	omp_target_memcpy(source, target, sizeof(int)*5, 0, 0, -2, 0);
+	std::cout << "Result: ";
+	for (int i = 0; i < 5; i++) {
+		std::cout << source[i] << " ";
+	}
+	std::cout << std::endl;
+	omp_target_free(target, 0);
+	std::cout << "Test finish" << std::endl;
+		
 	/*#pragma omp target \
 	map(to:sizeOfDatacell,targetSize,targetData[:targetSize],resolution,minVoxelTransferable.data[:4],voxelDim[:3]) \
 	map(from:dataCell[:sizeOfDatacell],invCovarianceDeepCopy[:sizeOfDatacell])
@@ -1486,7 +1526,8 @@ void ndt_mapping::initCompute()
 	map(alloc: nextTarget[:targetSize]) \
 	map(from:dataCell[:sizeOfDatacell],invCovarianceDeepCopy[:sizeOfDatacell])
 	{
-		#pragma omp target teams distribute parallel for
+		#pragma omp target teams distribute parallel for \
+		//is_device_ptr(nextTarget)
 		for (int i = 0; i < sizeOfDatacell; i++)
 		{
 			dataCell[i].point = -1;
@@ -1503,7 +1544,8 @@ void ndt_mapping::initCompute()
 		}
 		#pragma omp flush
 		// first pass to put everything in the right voxel leaf
-		#pragma omp target teams distribute parallel for
+		#pragma omp target teams distribute parallel for \
+		//is_device_ptr(nextTarget)
 		for (int i = 0; i < targetSize; i++) // Reduction sum
 		{
 			int voxelIndex = linearizeCoordOFF( targetData[i].data[0], targetData[i].data[1], targetData[i].data[2],resolution,minVoxelTransferable,voxelDim);
@@ -1518,7 +1560,8 @@ void ndt_mapping::initCompute()
 		}
 		#pragma omp flush
 		// second pass to finalize average and sum of all leafs
-		#pragma omp target teams distribute parallel for
+		#pragma omp target teams distribute parallel for \
+		//is_device_ptr(nextTarget)
 		for (int i = 0; i < sizeOfDatacell; i++)
 		{
 			int pointNo = 0;
@@ -1561,8 +1604,8 @@ void ndt_mapping::initCompute()
 		dataCell[i].invCovariance = invCovarianceDeepCopy[i];
 	}
 	delete invCovarianceDeepCopy;
-	//deviceFree(nextTarget);
 	delete nextTarget;
+	//omp_target_free(nextTarget, deviceId);
 }
 
 void ndt_mapping::ndt_align (const Matrix4f& guess)
@@ -1661,7 +1704,8 @@ bool ndt_mapping::check_output() {
 	std::cout << "checking output \n";
 	// complement to init()
 	if (voxelGrid != nullptr) {
-		deviceFree(voxelGrid);
+		//omp_target_free(voxelGrid, deviceId);
+		delete voxelGrid;
 	}
 	input_file.close();
 	output_file.close();
