@@ -420,9 +420,12 @@ void ndt_mapping::init() {
 	filtered_scan_ptr = nullptr;
 	results = nullptr;
 	// TODO: pass device as argument?
+	// TODO: manually enable again
 	int deviceNo = omp_get_num_devices();
-	targetDeviceId = omp_get_default_device();
+	//targetDeviceId = omp_get_default_device();
+	targetDeviceId = omp_get_initial_device();
 	hostDeviceId = omp_get_initial_device();
+	std::cout << "Host is target?: " << omp_is_initial_device() << std::endl;
 	std::cout << "Selected target device: " << targetDeviceId << std::endl;
 	std::cout << "Selected host device: " << hostDeviceId << std::endl;
 	std::cout << "done\n" << std::endl;
@@ -712,7 +715,7 @@ void ndt_mapping::updateHessian (Mat66 &hessian, Vec3 &x_trans, Mat33 &c_inv)
 }
 
 // from /usr/include/pcl-1.7/pcl/registration/impl/ndt.hpp
-/*double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
+double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 					Mat66 &hessian,
 					PointCloudSource &trans_cloud,
 					Vec6 &p,
@@ -762,9 +765,9 @@ void ndt_mapping::updateHessian (Mat66 &hessian, Vec3 &x_trans, Mat33 &c_inv)
 		}
 	}
 	return (score);
-}*/
+}
 
-double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
+/*double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 					Mat66 &hessian,
 					PointCloudSource &trans_cloud,
 					Vec6 &p,
@@ -778,7 +781,6 @@ double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 	computeAngleDerivatives (p);
 	// Update gradient and hessian for each point, line 17 in Algorithm 2 [Magnusson 2009]
 	int pointNo = input_->size();
-	//std::vector<Voxel> neighborhood;
 	Voxel* neighborhood = new Voxel[pointNo*3*3*3];
 	std::vector<int> pointIndices;
 	int neighborNo = 0;
@@ -806,10 +808,6 @@ double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 	default(none) \
 	firstprivate(radiusStart, radiusFinal, step, radius, pointNo, voxelMinBuffer, voxelMaxBuffer, voxelDimBuffer, resolution) \
 	shared(pNeighborNo, neighborhood, transCloudData, voxelGrid, voxelMat)
-	//#pragma omp parallel for \
-	//default(none) \
-	//firstprivate(pointNo, radiusStart, radiusFinal, step, radius, voxelMinBuffer, voxelMaxBuffer) \
-	//shared(pNeighborNo, neighborhood, transCloudData, voxelGrid, voxelMat)
 	for (size_t idx = 0; idx < pointNo; idx++)
 	{
 		PointXYZI x_trans_pt = transCloudData[idx];
@@ -872,7 +870,7 @@ double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 	}
 	delete neighborhood;
 	return (score);
-}
+}*/
 void ndt_mapping::computeAngleDerivatives (Vec6 &p, bool compute_hessian)
 {
 	// Simplified math for near 0 angles
@@ -1495,19 +1493,20 @@ void ndt_mapping::initCompute()
 	PointXYZI *targetData = target_->data();
 	//deviceFree(voxelGrid);
 	//deviceFree(voxelMat);
-	omp_target_free(voxelGrid, targetDeviceId);
-	omp_target_free(voxelMat, targetDeviceId);
+	omp_target_free(this->voxelGrid, targetDeviceId);
+	omp_target_free(this->voxelMat, targetDeviceId);
 	//voxelGrid = (Voxel*)deviceAlloc(sizeof(Voxel)*sizeOfDatacell);
 	//voxelMat = (Mat33*)deviceAlloc(sizeof(Mat33)*sizeOfDatacell);
-	voxelGrid = (Voxel*)omp_target_alloc(sizeof(Voxel)*sizeOfDatacell, targetDeviceId);
-	voxelMat = (Mat33*)omp_target_alloc(sizeof(Mat33)*sizeOfDatacell, targetDeviceId);
-	std::cout << "Voxel " << voxelGrid << " Mat " << voxelMat << std::endl;
+	Voxel* voxelGrid = (Voxel*)omp_target_alloc(sizeof(Voxel)*sizeOfDatacell, targetDeviceId);
+	Mat33* voxelMat = (Mat33*)omp_target_alloc(sizeof(Mat33)*sizeOfDatacell, targetDeviceId);
 	int* nextTarget = (int*)omp_target_alloc(sizeof(Voxel)*sizeOfDatacell, targetDeviceId);
+	this->voxelGrid = voxelGrid;
+	this->voxelMat = voxelMat;
 	// TODO: remove after testing
-	{
+	/*{
 		std::cout << "Test start" << std::endl;
 		int source[5];
-		#pragma omp target data map(from: source[:5])
+		#pragma omp target data map(tofrom: source[:5])
 		{
 		#pragma omp target teams distribute parallel for default(none) shared(source, nextTarget) is_device_ptr(nextTarget)
 		for (int i = 0; i < 5; i++) {
@@ -1524,41 +1523,41 @@ void ndt_mapping::initCompute()
 		}
 		std::cout << std::endl;
 		std::cout << "Test finish" << std::endl;
-	}
+	}*/
 	
-	PointXYZI minVoxelTransferable = minVoxel;
-	int voxelDim[3] = {
-		voxelDimension[0], voxelDimension[1], voxelDimension[2]
-	};
+	//PointXYZI minVoxelTransferable = minVoxel;
+	int* voxelDim = voxelDimension;
+	float* voxelMin = minVoxel.data;
 	float resolution = resolution_;
-	//Mat33* invCovarianceDeepCopy = new Mat33[sizeOfDatacell];
 	#pragma omp target \
-	map(to:sizeOfDatacell,targetSize,targetData[:targetSize],resolution,minVoxelTransferable.data[:4],voxelDim[:3]) \
+	map(to: targetData[:targetSize]) \
+	map(to: sizeOfDatacell, targetSize, resolution, voxelMin[:3], voxelDim[:3]) \
 	is_device_ptr(voxelGrid, voxelMat, nextTarget)
 	{
 		#pragma omp teams distribute parallel for \
-		shared(voxelGrid, voxelMat, sizeOfDatacell)
-		for (int i = 0; i < sizeOfDatacell; i++)
-		{
-			//voxelGrid[i].point = -1;
-			//voxelGrid[i].mean[0] = 0;
-			//voxelGrid[i].mean[1] = 0;
-			//voxelGrid[i].mean[2] = 0;
+		default(none) \
+		shared(sizeOfDatacell, voxelGrid, voxelMat) \
+		//shared(voxelGrid, voxelMat, sizeOfDatacell)
+		for (int i = 0; i < sizeOfDatacell; i++) {
+			voxelGrid[i].point = -1;
+			voxelGrid[i].mean[0] = 0;
+			voxelGrid[i].mean[1] = 0;
+			voxelGrid[i].mean[2] = 0;
 
 			//#pragma omp simd
-			/*voxelMat[i] = {.data ={
+			voxelMat[i] = {.data ={
 				{0,0,1},
 				{0,1,0},
 				{1,0,0}
-			}};*/
+			}};
 		}
-		//#pragma omp flush
-		// first pass to put everything in the right voxel leaf
-		/*#pragma omp target teams distribute parallel for \
-		is_device_ptr(voxelGrid, nextTarget)
-		for (int i = 0; i < targetSize; i++) // Reduction sum
-		{
-			int voxelIndex = linearizeCoordOFF( targetData[i].data[0], targetData[i].data[1], targetData[i].data[2],resolution,minVoxelTransferable,voxelDim);
+		#pragma omp flush
+		#pragma omp teams distribute parallel for \
+		default(none) \
+		shared(voxelDim, voxelMin, resolution) \
+		shared(targetSize, voxelGrid, nextTarget, targetData)
+		for (int i = 0; i < targetSize; i++) {
+			int voxelIndex = linearizeCoordOFF(targetData[i].data[0], targetData[i].data[1], targetData[i].data[2], resolution, voxelMin, voxelDim);
 			// build the point index queue
 			int iNext;
 			#pragma omp atomic capture
@@ -1567,13 +1566,12 @@ void ndt_mapping::initCompute()
 				voxelGrid[voxelIndex].point = i;
 			}
 			nextTarget[i] = iNext;
-		}*/
-		//#pragma omp flush
-		// second pass to finalize average and sum of all leafs
-		/*#pragma omp target teams distribute parallel for \
-		is_device_ptr(voxelGrid, voxelMat, nextTarget)
-		for (int i = 0; i < sizeOfDatacell; i++)
-		{
+		}
+		#pragma omp flush
+		#pragma omp teams distribute parallel for \
+		shared(sizeOfDatacell) \
+		shared(voxelGrid, voxelMat, nextTarget, targetData)
+		for (int i = 0; i < sizeOfDatacell; i++) {
 			int pointNo = 0;
 			int iNext = voxelGrid[i].point;
 			while (iNext > -1) {
@@ -1608,9 +1606,8 @@ void ndt_mapping::initCompute()
 				}
 			}
 			invertMatrix(voxelMat[i]);
-		}*/
+		}
 	}
-	std::cout << " init finished" << std::endl;
 	// TODO: remove if no longer required for testing
 	target_cells_.clear();
 	target_cells_.resize(sizeOfDatacell);
@@ -1619,12 +1616,6 @@ void ndt_mapping::initCompute()
 		0, 0, hostDeviceId, targetDeviceId);
 	omp_target_memcpy(invCovarianceDeepCopy.data(), voxelMat, sizeof(Mat33)*sizeOfDatacell,
 		0, 0, hostDeviceId, targetDeviceId);
-	//if (deviceId > 0) {
-	//	throw new std::logic_error("not implemented");
-	//} else {
-	//	std::memcpy(target_cells_.data(), voxelGrid, sizeof(Voxel)*sizeOfDatacell);
-	//	std::memcpy(invCovarianceDeepCopy.data(), voxelMat, sizeof(Mat33)*sizeOfDatacell);
-	//}
 	for (int i = 0; i < sizeOfDatacell; i++) {
 		target_cells_[i].invCovariance = invCovarianceDeepCopy[i];
 	}
