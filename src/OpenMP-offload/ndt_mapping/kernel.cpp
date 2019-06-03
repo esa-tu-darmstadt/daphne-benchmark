@@ -291,7 +291,7 @@ int linearizeCoordOFF(const float x, const float y, const float z, const float r
 	int dx = (x - voxelMin[0])/resolution;
 	int dy = (y - voxelMin[1])/resolution;
 	int dz = (z - voxelMin[2])/resolution;
-	return dx + (dy + dz*voxelDim[1])*voxelDim[2];
+	return dx + (dy + dz*voxelDim[1])*voxelDim[0];
 }
 #pragma omp end declare target
 
@@ -715,7 +715,7 @@ void ndt_mapping::updateHessian (Mat66 &hessian, Vec3 &x_trans, Mat33 &c_inv)
 }
 
 // from /usr/include/pcl-1.7/pcl/registration/impl/ndt.hpp
-double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
+/*double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 					Mat66 &hessian,
 					PointCloudSource &trans_cloud,
 					Vec6 &p,
@@ -765,9 +765,9 @@ double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 		}
 	}
 	return (score);
-}
+}*/
 
-/*double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
+double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 					Mat66 &hessian,
 					PointCloudSource &trans_cloud,
 					Vec6 &p,
@@ -870,7 +870,7 @@ double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 	}
 	delete neighborhood;
 	return (score);
-}*/
+}
 void ndt_mapping::computeAngleDerivatives (Vec6 &p, bool compute_hessian)
 {
 	// Simplified math for near 0 angles
@@ -1439,8 +1439,33 @@ void ndt_mapping::computeTransformation(PointCloud &output, const Matrix4f &gues
 }
 
 // invert matrix: its just 3x3 so we use the determinant
-#pragma omp declare target
 void invertMatrix(Mat33 &m)
+{
+	Mat33 temp;
+	double det = m.data[0][0] * (m.data[2][2] * m.data[1][1] - m.data[2][1] * m.data[1][2]) -
+	m.data[1][0] * (m.data[2][2] * m.data[0][1] - m.data[2][1] * m.data[0][2]) +
+	m.data[2][0] * (m.data[1][2] * m.data[0][1] - m.data[1][1] * m.data[0][2]);
+	double invDet = 1.0 / det;
+	// adjungated matrix of minors
+	temp.data[0][0] = m.data[2][2] * m.data[1][1] - m.data[2][1] * m.data[1][2];
+	temp.data[0][1] = -( m.data[2][2] * m.data[0][1] - m.data[2][1] * m.data[0][2]);
+	temp.data[0][2] = m.data[1][2] * m.data[0][1] - m.data[1][1] * m.data[0][2];
+
+	temp.data[1][0] = -( m.data[2][2] * m.data[0][1] - m.data[2][0] * m.data[1][2]);
+	temp.data[1][1] = m.data[2][2] * m.data[0][0] - m.data[2][1] * m.data[0][2];
+	temp.data[1][2] = -( m.data[1][2] * m.data[0][0] - m.data[1][0] * m.data[0][2]);
+
+	temp.data[2][0] = m.data[2][1] * m.data[1][0] - m.data[2][0] * m.data[1][1];
+	temp.data[2][1] = -( m.data[2][1] * m.data[0][0] - m.data[2][0] * m.data[0][1]);
+	temp.data[2][2] = m.data[1][1] * m.data[0][0] - m.data[1][0] * m.data[0][1];
+
+	for (int row = 0; row < 3; row++)
+	for (int col = 0; col < 3; col++)
+		m.data[row][col] = temp.data[row][col] * invDet;
+
+}
+#pragma omp declare target
+void invertMatrixOFF(Mat33 &m)
 {
 	Mat33 temp;
 	double det = m.data[0][0] * (m.data[2][2] * m.data[1][1] - m.data[2][1] * m.data[1][2]) -
@@ -1560,6 +1585,8 @@ void ndt_mapping::initCompute()
 			int voxelIndex = linearizeCoordOFF(targetData[i].data[0], targetData[i].data[1], targetData[i].data[2], resolution, voxelMin, voxelDim);
 			// build the point index queue
 			int iNext;
+			//iNext = voxelIndex;
+			//voxelGrid[voxelIndex].point = i;
 			#pragma omp atomic capture
 			{
 				iNext = voxelGrid[voxelIndex].point;
@@ -1605,20 +1632,86 @@ void ndt_mapping::initCompute()
 					voxelMat[i].data[row][col] *= (sizeOfDatacell - 1.0)/pointNo;
 				}
 			}
-			invertMatrix(voxelMat[i]);
+			invertMatrixOFF(voxelMat[i]);
 		}
 	}
 	// TODO: remove if no longer required for testing
-	target_cells_.clear();
+	/*target_cells_.clear();
 	target_cells_.resize(sizeOfDatacell);
+	char* cells = (char*)target_cells_.data();
 	std::vector<Mat33> invCovarianceDeepCopy(sizeOfDatacell);
+	std::vector<int> nextBuffer(targetSize);
 	omp_target_memcpy(target_cells_.data(), voxelGrid, sizeof(Voxel)*sizeOfDatacell,
 		0, 0, hostDeviceId, targetDeviceId);
 	omp_target_memcpy(invCovarianceDeepCopy.data(), voxelMat, sizeof(Mat33)*sizeOfDatacell,
 		0, 0, hostDeviceId, targetDeviceId);
-	for (int i = 0; i < sizeOfDatacell; i++) {
-		target_cells_[i].invCovariance = invCovarianceDeepCopy[i];
-	}
+	omp_target_memcpy(nextBuffer.data(), nextTarget, sizeof(int)*targetSize,
+		0, 0, hostDeviceId, targetDeviceId);*/
+		
+		// reset for testing
+		/*for (int i = 0; i < sizeOfDatacell; i++) {
+			target_cells_[i].point = -1;
+		}
+		for (int i = 0; i < targetSize; i++) {
+			int voxelIndex = linearizeCoord(target_->at(i).data[0], target_->at(i).data[1], target_->at(i).data[2]);
+			// build the point index queue
+			int iNext;
+			#pragma omp atomic capture
+			{
+				iNext = target_cells_[voxelIndex].point;
+				target_cells_[voxelIndex].point = i;
+			}
+			//nextBuffer[i] = iNext;
+			if (nextBuffer[i] != iNext) {
+				std::cout << "Next element deviation at " << i << ": " << nextBuffer[i] << " != " << iNext << std::endl;
+			}
+			//if (nextBuffer[i] != voxelIndex) {
+			//	std::cout << "Deviating voxel index at " << i << ": " << nextBuffer[i] << " != " << voxelIndex << std::endl;
+			//}
+		}*/
+		/*for (int i = 0; i < sizeOfDatacell; i++) {
+			int pointNo = 0;
+			int iNext = target_cells_[i].point;
+			//if (iNext > -1) {
+			//	std::cout << "Points at cell " << i << std::endl;
+			//}
+			while (iNext > -1) {
+				pointNo += 1;
+				// modify cell
+				target_cells_[i].mean[0] += target_->at(iNext).data[0];
+				target_cells_[i].mean[1] += target_->at(iNext).data[1];
+				target_cells_[i].mean[2] += target_->at(iNext).data[2];
+				for (int row = 0; row < 3; row ++) {
+					for (int col = 0; col < 3; col ++) {
+						invCovarianceDeepCopy[i].data[row][col] += target_->at(iNext).data[row] * target_->at(iNext).data[col];
+					}
+				}
+				// iterate
+				iNext = nextBuffer[iNext];
+			}
+			// normalize
+			Vec3 pointSum = {target_cells_[i].mean[0], target_cells_[i].mean[1], target_cells_[i].mean[2]};
+			if (pointNo > 0) {
+				target_cells_[i].mean[0] /= pointNo;
+				target_cells_[i].mean[1] /= pointNo;
+				target_cells_[i].mean[2] /= pointNo;
+			}
+			for (int row = 0; row < 3; row++) {
+				for (int col = 0; col < 3; col++)
+				{
+					invCovarianceDeepCopy[i].data[row][col] = (invCovarianceDeepCopy[i].data[row][col] -
+						2 * (pointSum[row] * target_cells_[i].mean[col])) / sizeOfDatacell +
+						target_cells_[i].mean[row]*target_cells_[i].mean[col];
+
+					invCovarianceDeepCopy[i].data[row][col] *= (sizeOfDatacell - 1.0)/pointNo;
+				}
+			}
+			invertMatrix(invCovarianceDeepCopy[i]);
+		}*/
+		
+	//for (int i = 0; i < sizeOfDatacell; i++) {
+	//	target_cells_[i].invCovariance = invCovarianceDeepCopy[i];
+	//}
 	omp_target_free(nextTarget, targetDeviceId);
 }
 
