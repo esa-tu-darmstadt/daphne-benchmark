@@ -43,10 +43,17 @@ For their licenses see license folder.
 
 class ndt_mapping : public kernel {
 private:
+	// neighbor buffer size multiple
+	int averageNeighborsPerPoint = 3*3*3;
+private:
 	// openmp device
 	int targetDeviceId = 0;
 	int hostDeviceId = 0;
+	// openmp device buffers
 	Voxel* voxelGrid = nullptr;
+	Voxel* neighborBuffer = nullptr;
+	// corresponding host buffers
+	Voxel* neighborStorage = nullptr;
 private:
 	// the number of testcases read
 	int read_testcases = 0;
@@ -411,6 +418,8 @@ void ndt_mapping::init() {
 	}
 	// prepare the first iteration
 	voxelGrid = nullptr;
+	neighborBuffer = nullptr;
+	neighborStorage = nullptr;
 	error_so_far = false;
 	max_delta = 0.0;
 	maps = nullptr;
@@ -722,7 +731,6 @@ double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 	computeAngleDerivatives (p);
 	// Update gradient and hessian for each point, line 17 in Algorithm 2 [Magnusson 2009]
 	int pointNo = input_->size();
-	Voxel* neighborhood = new Voxel[pointNo*3*3*3];
 	std::vector<int> pointIndices;
 	int neighborNo = 0;
 	int* pNeighborNo = &neighborNo;
@@ -734,18 +742,18 @@ double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 	PointXYZI* transCloudData = trans_cloud.data();
 	float* voxelMaxBuffer = maxVoxel.data;
 	float* voxelMinBuffer = minVoxel.data;
-	Voxel* voxelGrid = this->voxelGrid;
+	Voxel* voxelGrid = this->voxelGrid; // allocated in initCompute()
+	Voxel* neighborBuffer = this->neighborBuffer; // allocated in initCompute()
 	int* voxelDimBuffer = voxelDimension;
 	#pragma omp target \
 	map(to: radiusStart, radiusFinal, step, radius, voxelMinBuffer[:3], voxelMaxBuffer[:3], resolution, voxelDimBuffer[:3]) \
 	map(to: transCloudData[:pointNo]) \
 	map(tofrom: pNeighborNo[:1]) \
-	map(from: neighborhood[:pointNo*3*3*3]) \
-	is_device_ptr(voxelGrid)
+	is_device_ptr(voxelGrid, neighborBuffer)
 	#pragma omp teams distribute parallel for \
 	default(none) \
 	shared(radiusStart, radiusFinal, step, radius, pointNo, voxelMinBuffer, voxelMaxBuffer, voxelDimBuffer, resolution) \
-	shared(pNeighborNo, neighborhood, transCloudData, voxelGrid)
+	shared(pNeighborNo, neighborBuffer, transCloudData, voxelGrid)
 	for (size_t idx = 0; idx < pointNo; idx++)
 	{
 		PointXYZI x_trans_pt = transCloudData[idx];
@@ -771,16 +779,18 @@ double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 								iNeighbor = *pNeighborNo;
 								*pNeighborNo += 1;
 							}
-							neighborhood[iNeighbor] = pointVoxel;
+							neighborBuffer[iNeighbor] = pointVoxel;
 						}
 					}
 				}
 			}
 		}
 	}
+	omp_target_memcpy(neighborStorage, neighborBuffer, sizeof(Voxel)*neighborNo,
+		0, 0, hostDeviceId, targetDeviceId);
 	for (int i = 0; i < neighborNo; i++)
 	{
-		int iPoint = neighborhood[i].point;
+		int iPoint = neighborStorage[i].point;
 		PointXYZI x_pt = input_->at(iPoint);
 		PointXYZI x_trans_pt = trans_cloud[iPoint];
 		Vec3 x, x_trans;
@@ -793,11 +803,11 @@ double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 		x_trans[2] = x_trans_pt.data[2];
 
 		// Denorm point, x_k' in Equations 6.12 and 6.13 [Magnusson 2009]
-		x_trans[0] -= neighborhood[i].mean[0];
-		x_trans[1] -= neighborhood[i].mean[1];
-		x_trans[2] -= neighborhood[i].mean[2];
+		x_trans[0] -= neighborStorage[i].mean[0];
+		x_trans[1] -= neighborStorage[i].mean[1];
+		x_trans[2] -= neighborStorage[i].mean[2];
 		// Uses precomputed covariance for speed.
-		Mat33 c_inv = neighborhood[i].invCovariance;
+		Mat33 c_inv = neighborStorage[i].invCovariance;
 
 		// Compute derivative of transform function w.r.t. transform vector, J_E and H_E in Equations 6.18 and 6.20 [Magnusson 2009]
 		computePointDerivatives (x);
@@ -805,7 +815,6 @@ double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 		score += updateDerivatives (score_gradient, hessian, x_trans, c_inv, compute_hessian);
 
 	}
-	delete neighborhood;
 	return (score);
 }
 void ndt_mapping::computeAngleDerivatives (Vec6 &p, bool compute_hessian)
@@ -1453,13 +1462,19 @@ void ndt_mapping::initCompute()
 	int sizeOfDatacell = voxelDimension[0] * voxelDimension[1] * voxelDimension[2];
 	int targetSize = target_->size();
 	PointXYZI *targetData = target_->data();
-	omp_target_free(this->voxelGrid, targetDeviceId);
-	Voxel* voxelGrid = (Voxel*)omp_target_alloc(sizeof(Voxel)*sizeOfDatacell, targetDeviceId);
-	int* nextTarget = (int*)omp_target_alloc(sizeof(Voxel)*sizeOfDatacell, targetDeviceId);
-	this->voxelGrid = voxelGrid;
 	int* voxelDim = voxelDimension;
 	float* voxelMin = minVoxel.data;
 	float resolution = resolution_;
+	// buffers required for the whole testcase
+	omp_target_free(this->voxelGrid, targetDeviceId);
+	omp_target_free(this->neighborBuffer, targetDeviceId);
+	delete neighborStorage;
+	Voxel* voxelGrid = (Voxel*)omp_target_alloc(sizeof(Voxel)*sizeOfDatacell, targetDeviceId);
+	Voxel* neighborBuffer = (Voxel*)omp_target_alloc(sizeof(Voxel)*targetSize*averageNeighborsPerPoint, targetDeviceId);
+	neighborStorage = new Voxel[targetSize*averageNeighborsPerPoint];
+	int* nextTarget = (int*)omp_target_alloc(sizeof(Voxel)*sizeOfDatacell, targetDeviceId);
+	this->voxelGrid = voxelGrid;
+	this->neighborBuffer = neighborBuffer;
 	#pragma omp target \
 	map(to: targetData[:targetSize]) \
 	map(to: sizeOfDatacell, targetSize, resolution, voxelMin[:3], voxelDim[:3]) \
@@ -1637,6 +1652,8 @@ bool ndt_mapping::check_output() {
 	std::cout << "checking output \n";
 	// complement to init()
 	omp_target_free(voxelGrid, targetDeviceId);
+	omp_target_free(neighborBuffer, targetDeviceId);
+	delete neighborStorage;
 	input_file.close();
 	output_file.close();
 	// check for error
