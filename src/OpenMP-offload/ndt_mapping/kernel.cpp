@@ -419,11 +419,8 @@ void ndt_mapping::init() {
 	init_guess = nullptr;
 	filtered_scan_ptr = nullptr;
 	results = nullptr;
-	// TODO: pass device as argument?
-	// TODO: manually enable again
 	int deviceNo = omp_get_num_devices();
-	//targetDeviceId = omp_get_default_device();
-	targetDeviceId = omp_get_initial_device();
+	targetDeviceId = omp_get_default_device();
 	hostDeviceId = omp_get_initial_device();
 	std::cout << "Host is target?: " << omp_is_initial_device() << std::endl;
 	std::cout << "Selected target device: " << targetDeviceId << std::endl;
@@ -714,58 +711,6 @@ void ndt_mapping::updateHessian (Mat66 &hessian, Vec3 &x_trans, Mat33 &c_inv)
 	}
 }
 
-// from /usr/include/pcl-1.7/pcl/registration/impl/ndt.hpp
-/*double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
-					Mat66 &hessian,
-					PointCloudSource &trans_cloud,
-					Vec6 &p,
-					bool compute_hessian)
-{
-	memset(&(score_gradient[0]), 0, sizeof(double) * 6 );
-	memset(&(hessian.data[0][0]), 0, sizeof(double) * 6 * 6);
-	double score = 0.0;
-
-	// Precompute Angular Derivatives (eq. 6.19 and 6.21)[Magnusson 2009]
-	computeAngleDerivatives (p);
-	// Update gradient and hessian for each point, line 17 in Algorithm 2 [Magnusson 2009]
-	for (size_t idx = 0; idx < input_->size (); idx++)
-	{
-		PointXYZI x_trans_pt = trans_cloud[idx];
-
-		// Find nieghbors (Radius search has been experimentally faster than direct neighbor checking.
-		std::vector<Voxel> neighborhood;
-		std::vector<float> distances;
-		voxelRadiusSearch (target_cells_, x_trans_pt, resolution_, neighborhood, distances);
-
-		for (auto neighborhood_it = neighborhood.begin (); neighborhood_it != neighborhood.end (); neighborhood_it++)
-		{
-			Voxel cell = *neighborhood_it;
-			PointXYZI x_pt = (*input_)[idx];
-			Vec3 x, x_trans;
-			x[0] = x_pt.data[0];
-			x[1] = x_pt.data[1];
-			x[2] = x_pt.data[2];
-
-			x_trans[0] = x_trans_pt.data[0];
-			x_trans[1] = x_trans_pt.data[1];
-			x_trans[2] = x_trans_pt.data[2];
-
-			// Denorm point, x_k' in Equations 6.12 and 6.13 [Magnusson 2009]
-			x_trans[0] -= cell.mean[0];
-			x_trans[1] -= cell.mean[1];
-			x_trans[2] -= cell.mean[2];
-			// Uses precomputed covariance for speed.
-			Mat33 c_inv = cell.invCovariance;
-
-			// Compute derivative of transform function w.r.t. transform vector, J_E and H_E in Equations 6.18 and 6.20 [Magnusson 2009]
-			computePointDerivatives (x);
-			// Update score, gradient and hessian, lines 19-21 in Algorithm 2, according to Equations 6.10, 6.12 and 6.13, respectively [Magnusson 2009]
-			score += updateDerivatives (score_gradient, hessian, x_trans, c_inv, compute_hessian);
-
-		}
-	}
-	return (score);
-}*/
 
 double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 					Mat66 &hessian,
@@ -1516,41 +1461,13 @@ void ndt_mapping::initCompute()
 	int sizeOfDatacell = voxelDimension[0] * voxelDimension[1] * voxelDimension[2];
 	int targetSize = target_->size();
 	PointXYZI *targetData = target_->data();
-	//deviceFree(voxelGrid);
-	//deviceFree(voxelMat);
 	omp_target_free(this->voxelGrid, targetDeviceId);
 	omp_target_free(this->voxelMat, targetDeviceId);
-	//voxelGrid = (Voxel*)deviceAlloc(sizeof(Voxel)*sizeOfDatacell);
-	//voxelMat = (Mat33*)deviceAlloc(sizeof(Mat33)*sizeOfDatacell);
 	Voxel* voxelGrid = (Voxel*)omp_target_alloc(sizeof(Voxel)*sizeOfDatacell, targetDeviceId);
 	Mat33* voxelMat = (Mat33*)omp_target_alloc(sizeof(Mat33)*sizeOfDatacell, targetDeviceId);
 	int* nextTarget = (int*)omp_target_alloc(sizeof(Voxel)*sizeOfDatacell, targetDeviceId);
 	this->voxelGrid = voxelGrid;
 	this->voxelMat = voxelMat;
-	// TODO: remove after testing
-	/*{
-		std::cout << "Test start" << std::endl;
-		int source[5];
-		#pragma omp target data map(tofrom: source[:5])
-		{
-		#pragma omp target teams distribute parallel for default(none) shared(source, nextTarget) is_device_ptr(nextTarget)
-		for (int i = 0; i < 5; i++) {
-			nextTarget[i] = (i + 1)*2;
-		}
-		#pragma omp target teams distribute parallel for default(none) shared(source, nextTarget) is_device_ptr(nextTarget)
-		for (int i = 0; i < 5; i++) {
-			source[i] = nextTarget[i] - 1;
-		}
-		}
-		std::cout << "Result: ";
-		for (int i = 0; i < 5; i++) {
-			std::cout << source[i] << " ";
-		}
-		std::cout << std::endl;
-		std::cout << "Test finish" << std::endl;
-	}*/
-	
-	//PointXYZI minVoxelTransferable = minVoxel;
 	int* voxelDim = voxelDimension;
 	float* voxelMin = minVoxel.data;
 	float resolution = resolution_;
@@ -1561,8 +1478,7 @@ void ndt_mapping::initCompute()
 	{
 		#pragma omp teams distribute parallel for \
 		default(none) \
-		shared(sizeOfDatacell, voxelGrid, voxelMat) \
-		//shared(voxelGrid, voxelMat, sizeOfDatacell)
+		shared(sizeOfDatacell, voxelGrid, voxelMat)
 		for (int i = 0; i < sizeOfDatacell; i++) {
 			voxelGrid[i].point = -1;
 			voxelGrid[i].mean[0] = 0;
@@ -1585,8 +1501,6 @@ void ndt_mapping::initCompute()
 			int voxelIndex = linearizeCoordOFF(targetData[i].data[0], targetData[i].data[1], targetData[i].data[2], resolution, voxelMin, voxelDim);
 			// build the point index queue
 			int iNext;
-			//iNext = voxelIndex;
-			//voxelGrid[voxelIndex].point = i;
 			#pragma omp atomic capture
 			{
 				iNext = voxelGrid[voxelIndex].point;
@@ -1635,83 +1549,6 @@ void ndt_mapping::initCompute()
 			invertMatrixOFF(voxelMat[i]);
 		}
 	}
-	// TODO: remove if no longer required for testing
-	/*target_cells_.clear();
-	target_cells_.resize(sizeOfDatacell);
-	char* cells = (char*)target_cells_.data();
-	std::vector<Mat33> invCovarianceDeepCopy(sizeOfDatacell);
-	std::vector<int> nextBuffer(targetSize);
-	omp_target_memcpy(target_cells_.data(), voxelGrid, sizeof(Voxel)*sizeOfDatacell,
-		0, 0, hostDeviceId, targetDeviceId);
-	omp_target_memcpy(invCovarianceDeepCopy.data(), voxelMat, sizeof(Mat33)*sizeOfDatacell,
-		0, 0, hostDeviceId, targetDeviceId);
-	omp_target_memcpy(nextBuffer.data(), nextTarget, sizeof(int)*targetSize,
-		0, 0, hostDeviceId, targetDeviceId);*/
-		
-		// reset for testing
-		/*for (int i = 0; i < sizeOfDatacell; i++) {
-			target_cells_[i].point = -1;
-		}
-		for (int i = 0; i < targetSize; i++) {
-			int voxelIndex = linearizeCoord(target_->at(i).data[0], target_->at(i).data[1], target_->at(i).data[2]);
-			// build the point index queue
-			int iNext;
-			#pragma omp atomic capture
-			{
-				iNext = target_cells_[voxelIndex].point;
-				target_cells_[voxelIndex].point = i;
-			}
-			//nextBuffer[i] = iNext;
-			if (nextBuffer[i] != iNext) {
-				std::cout << "Next element deviation at " << i << ": " << nextBuffer[i] << " != " << iNext << std::endl;
-			}
-			//if (nextBuffer[i] != voxelIndex) {
-			//	std::cout << "Deviating voxel index at " << i << ": " << nextBuffer[i] << " != " << voxelIndex << std::endl;
-			//}
-		}*/
-		/*for (int i = 0; i < sizeOfDatacell; i++) {
-			int pointNo = 0;
-			int iNext = target_cells_[i].point;
-			//if (iNext > -1) {
-			//	std::cout << "Points at cell " << i << std::endl;
-			//}
-			while (iNext > -1) {
-				pointNo += 1;
-				// modify cell
-				target_cells_[i].mean[0] += target_->at(iNext).data[0];
-				target_cells_[i].mean[1] += target_->at(iNext).data[1];
-				target_cells_[i].mean[2] += target_->at(iNext).data[2];
-				for (int row = 0; row < 3; row ++) {
-					for (int col = 0; col < 3; col ++) {
-						invCovarianceDeepCopy[i].data[row][col] += target_->at(iNext).data[row] * target_->at(iNext).data[col];
-					}
-				}
-				// iterate
-				iNext = nextBuffer[iNext];
-			}
-			// normalize
-			Vec3 pointSum = {target_cells_[i].mean[0], target_cells_[i].mean[1], target_cells_[i].mean[2]};
-			if (pointNo > 0) {
-				target_cells_[i].mean[0] /= pointNo;
-				target_cells_[i].mean[1] /= pointNo;
-				target_cells_[i].mean[2] /= pointNo;
-			}
-			for (int row = 0; row < 3; row++) {
-				for (int col = 0; col < 3; col++)
-				{
-					invCovarianceDeepCopy[i].data[row][col] = (invCovarianceDeepCopy[i].data[row][col] -
-						2 * (pointSum[row] * target_cells_[i].mean[col])) / sizeOfDatacell +
-						target_cells_[i].mean[row]*target_cells_[i].mean[col];
-
-					invCovarianceDeepCopy[i].data[row][col] *= (sizeOfDatacell - 1.0)/pointNo;
-				}
-			}
-			invertMatrix(invCovarianceDeepCopy[i]);
-		}*/
-		
-	//for (int i = 0; i < sizeOfDatacell; i++) {
-	//	target_cells_[i].invCovariance = invCovarianceDeepCopy[i];
-	//}
 	omp_target_free(nextTarget, targetDeviceId);
 }
 
