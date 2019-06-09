@@ -4,6 +4,7 @@
 -include Makefile.deps
 
 CXXFLAGS=-O3
+#CXXFLAGS=-g
 CXXFLAGS+= -std=c++11 -fopenmp
 CXXFLAGS+= -lm -foffload=-lm
 

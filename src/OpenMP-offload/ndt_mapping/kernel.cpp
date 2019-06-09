@@ -1475,14 +1475,14 @@ void ndt_mapping::initCompute()
 	int* nextTarget = (int*)omp_target_alloc(sizeof(Voxel)*sizeOfDatacell, targetDeviceId);
 	this->voxelGrid = voxelGrid;
 	this->neighborBuffer = neighborBuffer;
-	#pragma omp target \
+	#pragma omp target data \
 	map(to: targetData[:targetSize]) \
-	map(to: sizeOfDatacell, targetSize, resolution, voxelMin[:3], voxelDim[:3]) \
-	is_device_ptr(voxelGrid, nextTarget)
+	map(to: sizeOfDatacell, targetSize, resolution, voxelMin[:3], voxelDim[:3])
 	{
-		#pragma omp teams distribute parallel for \
+		#pragma omp target teams distribute parallel for \
 		default(none) \
-		shared(sizeOfDatacell, voxelGrid)
+		shared(sizeOfDatacell, voxelGrid) \
+		is_device_ptr(voxelGrid, nextTarget)
 		for (int i = 0; i < sizeOfDatacell; i++) {
 			voxelGrid[i].point = -1;
 			voxelGrid[i].mean[0] = 0;
@@ -1496,11 +1496,11 @@ void ndt_mapping::initCompute()
 				{1,0,0}
 			}};
 		}
-		#pragma omp flush
-		#pragma omp teams distribute parallel for \
+		#pragma omp target teams distribute parallel for \
 		default(none) \
 		shared(voxelDim, voxelMin, resolution) \
-		shared(targetSize, voxelGrid, nextTarget, targetData)
+		shared(targetSize, voxelGrid, nextTarget, targetData) \
+		is_device_ptr(voxelGrid, nextTarget)
 		for (int i = 0; i < targetSize; i++) {
 			int voxelIndex = linearizeCoordOFF(targetData[i].data[0], targetData[i].data[1], targetData[i].data[2], resolution, voxelMin, voxelDim);
 			// build the point index queue
@@ -1512,45 +1512,57 @@ void ndt_mapping::initCompute()
 			}
 			nextTarget[i] = iNext;
 		}
-		#pragma omp flush
-		#pragma omp teams distribute parallel for \
-		shared(sizeOfDatacell) \
-		shared(voxelGrid, nextTarget, targetData)
+		#pragma omp target teams distribute parallel for \
+		default(none) \
+		firstprivate(sizeOfDatacell) \
+		shared(voxelGrid, nextTarget, targetData) \
+		is_device_ptr(voxelGrid, nextTarget)
 		for (int i = 0; i < sizeOfDatacell; i++) {
 			int pointNo = 0;
-			int iNext = voxelGrid[i].point;
+			Voxel cell = voxelGrid[i];
+			int iNext = cell.point;
+			PointXYZI point;
 			while (iNext > -1) {
 				pointNo += 1;
+				point = targetData[iNext];
 				// modify cell
-				voxelGrid[i].mean[0] += targetData[iNext].data[0];
-				voxelGrid[i].mean[1] += targetData[iNext].data[1];
-				voxelGrid[i].mean[2] += targetData[iNext].data[2];
+				cell.mean[0] += point.data[0];
+				cell.mean[1] += point.data[1];
+				cell.mean[2] += point.data[2];
 				for (int row = 0; row < 3; row ++) {
 					for (int col = 0; col < 3; col ++) {
-						voxelGrid[i].invCovariance.data[row][col] += targetData[iNext].data[row] * targetData[iNext].data[col];
+						cell.invCovariance.data[row][col] += point.data[row] * point.data[col];
 					}
 				}
 				// iterate
 				iNext = nextTarget[iNext];
 			}
 			// normalize
-			Vec3 pointSum = {voxelGrid[i].mean[0], voxelGrid[i].mean[1], voxelGrid[i].mean[2]};
 			if (pointNo > 0) {
-				voxelGrid[i].mean[0] /= pointNo;
-				voxelGrid[i].mean[1] /= pointNo;
-				voxelGrid[i].mean[2] /= pointNo;
-			}
-			for (int row = 0; row < 3; row++) {
-				for (int col = 0; col < 3; col++)
-				{
-					voxelGrid[i].invCovariance.data[row][col] = (voxelGrid[i].invCovariance.data[row][col] -
-						2 * (pointSum[row] * voxelGrid[i].mean[col])) / sizeOfDatacell +
-						voxelGrid[i].mean[row]*voxelGrid[i].mean[col];
+				Vec3 pointSum = {cell.mean[0], cell.mean[1], cell.mean[2]};
+				//double invSizeOfDatacell = 1.0/sizeOfDatacell;
+				//double invPointNo = 1.0/pointNo;
+				/*cell.mean[0] *= invPointNo;
+				cell.mean[1] *= invPointNo;
+				cell.mean[2] *= invPointNo;*/
+				cell.mean[0] /= pointNo;
+				cell.mean[1] /= pointNo;
+				cell.mean[2] /= pointNo;
+				for (int row = 0; row < 3; row++) {
+					for (int col = 0; col < 3; col++)
+					{
+						cell.invCovariance.data[row][col] = 
+							(cell.invCovariance.data[row][col] - 2*(pointSum[row] * cell.mean[col])) /
+							sizeOfDatacell +
+							cell.mean[row]*cell.mean[col];
 
-					voxelGrid[i].invCovariance.data[row][col] *= (sizeOfDatacell - 1.0)/pointNo;
+						cell.invCovariance.data[row][col] *= (sizeOfDatacell - 1.0)/pointNo;
+					}
 				}
+				invertMatrixOFF(cell.invCovariance);
+				voxelGrid[i] = cell;
 			}
-			invertMatrixOFF(voxelGrid[i].invCovariance);
+			// otherwise the cell
 		}
 	}
 	omp_target_free(nextTarget, targetDeviceId);
