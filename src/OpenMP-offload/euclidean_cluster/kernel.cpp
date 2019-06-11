@@ -586,10 +586,10 @@ void euclidean_clustering::extractEuclideanClusters (
 	int nn_start_idx = 0;
 	// data structures for cluster extraction
 	int cloud_size = cloud.size();
-	bool* processedStorage = new bool[cloud_size];//(bool*) malloc(sizeof(bool)*cloud_size);
+	//bool* processedStorage = new bool[cloud_size];//(bool*) malloc(sizeof(bool)*cloud_size);
 	int* clusterAssignmentStorage = new int[cloud_size];
-	int* clusterCandidateStorage = new int[cloud_size];
-	#pragma omp parallel for default(none) shared(cloud_size, processedStorage, clusterAssignmentStorage)
+	//int* clusterCandidateStorage = new int[cloud_size];
+	/*#pragma omp parallel for default(none) shared(cloud_size, processedStorage, clusterAssignmentStorage)
 	for (int i = 0; i < cloud_size; ++i){
 		processedStorage[i] = false;
 		clusterAssignmentStorage[i] = -1;
@@ -609,22 +609,42 @@ void euclidean_clustering::extractEuclideanClusters (
 		}
 		// make a point far away from itself
 		sqrDistanceStorage[j*cloud_size + j] = false;
-	}
+	}*/
 	bool* sqrDistanceBuffer = (bool*)omp_target_alloc(sizeof(bool)*cloud_size*cloud_size, targetDeviceId);
-	omp_target_memcpy(sqrDistanceBuffer, sqrDistanceStorage, sizeof(bool)*cloud_size*cloud_size, 
-		0, 0, targetDeviceId, hostDeviceId);
-	//bool* processedBuffer = (bool*)omp_target_alloc(sizeof(bool)*cloud_size, targetDeviceId);
-	bool* processedBuffer = processedStorage;
+	//omp_target_memcpy(sqrDistanceBuffer, sqrDistanceStorage, sizeof(bool)*cloud_size*cloud_size, 
+	//	0, 0, targetDeviceId, hostDeviceId);
+	bool* processedBuffer = (bool*)omp_target_alloc(sizeof(bool)*cloud_size, targetDeviceId);
+	//bool* processedBuffer = processedStorage;
 	//omp_target_memcpy(processedBuffer, processedStorage, sizeof(bool)*cloud_size, 
 	//	0, 0, targetDeviceId, hostDeviceId);
-	//int* clusterAssignmentBuffer = (int*)omp_target_alloc(sizeof(int)*cloud_size, targetDeviceId);
+	int* clusterAssignmentBuffer = (int*)omp_target_alloc(sizeof(int)*cloud_size, targetDeviceId);
 	//omp_target_memcpy(clusterAssignmentBuffer, clusterAssignmentStorage, sizeof(int)*cloud_size,
 	//	0, 0, targetDeviceId, hostDeviceId);
-	int* clusterAssignmentBuffer = clusterAssignmentStorage;
-	//int* clusterCandidateBuffer = (int*)omp_target_alloc(sizeof(int)*cloud_size, targetDeviceId);
-	int* clusterCandidateBuffer = new int[cloud_size];
+	//int* clusterAssignmentBuffer = clusterAssignmentStorage;
+	int* clusterCandidateBuffer = (int*)omp_target_alloc(sizeof(int)*cloud_size, targetDeviceId);
+	//int* clusterCandidateBuffer = new int[cloud_size];
 	
-	
+	const Point* points = cloud.data();
+	#pragma omp target \
+	map(to: cloud_size, tolerance) \
+	map(to: points[:cloud_size]) \
+	is_device_ptr(processedBuffer, clusterAssignmentBuffer, sqrDistanceBuffer)
+	#pragma omp teams distribute parallel for \
+	firstprivate(cloud_size, tolerance) \
+	shared(processedBuffer, clusterAssignmentBuffer, sqrDistanceBuffer)
+	for (int j = 0; j < cloud_size; j++) {
+		processedBuffer[j] = false;
+		clusterAssignmentBuffer[j] = -1;
+		for (int i = 0; i < cloud_size; i++) {
+			float dx = points[i].x - points[j].x;
+			float dy = points[i].y - points[j].y;
+			float dz = points[i].z - points[j].z;
+			float dist = dx*dx + dy*dy + dz*dz;
+			sqrDistanceBuffer[j*cloud_size + i] = dist <= tolerance*tolerance;
+		}
+		// make a point far away from itself
+		sqrDistanceBuffer[j*cloud_size + j] = false;
+	}
 	
 	// progress indicators
 	//int currentCluster = 0;
@@ -634,31 +654,39 @@ void euclidean_clustering::extractEuclideanClusters (
 	for (int i = 0; i < cloud_size; ++i)
 	{
 		// discard the iteration for points that have already been looked at
-		if (processedBuffer[i])
+		bool skip;
+		omp_target_memcpy(&skip, processedBuffer, sizeof(bool), 
+			0, sizeof(bool)*i, hostDeviceId, targetDeviceId);
+		//if (processedBuffer[i])
+		//	continue;
+		if (skip) {
 			continue;
+		}
 		// begin with a cluster of one element
-		//int sq_idx = 0;
-		clusterCandidateBuffer[0] = i;
+		//clusterCandidateBuffer[0] = i;
 		int staticCandidateSize = 1;
 		int nextCandidateSize = 1;
 		int* pNextCandidateSize = &nextCandidateSize;
 		int iNextPivot = 0;
-		processedBuffer[i] = true;
-		clusterAssignmentBuffer[i] = iCandidate;
+		//processedBuffer[i] = true;
+		//clusterAssignmentBuffer[i] = iCandidate;
 		// grow the candidate cluster
 		while (iNextPivot < nextCandidateSize) {
 		for (int iPivot = iNextPivot; iPivot < staticCandidateSize; iPivot++)
 		{
 			// iterate until all elements for the pivot have been processed
 			#pragma omp target \
-			map(to:iCandidate, cloud_size) \
-			map(tofrom: pNextCandidateSize[:1], processedBuffer[:cloud_size], clusterAssignmentBuffer[:cloud_size], clusterCandidateBuffer[:cloud_size]) \
-			is_device_ptr(sqrDistanceBuffer)
+			map(to:iCandidate, i, cloud_size) \
+			map(tofrom: pNextCandidateSize[:1]) \
+			is_device_ptr(sqrDistanceBuffer, processedBuffer, clusterCandidateBuffer, clusterAssignmentBuffer)
 			#pragma omp teams distribute parallel for \
 			default(none) \
-			firstprivate(iPivot, iCandidate, cloud_size) \
+			firstprivate(iPivot, iCandidate, cloud_size, i) \
 			shared(sqrDistanceBuffer, processedBuffer, clusterAssignmentBuffer, clusterCandidateBuffer, pNextCandidateSize)
 			for (int regionStart = 0; regionStart < cloud_size + PARALLEL_REGION_SIZE; regionStart += PARALLEL_REGION_SIZE) { 
+				processedBuffer[i] = true;
+				clusterAssignmentBuffer[i] = iCandidate;
+				clusterCandidateBuffer[0] = i;
 				int pivot = clusterCandidateBuffer[iPivot];
 				// find near points in the current region
 				int regionEnd = regionStart + PARALLEL_REGION_SIZE;
@@ -700,6 +728,8 @@ void euclidean_clustering::extractEuclideanClusters (
 		iCandidate += 1;
 	}
 	// move points from assignment matrix into clusters
+	omp_target_memcpy(clusterAssignmentStorage, clusterAssignmentBuffer, sizeof(int)*cloud_size,
+		0, 0, hostDeviceId, targetDeviceId);
 	//omp_target_memcpy(clusterAssignmentStorage, clusterAssignmentBuffer, sizeof(int)*cloud_size,
 	//	0, 0, hostDeviceId, targetDeviceId);
 	clusters.clear(); // ensure size 0
@@ -723,15 +753,15 @@ void euclidean_clustering::extractEuclideanClusters (
 			it++;
 		}
 	}
-	//omp_target_free(clusterCandidateBuffer, targetDeviceId);
-	//omp_target_free(clusterAssignmentBuffer, targetDeviceId);
+	omp_target_free(clusterCandidateBuffer, targetDeviceId);
+	omp_target_free(clusterAssignmentBuffer, targetDeviceId);
 	omp_target_free(sqrDistanceBuffer, targetDeviceId);
-	//omp_target_free(processedBuffer, targetDeviceId);
-	delete clusterCandidateBuffer;
-	delete clusterCandidateStorage;
+	omp_target_free(processedBuffer, targetDeviceId);
+	//delete clusterCandidateBuffer;
+	//delete clusterCandidateStorage;
 	delete clusterAssignmentStorage;
-	delete sqrDistanceStorage;
-	delete processedStorage;
+	//delete sqrDistanceStorage;
+	//delete processedStorage;
 }
 
 /**
