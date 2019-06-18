@@ -426,9 +426,16 @@ void ndt_mapping::init() {
 	init_guess = nullptr;
 	filtered_scan_ptr = nullptr;
 	results = nullptr;
-	int deviceNo = omp_get_num_devices();
-	targetDeviceId = omp_get_default_device();
-	hostDeviceId = omp_get_initial_device();
+	#ifdef EPHOS_TARGET_DEVICE_ID
+		targetDeviceId = EPHOS_TARGET_DEVICE_ID
+	#else
+		targetDeviceId = omp_get_default_device();
+	#endif
+	#ifdef EPHOS_HOST_DEVICE_ID
+		hostDeviceId = EPHOS_HOST_DEVICE_ID
+	#else
+		hostDeviceId = omp_get_initial_device();
+	#endif
 	std::cout << "Selected target device: " << targetDeviceId << std::endl;
 	std::cout << "Selected host device: " << hostDeviceId << std::endl;
 	std::cout << "done\n" << std::endl;

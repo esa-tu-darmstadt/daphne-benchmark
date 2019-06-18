@@ -5,8 +5,10 @@ This suite contains automotive benchmarks used for the evaluation of heterogeneo
 It contains 3 kernels (euclidean\_cluster, ndt\_matching and points2image) and four different implementations for each kernel:
 -Serial version
 -OpenMP version
+-OpenMP Offloading version
 -CUDA version
--OpenCL version (here it can be necessary to change the device constant, as some accelerators are recognized as accelerators and some as GPUs. When querying for the device, set it either to "CL\_DEVICE\_TYPE\_ACCELERATOR" or "CL\_DEVICE\_TYPE\_GPU").
+-OpenCL version
+-OpenCL version using atomics
 
 
 Build the benchmarks either with
@@ -16,7 +18,7 @@ b) a Makefile within one of the architecture folders in the src directory.
 
 c) a Makefile in a specific kernel directory (ndt\_matching, points2image, or euclidean\_clustering).
 
-Depending on the platform and environment it can be necessary to configure path variables in the Makefile (esp. for the OpenCL version). 
+Depending on the platform and environment it can be necessary to configure path variables in the Makefile. 
 
 To run a benchmark, execute the ./kernel executable in each testcase directory.
 

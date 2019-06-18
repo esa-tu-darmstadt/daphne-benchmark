@@ -8,6 +8,17 @@ CXXFLAGS=-O3
 CXXFLAGS+= -std=c++11 -fopenmp
 CXXFLAGS+= -lm -foffload=-lm
 
+# device hints
+EPHOS_TARGET_DEVICE_ID=
+EPHOS_HOST_DEVICE_ID=
+ifneq ($(OPENMP_TARGET_DEVICE_ID),)
+        CPPFLAGS+= -DEPHOS_TARGET_DEVICE_ID=$(OPENMP_TARGET_DEVICE_ID)
+endif
+ifneq ($(OPENMP_HOST_DEVICE_ID),)
+        CPPFLAGS+= -DEPHOS_HOST_DEVICE_ID=$(OPENMP_HOST_DEVICE_ID)
+endif
+
+
 all: kernel checkdata
 
 kernel: ../common/main.o kernel.o 

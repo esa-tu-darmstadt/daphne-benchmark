@@ -34,6 +34,13 @@
   $ make 
  
   in their respective subfolders (points2image, euclidean_cluster, ndt_mapping)
+  
+  To use a specific compiler set the CXX variable:
+  $ make CXX=/path/to/compiler/executable
+  
+  The automatically selected host and target devices might not match your hardware.
+  The device IDs used for buffer allocation and memory copies can be set with OPENMP_TARGET_DEVICE_ID and OPENMP_HOST_DEVICE_ID:
+  $ make OPENMP_HOST_DEVICE_ID=-2 OPENMP_TARGET_DEVICE_ID=0
 
 * Execute the benchmark
 
