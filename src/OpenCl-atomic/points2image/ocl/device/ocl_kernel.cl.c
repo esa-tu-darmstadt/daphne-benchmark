@@ -38,7 +38,6 @@ __kernel void pointcloud2_to_image(
 	__global       int*    restrict       Glob_pids,
 	__global       float* restrict	Glob_pointdata2,
 	__global       float* restrict   	Glob_intensity,
-	__global       int*    restrict      	Glob_py,
 	__global int* Glob_pid_no,
 	__local int* Loc_pid_no,
 	__local int* Loc_pid_start)
@@ -138,7 +137,6 @@ __kernel void pointcloud2_to_image(
 		Glob_pids[iResult] = pid;
 		Glob_pointdata2[iResult] = pointData;
 		Glob_intensity[iResult] = intensity;
-		Glob_py[iResult] = py;
 	}
 }
 

@@ -328,79 +328,66 @@ void points2image::run(int p) {
 		for (int i = 0; i < count; i++)
 		{
 			// Prepare inputs buffers
-			size_t pc2data_numelements = pointcloud2[i].height * pointcloud2[i].width * pointcloud2[i].point_step;
-			size_t size_pc2data = pc2data_numelements * sizeof(float);
-			// Creating zero-copy buffer for pointcloud data using "CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR"
-			cl_mem buff_pointcloud2_data =  clCreateBuffer(OCL_objs.context, CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR, size_pc2data, NULL, &err);
-			// Enqueuing mapbuffer to put the input data buff_pointcloud2_data on the map region between host and device
-			float* tmp_pointcloud2_data = (float*) clEnqueueMapBuffer(OCL_objs.cmdqueue,
-				buff_pointcloud2_data, CL_TRUE, CL_MAP_WRITE_INVALIDATE_REGION, 0,
-				size_pc2data, 0, 0, NULL, &err);
-
-			// Copying from host memory to pinned host memory which is used by the CVengine automatically
-			for (uint j=0; j<pc2data_numelements; j++) {
-				tmp_pointcloud2_data[j] = pointcloud2[i].data[j];
-			}
-			// Unmapping the pointer, this will return the control to the device
-			clEnqueueUnmapMemObject(OCL_objs.cmdqueue, buff_pointcloud2_data, tmp_pointcloud2_data, 0, NULL, NULL);
+			size_t pointNo = pointcloud2[i].height * pointcloud2[i].width * pointcloud2[i].point_step;
+			size_t cloudSize = pointNo * sizeof(float);
+			cl_mem cloudBuffer = clCreateBuffer(OCL_objs.context, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, cloudSize, NULL, &err);
+			// write cloud input to buffer
+			err = clEnqueueWriteBuffer(OCL_objs.cmdqueue, cloudBuffer, CL_FALSE, 0, cloudSize, pointcloud2[i].data, 0, nullptr, nullptr);
 			// Prepare outputs buffers
-			size_t outbuff_numelements = imageSize[i].height*imageSize[i].width;
-			size_t size_outputbuff = outbuff_numelements * sizeof(float);
+			size_t imagePixelNo = imageSize[i].height*imageSize[i].width;
 			// Allocate space in host to store results comming from GPU
 			// These will be freed in read_next_testcases()
-			results[i].intensity  = new float[outbuff_numelements];
-			std::memset(results[i].intensity, 0, sizeof(float)*outbuff_numelements);
-			results[i].distance   = new float[outbuff_numelements];
-			std::memset(results[i].distance, 0, sizeof(float)*outbuff_numelements);
-			results[i].min_height = new float[outbuff_numelements];
-			std::memset(results[i].min_height, 0, sizeof(float)*outbuff_numelements);
-			results[i].max_height = new float[outbuff_numelements];
-			std::memset(results[i].max_height, 0, sizeof(float)*outbuff_numelements);
+			results[i].intensity  = new float[imagePixelNo];
+			std::memset(results[i].intensity, 0, sizeof(float)*imagePixelNo);
+			results[i].distance   = new float[imagePixelNo];
+			std::memset(results[i].distance, 0, sizeof(float)*imagePixelNo);
+			results[i].min_height = new float[imagePixelNo];
+			std::memset(results[i].min_height, 0, sizeof(float)*imagePixelNo);
+			results[i].max_height = new float[imagePixelNo];
+			std::memset(results[i].max_height, 0, sizeof(float)*imagePixelNo);
 			// Creating zero-copy buffers for pids data
-			cl_mem buff_pids        = clCreateBuffer(OCL_objs.context, CL_MEM_WRITE_ONLY | CL_MEM_ALLOC_HOST_PTR, pointcloud2[i].width * sizeof(int),   NULL, &err);
-			cl_mem buff_pointdata2  = clCreateBuffer(OCL_objs.context, CL_MEM_WRITE_ONLY | CL_MEM_ALLOC_HOST_PTR, pointcloud2[i].width * sizeof(float), NULL, &err);
-			cl_mem buff_intensity   = clCreateBuffer(OCL_objs.context, CL_MEM_WRITE_ONLY | CL_MEM_ALLOC_HOST_PTR, pointcloud2[i].width * sizeof(float), NULL, &err);
-			cl_mem buff_py          = clCreateBuffer(OCL_objs.context, CL_MEM_WRITE_ONLY | CL_MEM_ALLOC_HOST_PTR, pointcloud2[i].width * sizeof(int),   NULL, &err);
-			cl_mem buff_point_no = clCreateBuffer(OCL_objs.context, CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, sizeof(int), nullptr, &err);
+			cl_mem pixelIdBuffer = clCreateBuffer(OCL_objs.context, CL_MEM_WRITE_ONLY, pointcloud2[i].width * sizeof(int),   nullptr, &err);
+			cl_mem depthBuffer = clCreateBuffer(OCL_objs.context, CL_MEM_WRITE_ONLY, pointcloud2[i].width * sizeof(float), nullptr, &err);
+			cl_mem intensityBuffer = clCreateBuffer(OCL_objs.context, CL_MEM_WRITE_ONLY, pointcloud2[i].width * sizeof(float), nullptr, &err);
+			cl_mem counterBuffer = clCreateBuffer(OCL_objs.context, CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, sizeof(int), nullptr, &err);
 			// Set kernel parameters
 			err = clSetKernelArg (points2image_kernel, 0, sizeof(int),       &pointcloud2[i].height);
 			err = clSetKernelArg (points2image_kernel, 1, sizeof(int),       &pointcloud2[i].width);
  			err = clSetKernelArg (points2image_kernel, 2, sizeof(int),       &pointcloud2[i].point_step);
-			err = clSetKernelArg (points2image_kernel, 3, sizeof(cl_mem),    &buff_pointcloud2_data);
-			
-			Mat44 tmp_cameraExtrinsic;
-			Mat33 tmp_cameraMat;
-			Vec5  tmp_distCoeff;
+			err = clSetKernelArg (points2image_kernel, 3, sizeof(cl_mem),    &cloudBuffer);
+			// prepare matrices
+			Mat44 tmpCameraExtrinsic;
+			Mat33 tmpCameraMat;
+			Vec5  tmpDistCoeff;
 
 			for (uint p=0; p<4; p++){
 				for (uint q=0; q<4; q++) {
-					tmp_cameraExtrinsic.data[p][q] = cameraExtrinsicMat[i].data[p][q];
+					tmpCameraExtrinsic.data[p][q] = cameraExtrinsicMat[i].data[p][q];
 				}
 			}
 			for (uint p=0; p<3; p++){
 				for (uint q=0; q<3; q++) {
-						tmp_cameraMat.data[p][q] = cameraMat[i].data[p][q];
+						tmpCameraMat.data[p][q] = cameraMat[i].data[p][q];
 				}
 			}
 			for (uint p=0; p<5; p++){
-					tmp_distCoeff.data[p] = distCoeff[i].data[p];
+					tmpDistCoeff.data[p] = distCoeff[i].data[p];
 			}
 
-			err = clSetKernelArg (points2image_kernel, 4,  sizeof(Mat44),  &tmp_cameraExtrinsic);
-			err = clSetKernelArg (points2image_kernel, 5,  sizeof(Mat33),  &tmp_cameraMat);
-			err = clSetKernelArg (points2image_kernel, 6,  sizeof(Vec5),   &tmp_distCoeff);
+			err = clSetKernelArg (points2image_kernel, 4,  sizeof(Mat44),  &tmpCameraExtrinsic);
+			err = clSetKernelArg (points2image_kernel, 5,  sizeof(Mat33),  &tmpCameraMat);
+			err = clSetKernelArg (points2image_kernel, 6,  sizeof(Vec5),   &tmpDistCoeff);
 
 			err = clSetKernelArg (points2image_kernel, 7,  sizeof(ImageSize), &imageSize[i]);
-			err = clSetKernelArg (points2image_kernel, 8,  sizeof(cl_mem), &buff_pids);
-			err = clSetKernelArg (points2image_kernel, 9, sizeof(cl_mem), &buff_pointdata2);
-			err = clSetKernelArg (points2image_kernel, 10, sizeof(cl_mem), &buff_intensity);
-			err = clSetKernelArg (points2image_kernel, 11, sizeof(cl_mem), &buff_py);
-			err = clSetKernelArg (points2image_kernel, 12, sizeof(cl_mem), &buff_point_no);
+			err = clSetKernelArg (points2image_kernel, 8,  sizeof(cl_mem), &pixelIdBuffer);
+			err = clSetKernelArg (points2image_kernel, 9, sizeof(cl_mem), &depthBuffer);
+			err = clSetKernelArg (points2image_kernel, 10, sizeof(cl_mem), &intensityBuffer);
+			err = clSetKernelArg (points2image_kernel, 11, sizeof(cl_mem), &counterBuffer);
+			err = clSetKernelArg(points2image_kernel, 12, sizeof(int), nullptr);
 			err = clSetKernelArg(points2image_kernel, 13, sizeof(int), nullptr);
-			err = clSetKernelArg(points2image_kernel, 14, sizeof(int), nullptr);
 			// initializing arriving point number
 			int zero = 0;
-			err = clEnqueueWriteBuffer(OCL_objs.cmdqueue, buff_point_no, CL_FALSE,
+			err = clEnqueueWriteBuffer(OCL_objs.cmdqueue, counterBuffer, CL_FALSE,
 				0, sizeof(int), &zero, 0, nullptr, nullptr);
 			// Update global size
 			size_t tmp_size =  pointcloud2[i].width / local_size;
@@ -410,19 +397,16 @@ void points2image::run(int p) {
 			// CPU update of msg_intensity, msg_distance, msg_min_height, msg_max_height, etc
 
 
-			int cpu_pid_no;
-			err = clEnqueueReadBuffer(OCL_objs.cmdqueue, buff_point_no, CL_TRUE,
-				0, sizeof(int), &cpu_pid_no, 0, nullptr, nullptr);
-			size_t size_tmp_int   = cpu_pid_no * sizeof(int);
-			size_t size_tmp_float = cpu_pid_no * sizeof(float);
-			int* cpu_pids = (int*) clEnqueueMapBuffer(OCL_objs.cmdqueue, buff_pids, 
-				CL_TRUE, CL_MAP_READ, 0, size_tmp_int, 0, 0, NULL, &err);
-			float* cpu_pointdata2 = (float*) clEnqueueMapBuffer(OCL_objs.cmdqueue, buff_pointdata2,
-				CL_TRUE, CL_MAP_READ, 0,size_tmp_float, 0, 0, NULL, &err);
-			float* cpu_intensity = (float*) clEnqueueMapBuffer(OCL_objs.cmdqueue, buff_intensity,
-				CL_TRUE, CL_MAP_READ, 0, size_tmp_float, 0, 0, NULL, &err);
-			int* cpu_py = (int*) clEnqueueMapBuffer(OCL_objs.cmdqueue, buff_py, 
-				CL_TRUE, CL_MAP_READ, 0, size_tmp_int, 0, 0, NULL, &err);
+			int arrivingPointNo;
+			err = clEnqueueReadBuffer(OCL_objs.cmdqueue, counterBuffer, CL_TRUE,
+				0, sizeof(int), &arrivingPointNo, 0, nullptr, nullptr);
+			
+			int* pixelIds = (int*) clEnqueueMapBuffer(OCL_objs.cmdqueue, pixelIdBuffer, 
+				CL_TRUE, CL_MAP_READ, 0, sizeof(int)*arrivingPointNo, 0, 0, NULL, &err);
+			float* pointDepth = (float*) clEnqueueMapBuffer(OCL_objs.cmdqueue, depthBuffer,
+				CL_TRUE, CL_MAP_READ, 0, sizeof(float)*arrivingPointNo, 0, 0, NULL, &err);
+			float* pointIntensity = (float*) clEnqueueMapBuffer(OCL_objs.cmdqueue, intensityBuffer,
+				CL_TRUE, CL_MAP_READ, 0, sizeof(float)*arrivingPointNo, 0, 0, NULL, &err);
  
 			// transfer image size
 			const int h          = imageSize[i].height;
@@ -435,42 +419,44 @@ void points2image::run(int p) {
 			results[i].image_width  = imageSize[i].width;
 			uintptr_t cp = (uintptr_t)pointcloud2[i].data;
 			// transfer the transformation results into the image
-			for (unsigned int x = 0; x < cpu_pid_no; x++) {
-				int pid = cpu_pids [x];
-				float tmp_pointdata2 = cpu_pointdata2[x] * 100;
-				float tmp_distance = results[i].distance[pid];
+			for (unsigned int x = 0; x < arrivingPointNo; x++) {
+				int pid = pixelIds[x];
+				float tmpDepth = pointDepth[x] * 100;
+				float tmpDistance = results[i].distance[pid];
 
-				bool cond1 = (tmp_distance == 0.0f);
-				bool cond2 = (tmp_distance >= tmp_pointdata2);
+				bool cond1 = (tmpDistance == 0.0f);
+				bool cond2 = (tmpDistance >= tmpDepth);
 				if( cond1 || cond2 ) {
-					bool cond3 = (tmp_distance == tmp_pointdata2);
-					bool cond4 = (results[i].intensity[pid] <  cpu_intensity[x]);
-					bool cond5 = (tmp_distance >  tmp_pointdata2);
-					bool cond6 = (tmp_distance == 0);
+					bool cond3 = (tmpDistance == tmpDepth);
+					bool cond4 = (results[i].intensity[pid] <  pointIntensity[x]);
+					bool cond5 = (tmpDistance >  tmpDepth);
+					bool cond6 = (tmpDistance == 0);
 
 					if ((cond3 && cond4) || cond5 || cond6) {
-						results[i].intensity[pid] = cpu_intensity[x];
+						results[i].intensity[pid] = pointIntensity[x];
 					}
-					results[i].distance[pid]  = float(tmp_pointdata2);
-					int tmp_py = cpu_py[x];
-					results[i].max_y = tmp_py > results[i].max_y ? tmp_py : results[i].max_y;
-					results[i].min_y = tmp_py < results[i].min_y ? tmp_py : results[i].min_y;
+					results[i].distance[pid]  = float(tmpDepth);
+					int pixelY = pid/imageSize[i].width;
+					if (results[i].max_y < pixelY) {
+						results[i].max_y = pixelY;
+					}
+					if (results[i].min_y > pixelY) {
+						results[i].min_y = pixelY;
+					}
 				}
 				results[i].min_height[pid] = -1.25f;
 				results[i].max_height[pid] = 0.0f;
 			}
 			// cleanup
-			clEnqueueUnmapMemObject(OCL_objs.cmdqueue, buff_pids, cpu_pids, 0, NULL, NULL);
-			clEnqueueUnmapMemObject(OCL_objs.cmdqueue, buff_pointdata2, cpu_pointdata2, 0, NULL, NULL);
-			clEnqueueUnmapMemObject(OCL_objs.cmdqueue, buff_intensity, cpu_intensity, 0, NULL, NULL);
-			clEnqueueUnmapMemObject(OCL_objs.cmdqueue, buff_py, cpu_py, 0, NULL, NULL);
+			clEnqueueUnmapMemObject(OCL_objs.cmdqueue, pixelIdBuffer, pixelIds, 0, NULL, NULL);
+			clEnqueueUnmapMemObject(OCL_objs.cmdqueue, depthBuffer, pointDepth, 0, NULL, NULL);
+			clEnqueueUnmapMemObject(OCL_objs.cmdqueue, intensityBuffer, pointIntensity, 0, NULL, NULL);
 
-			clReleaseMemObject(buff_pointcloud2_data);
-			clReleaseMemObject(buff_pids);
-			clReleaseMemObject(buff_pointdata2);
-			clReleaseMemObject(buff_intensity);
-			clReleaseMemObject(buff_py);
-			clReleaseMemObject(buff_point_no);
+			clReleaseMemObject(cloudBuffer);
+			clReleaseMemObject(pixelIdBuffer);
+			clReleaseMemObject(depthBuffer);
+			clReleaseMemObject(intensityBuffer);
+			clReleaseMemObject(counterBuffer);
 		}
 		pause_func();
 		check_next_outputs(count);
