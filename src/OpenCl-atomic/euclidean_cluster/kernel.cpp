@@ -9,8 +9,8 @@
 
 #include "benchmark.h"
 #include "datatypes.h"
-#include "ocl_ephos.h"
-#include "stringify.h"
+#include "ocl/host/ocl_ephos.h"
+#include "ocl/device/ocl_kernel.h"
 
 #define STRINGIZE2(s) #s
 #define STRINGIZE(s) STRINGIZE2(s)
@@ -63,7 +63,7 @@ private:
 	// the measured maximum deviation from the reference data
 	double max_delta = 0.0;
 	// current number of point cloud elements
-    int *cloud_size = nullptr;
+	int *cloud_size = nullptr;
 public:
 	virtual void init();
 	virtual void run(int p = 1);
@@ -563,7 +563,7 @@ float minAreaRectAngle(std::vector<Point2D>& points)
 /**
  * Finds all clusters in the given point cloud that are conformant to the given parameters.
  * cloud: point cloud to cluster
- * cloud_size: number of cloud elements
+ * cloudSize: number of cloud elements
  * tolerance: search radius around a single point
  * clusters: list of resulting clusters
  * min_pts_per_cluster: lower cluster size restriction
@@ -572,126 +572,115 @@ float minAreaRectAngle(std::vector<Point2D>& points)
  */
 void extractEuclideanClusters (
 	const PointCloud cloud,
-	int cloud_size,
+	int cloudSize,
 	float tolerance,
 	std::vector<PointIndices> &clusters,
 	unsigned int min_pts_per_cluster, 
 	unsigned int max_pts_per_cluster,
-	OCL_Struct* OCL_objs
-	)
+	OCL_Struct* OCL_objs)
 {
-	// indicates the processed status for each point
-	std::vector<bool> processed (cloud_size, false);
-	// temporary radius search results
 	cl_int err;
-	cl::Buffer buff_nn_indices (OCL_objs->context, CL_MEM_WRITE_ONLY | CL_MEM_ALLOC_HOST_PTR, cloud_size*sizeof(int));
-	cl::Buffer buff_nn_indices_no(OCL_objs->context, CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, sizeof(int));
 	
-	// cluster candidate buffer
-	int* seed_queue;
-	size_t nbytes_seed_queue = cloud_size * sizeof(int);
-	seed_queue = (int*) malloc(nbytes_seed_queue);
-	cl::Buffer buff_seed_queue (OCL_objs->context, CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR, nbytes_seed_queue);
-
-
-	// cloud memory
+	// create buffers
+	cl::Buffer seedQueueBuffer (OCL_objs->context, CL_MEM_READ_ONLY, sizeof(int)*cloudSize);
+	
 	// move point cloud to device
-	cl::Buffer buff_processed(OCL_objs->context, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, sizeof(bool)*cloud_size);
-	size_t nbytes_cloud = sizeof(Point) * (cloud_size);
-	cl::Buffer buff_cloud (OCL_objs->context, CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR, nbytes_cloud);
-	Point* tmp_cloud = (Point *) OCL_objs->cmdqueue.enqueueMapBuffer(buff_cloud, CL_TRUE, CL_MAP_WRITE_INVALIDATE_REGION, 0, nbytes_cloud);
-	memcpy(tmp_cloud, cloud, nbytes_cloud);
-	OCL_objs->cmdqueue.enqueueUnmapMemObject(buff_cloud, tmp_cloud);
+	cl::Buffer cloudBuffer (OCL_objs->context, CL_MEM_READ_ONLY, sizeof(Point)*cloudSize);
+	Point* cloudStorage = (Point *) OCL_objs->cmdqueue.enqueueMapBuffer(cloudBuffer, CL_TRUE, CL_MAP_WRITE_INVALIDATE_REGION, 0, sizeof(Point)*cloudSize);
+	std::memcpy(cloudStorage, cloud, sizeof(Point)*cloudSize);
+	OCL_objs->cmdqueue.enqueueUnmapMemObject(cloudBuffer, cloudStorage);
+	//OCL_objs->cmdqueue.enqueueWriteBuffer(cloudBuffer, CL_FALSE,
+	//	0, sizeof(Point)*cloudSize, cloud);
 	
 	// create and initialize the distance matrix buffer
-	size_t nbytes_sqr_distances = cloud_size * cloud_size * sizeof(bool);
-	cl::Buffer buff_sqr_distances (OCL_objs->context, CL_MEM_READ_WRITE, nbytes_sqr_distances);
-	size_t offset = 0;
-	size_t local_size     = NUMWORKITEMS_PER_WORKGROUP;
-	size_t workgroup_size = (cloud_size + NUMWORKITEMS_PER_WORKGROUP - 1);
-	size_t global_size    = workgroup_size * local_size;
-	cl::NDRange ndrange_offset(offset);
-	cl::NDRange ndrange_localsize (local_size);
-	cl::NDRange ndrange_globalsize(global_size);
+	cl::Buffer distanceBuffer (OCL_objs->context, CL_MEM_READ_WRITE, sizeof(bool)*cloudSize*cloudSize);
+
+	cl::NDRange offsetRange(0);
+	cl::NDRange localSizeRange (NUMWORKITEMS_PER_WORKGROUP);
+	cl::NDRange globalSizeRange((cloudSize/NUMWORKITEMS_PER_WORKGROUP + 1) * NUMWORKITEMS_PER_WORKGROUP);
 	// call the initialization kernel
-	OCL_objs->kernel_initRS.setArg(0, buff_cloud);
-	OCL_objs->kernel_initRS.setArg(1, buff_sqr_distances);
-	OCL_objs->kernel_initRS.setArg(2, cloud_size);
+	OCL_objs->kernel_initRS.setArg(0, cloudBuffer);
+	OCL_objs->kernel_initRS.setArg(1, distanceBuffer);
+	OCL_objs->kernel_initRS.setArg(2, cloudSize);
 	#if defined (DOUBLE_FP)
-	OCL_objs->kernel_initRS.setArg(3, static_cast<double>(tolerance*tolerance));
+	OCL_objs->kernel_initRS.setArg(3, (double)(tolerance*tolerance));
 	#else
 	OCL_objs->kernel_initRS.setArg(3, (tolerance*tolerance));
 	#endif
 	OCL_objs->cmdqueue.enqueueNDRangeKernel(
-		OCL_objs->kernel_initRS, ndrange_offset, ndrange_globalsize, ndrange_localsize);
+		OCL_objs->kernel_initRS, offsetRange, globalSizeRange, localSizeRange);
+	// raidus search progress indicators
+	bool* processed = new bool[cloudSize];
+	std::memset(processed, 0, sizeof(bool)*cloudSize);
+	cl::Buffer seedQueueLengthBuffer(OCL_objs->context, CL_MEM_READ_WRITE, sizeof(int));
+	cl::Buffer processedBuffer(OCL_objs->context, CL_MEM_READ_WRITE, sizeof(bool)*cloudSize);
 
-	OCL_objs->kernel_parallelRS.setArg(0, buff_seed_queue);
-	OCL_objs->kernel_parallelRS.setArg(1, buff_nn_indices);
-	OCL_objs->kernel_parallelRS.setArg(2, buff_sqr_distances);
-	OCL_objs->kernel_parallelRS.setArg(3, buff_nn_indices_no);
-	OCL_objs->kernel_parallelRS.setArg(4, cl::Local(sizeof(int)));
-	OCL_objs->kernel_parallelRS.setArg(5, cl::Local(sizeof(int)));
+	OCL_objs->cmdqueue.enqueueWriteBuffer(processedBuffer, CL_FALSE,
+		0, sizeof(bool)*cloudSize, processed);
+
+	OCL_objs->kernel_parallelRS.setArg(0, seedQueueBuffer);
+	OCL_objs->kernel_parallelRS.setArg(1, distanceBuffer);
+	OCL_objs->kernel_parallelRS.setArg(2, processedBuffer);
+	OCL_objs->kernel_parallelRS.setArg(3, seedQueueLengthBuffer);
 	// Process all points in the indices vector
-	for (int i = 0; i < cloud_size; ++i)
+	for (int i = 0; i < cloudSize; ++i)
 	{
 		// skip elements that have already been looked at
 		if (processed[i])
 			continue;
 		// begin a new candidate with one element
-		int queue_last_element = 0;
-		seed_queue[queue_last_element++] = i;
 		processed[i] = true;
-		int new_elements = 1;
+		int staticCandidateNo = 0;
+		int nextCandidateNo = 1;
+		bool proc = true;
+		OCL_objs->cmdqueue.enqueueWriteBuffer(seedQueueBuffer, CL_FALSE,
+			0, sizeof(int), &i);
+		OCL_objs->cmdqueue.enqueueWriteBuffer(processedBuffer, CL_FALSE,
+			sizeof(bool)*i, sizeof(bool), &proc);
+		OCL_objs->cmdqueue.enqueueWriteBuffer(seedQueueLengthBuffer, CL_FALSE,
+			0, sizeof(int), &nextCandidateNo);
 		// grow the candidate until convergence
-		while (new_elements > 0)
+		while (nextCandidateNo > staticCandidateNo)
 		{
-			// zero result counter
-			int nn_indices_no = 0;
-			OCL_objs->cmdqueue.enqueueWriteBuffer(buff_nn_indices_no, CL_FALSE, 0, sizeof(int), &nn_indices_no);
-			// move the seed queue to device memory
-			int* tmp_seed_queue = (int *) OCL_objs->cmdqueue.enqueueMapBuffer(buff_seed_queue, CL_TRUE, CL_MAP_WRITE_INVALIDATE_REGION, 0, nbytes_seed_queue);
-			memcpy(tmp_seed_queue, seed_queue, nbytes_seed_queue);
-			OCL_objs->cmdqueue.enqueueUnmapMemObject(buff_seed_queue, tmp_seed_queue);
 			// call the radius search kernel
-			
-			OCL_objs->kernel_parallelRS.setArg(6, queue_last_element - new_elements);
-			OCL_objs->kernel_parallelRS.setArg(7, queue_last_element);
-			OCL_objs->kernel_parallelRS.setArg(8, cloud_size);
-
+			OCL_objs->kernel_parallelRS.setArg(4, staticCandidateNo);
+			OCL_objs->kernel_parallelRS.setArg(5, nextCandidateNo);
+			OCL_objs->kernel_parallelRS.setArg(6, cloudSize);
 			OCL_objs->cmdqueue.enqueueNDRangeKernel(OCL_objs->kernel_parallelRS, 
-				ndrange_offset,
-				ndrange_globalsize,
-				ndrange_localsize);
-
-			// move the indices of near points into host memory
-			new_elements = 0;
-			OCL_objs->cmdqueue.enqueueReadBuffer(buff_nn_indices_no, CL_TRUE, 0, sizeof(int), &nn_indices_no);
-			if (nn_indices_no > 0) {
-				int* nn_indices = (int*) OCL_objs->cmdqueue.enqueueMapBuffer(buff_nn_indices, CL_TRUE, CL_MAP_READ, 0, nn_indices_no*sizeof(int));
-				for (size_t j = 0; j < nn_indices_no; ++j)
-				{
-					if (processed[nn_indices[j]])
-						continue;
-					seed_queue[queue_last_element++] = nn_indices[j];
-					processed[nn_indices[j]] = true;
-					new_elements += 1;
-				}
-				OCL_objs->cmdqueue.enqueueUnmapMemObject(buff_nn_indices, nn_indices);
-			}
+				offsetRange,
+				globalSizeRange,
+				localSizeRange);
+			// update counters
+			staticCandidateNo = nextCandidateNo;
+			OCL_objs->cmdqueue.enqueueReadBuffer(seedQueueLengthBuffer, CL_TRUE,
+				0, sizeof(int), &nextCandidateNo);
 		}
-		// addd the cluster candidate if it is inside satisfactory size bounds
-		if (queue_last_element >= min_pts_per_cluster && queue_last_element <= max_pts_per_cluster)
+		staticCandidateNo = nextCandidateNo;
+		// add the cluster candidate if it is inside satisfactory size bounds
+		if (nextCandidateNo >= min_pts_per_cluster && nextCandidateNo <= max_pts_per_cluster)
 		{
-			PointIndices r;
-			r.indices.resize (queue_last_element);
-			for (size_t j = 0; j < queue_last_element; ++j)
-			r.indices[j] = seed_queue[j];
-			std::sort (r.indices.begin (), r.indices.end ());
-			clusters.push_back (r);
+			// store the cluster
+			int iCluster = clusters.size();
+			clusters.resize(iCluster + 1);
+			PointIndices& cluster = clusters[iCluster];
+			cluster.indices.resize(nextCandidateNo);
+			OCL_objs->cmdqueue.enqueueReadBuffer(seedQueueBuffer, CL_TRUE,
+				0, sizeof(int)*nextCandidateNo, cluster.indices.data());
+			std::sort(cluster.indices.begin(), cluster.indices.end());
+			for (int j = 1; j < nextCandidateNo; j++) {
+				processed[cluster.indices[j]] = true;
+			}
+		} else if (nextCandidateNo > 1) {
+			// mark all except the starting element as processsed
+			int* candidateStorage = (int *) OCL_objs->cmdqueue.enqueueMapBuffer(seedQueueBuffer, CL_TRUE, CL_MAP_READ,
+				sizeof(int), sizeof(int)*(nextCandidateNo - 1));
+			for (int j = 0; j < nextCandidateNo; j++) {
+				processed[candidateStorage[j]] = true;
+			}
+			OCL_objs->cmdqueue.enqueueUnmapMemObject(seedQueueBuffer, candidateStorage);
 		}
 	}
-	// free resources
-	free(seed_queue);
+	delete processed;
 }
 
 /**
@@ -707,7 +696,7 @@ inline bool comparePointClusters (const PointIndices &a, const PointIndices &b)
  */
 void extract (
 	const PointCloud input_,
-	int cloud_size,
+	int cloudSize,
 	std::vector<PointIndices> &clusters, 
 	#if defined (DOUBLE_FP)
 	double cluster_tolerance_
@@ -716,13 +705,13 @@ void extract (
 	#endif
 	, OCL_Struct* OCL_objs)
 {
-	if (cloud_size == 0)
+	if (cloudSize == 0)
 	{
 	    clusters.clear ();
 	    return;
 	}
 	extractEuclideanClusters (
-		input_, cloud_size, static_cast<float>(cluster_tolerance_),
+		input_, cloudSize, static_cast<float>(cluster_tolerance_),
 		clusters, _cluster_size_min, _cluster_size_max  ,OCL_objs);
 	// sort by number of elements
 	std::sort (clusters.rbegin (), clusters.rend (), comparePointClusters);
@@ -731,7 +720,7 @@ void extract (
 void euclidean_clustering::clusterAndColor(
 	OCL_Struct* OCL_objs,
 	const PointCloud in_cloud_ptr,
-	int cloud_size,
+	int cloudSize,
 	PointCloudRGB *out_cloud_ptr,
 	BoundingboxArray* in_out_boundingbox_array,
 	Centroid* in_out_centroids,
@@ -744,7 +733,7 @@ void euclidean_clustering::clusterAndColor(
 {
 	std::vector<PointIndices> cluster_indices;
 	extract (in_cloud_ptr, 
-		cloud_size,
+		cloudSize,
 		cluster_indices,
 		in_max_cluster_distance,
 		OCL_objs);
@@ -859,7 +848,7 @@ void euclidean_clustering::clusterAndColor(
  * and performs clustering and coloring on the individual categories.
  * OCL_objs: OpenCL resources
  * in_cloud_ptr: point cloud
- * cloud_size: number of points in cloud
+ * cloudSize: number of points in cloud
  * out_cloud_ptr: resulting point cloud
  * out_boundingbox_array: resulting bounding boxes
  * in_out_centroids: resulting cluster centroids
@@ -868,7 +857,7 @@ void euclidean_clustering::clusterAndColor(
 void euclidean_clustering::segmentByDistance(
 	OCL_Struct* OCL_objs,
 	const PointCloud in_cloud_ptr,
-	int cloud_size,
+	int cloudSize,
 	PointCloudRGB *out_cloud_ptr,
 	BoundingboxArray *in_out_boundingbox_array,
 	Centroid *in_out_centroids,
@@ -881,13 +870,13 @@ void euclidean_clustering::segmentByDistance(
 {
 	PointCloud   cloud_segments_array[5];
 	int segment_size[5] = {0, 0, 0, 0, 0};
-	int *segment_index = (int*) malloc(cloud_size * sizeof(int));
+	int *segment_index = (int*) malloc(cloudSize * sizeof(int));
 	#if defined (DOUBLE_FP)
 	double thresholds[5] = {0.5, 1.1, 1.6, 2.3, 2.6f};
 	#else
 	float thresholds[5] = {0.5, 1.1, 1.6, 2.3, 2.6f};
 	#endif
-	for (unsigned int i=0; i< cloud_size; i++)
+	for (unsigned int i=0; i< cloudSize; i++)
 	{
 		Point current_point;
 		current_point.x = (in_cloud_ptr)[i].x; /*(*in_cloud_ptr)[i].x;*/
@@ -923,7 +912,7 @@ void euclidean_clustering::segmentByDistance(
 	for (int segment = 0; segment < 5; segment++) // find points belonging into each segment
 	{
 		cloud_segments_array[segment] = in_cloud_ptr + current_segment_pos[segment];
-		for (int i = current_segment_pos[segment]; i < cloud_size; i++) // all in the segment before are already sorted in
+		for (int i = current_segment_pos[segment]; i < cloudSize; i++) // all in the segment before are already sorted in
 		{
 			if (segment_index[i] == segment)
 			{
@@ -952,12 +941,12 @@ void euclidean_clustering::segmentByDistance(
 	}
 }
 
-void parsePointCloud(std::ifstream& input_file, PointCloud *cloud, int *cloud_size)
+void parsePointCloud(std::ifstream& input_file, PointCloud *cloud, int *cloudSize)
 {
-	input_file.read((char*)(cloud_size), sizeof(int));
-	*cloud = (Point*) malloc(sizeof(Point) * (*cloud_size));
+	input_file.read((char*)(cloudSize), sizeof(int));
+	*cloud = (Point*) malloc(sizeof(Point) * (*cloudSize));
 	try {
-	for (int i = 0; i < *cloud_size; i++)
+	for (int i = 0; i < *cloudSize; i++)
 		{
 		input_file.read((char*)&(*cloud)[i].x, sizeof(float));
 		input_file.read((char*)&(*cloud)[i].y, sizeof(float));

@@ -3,4 +3,5 @@
 **/Makefile.deps
 **/kernel
 **/stringify.h
-**/stringify_tmp
+**/ocl_kernel_tmp
+**/ocl_kernel.h

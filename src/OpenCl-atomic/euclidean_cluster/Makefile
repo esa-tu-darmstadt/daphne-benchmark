@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := all
-.PHONY: all clean stringify checkdata
+.PHONY: all clean ocl/device/ocl_kernel.h checkdata
 
 -include Makefile.deps
 
@@ -12,15 +12,15 @@ OPENCL_LIBRARY_PATH=
 ifneq ($(OPENCL_INCLUDE_PATH),)
 	CPPFLAGS+= -I$(OPENCL_INCLUDE_PATH)
 endif
-CPPFLAGS+= -I./ -I./ocl/host
+CPPFLAGS+= -I./
 ifneq ($(OPENCL_LIBRARY_PATH),)
 	LDDFLAGS+= -L$(OPENCL_LIBRARY_PATH)
 endif
 LDDFLAGS+= -lOpenCL
 
 # number of work items per work group
-LOCAL_SIZE=256
-CPPFLAGS+= -DNUMWORKITEMS_PER_WORKGROUP=$(LOCAL_SIZE)
+OPENCL_LOCAL_SIZE=256
+CPPFLAGS+= -DNUMWORKITEMS_PER_WORKGROUP=$(OPENCL_LOCAL_SIZE)
 
 # double precision floating point
 CPPFLAGS+= -DDOUBLE_FP
@@ -41,8 +41,8 @@ endif
 
 all: kernel checkdata
 
-stringify:
-	./stringify_ocl_krnls.sh
+ocl/device/ocl_kernel.h:
+	./stringify_ocl_kernels.sh
 
 kernel: ../common/main.o kernel.o ocl/host/ocl_tools.o
 	$(CXX) $^ -o $@ $(LDDFLAGS)
@@ -50,7 +50,7 @@ kernel: ../common/main.o kernel.o ocl/host/ocl_tools.o
 ../common/main.o: ../common/main.cpp
 	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
 
-kernel.o: kernel.cpp stringify
+kernel.o: kernel.cpp
 	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
 
 ocl/host/ocl_tools.o: ocl/host/ocl_tools.cpp
@@ -65,8 +65,10 @@ ifeq ($(wildcard ../../../data/ec_output.dat),)
 endif
 
 clean:
-	rm -f kernel kernel.o ocl/tools/ocl_tools.o ../common/main.o Makefile.deps ocl/device/stringify_tmp
+	rm -f Makefile.deps kernel kernel.o ../common/main.o ocl/host/ocl_tools.o ocl/device/ocl_kernel_tmp ocl/device/ocl_kernel.h
 
 Makefile.deps:
-	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include -MM ../common/main.cpp *.cpp > Makefile.deps
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include -MM -MG \
+	../common/main.cpp kernel.cpp ocl/host/ocl_tools.cpp > Makefile.deps
+
 

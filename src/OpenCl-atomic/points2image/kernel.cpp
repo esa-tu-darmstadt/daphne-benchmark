@@ -6,13 +6,12 @@
 
 #include "benchmark.h"
 #include "datatypes.h"
-#include "stringify.h"
-#include "ocl_header.h"
+#include "ocl/device/ocl_kernel.h"
+#include "ocl/host/ocl_header.h"
 
 #define STRINGIZE2(s) #s
 #define STRINGIZE(s) STRINGIZE2(s)
 
-#define MAX_NUM_WORKITEMS 32
 // maximum allowed deviation from the reference results
 #define MAX_EPS 0.001
 
@@ -310,14 +309,8 @@ void points2image::run(int p) {
 		std::cerr << e.what() << std::endl;
 		exit(EXIT_FAILURE);
 	}
-	cl_kernel points2image_kernel = kernels[0];
-	// getting max workgroup size
-	size_t local_size;
-	cl_int err = clGetDeviceInfo(OCL_objs.device, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(size_t), &local_size, NULL);
-	// min total number of threads for executing the kernel
-	cl_uint compute_unit;
-	err =  clGetDeviceInfo(OCL_objs.device, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(cl_uint), &compute_unit, NULL);
-	size_t global_size = compute_unit * local_size;
+	cl_kernel points2imageKernel = kernels[0];
+	cl_int err = CL_SUCCESS;
 	// process all testcases
 	while (read_testcases < testcases)
 	{
@@ -351,10 +344,10 @@ void points2image::run(int p) {
 			cl_mem intensityBuffer = clCreateBuffer(OCL_objs.context, CL_MEM_WRITE_ONLY, pointcloud2[i].width * sizeof(float), nullptr, &err);
 			cl_mem counterBuffer = clCreateBuffer(OCL_objs.context, CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, sizeof(int), nullptr, &err);
 			// Set kernel parameters
-			err = clSetKernelArg (points2image_kernel, 0, sizeof(int),       &pointcloud2[i].height);
-			err = clSetKernelArg (points2image_kernel, 1, sizeof(int),       &pointcloud2[i].width);
- 			err = clSetKernelArg (points2image_kernel, 2, sizeof(int),       &pointcloud2[i].point_step);
-			err = clSetKernelArg (points2image_kernel, 3, sizeof(cl_mem),    &cloudBuffer);
+			err = clSetKernelArg (points2imageKernel, 0, sizeof(int),       &pointcloud2[i].height);
+			err = clSetKernelArg (points2imageKernel, 1, sizeof(int),       &pointcloud2[i].width);
+			err = clSetKernelArg (points2imageKernel, 2, sizeof(int),       &pointcloud2[i].point_step);
+			err = clSetKernelArg (points2imageKernel, 3, sizeof(cl_mem),    &cloudBuffer);
 			// prepare matrices
 			Mat44 tmpCameraExtrinsic;
 			Mat33 tmpCameraMat;
@@ -367,48 +360,44 @@ void points2image::run(int p) {
 			}
 			for (uint p=0; p<3; p++){
 				for (uint q=0; q<3; q++) {
-						tmpCameraMat.data[p][q] = cameraMat[i].data[p][q];
+					tmpCameraMat.data[p][q] = cameraMat[i].data[p][q];
 				}
 			}
 			for (uint p=0; p<5; p++){
-					tmpDistCoeff.data[p] = distCoeff[i].data[p];
+				tmpDistCoeff.data[p] = distCoeff[i].data[p];
 			}
 
-			err = clSetKernelArg (points2image_kernel, 4,  sizeof(Mat44),  &tmpCameraExtrinsic);
-			err = clSetKernelArg (points2image_kernel, 5,  sizeof(Mat33),  &tmpCameraMat);
-			err = clSetKernelArg (points2image_kernel, 6,  sizeof(Vec5),   &tmpDistCoeff);
+			err = clSetKernelArg (points2imageKernel, 4,  sizeof(Mat44),  &tmpCameraExtrinsic);
+			err = clSetKernelArg (points2imageKernel, 5,  sizeof(Mat33),  &tmpCameraMat);
+			err = clSetKernelArg (points2imageKernel, 6,  sizeof(Vec5),   &tmpDistCoeff);
 
-			err = clSetKernelArg (points2image_kernel, 7,  sizeof(ImageSize), &imageSize[i]);
-			err = clSetKernelArg (points2image_kernel, 8,  sizeof(cl_mem), &pixelIdBuffer);
-			err = clSetKernelArg (points2image_kernel, 9, sizeof(cl_mem), &depthBuffer);
-			err = clSetKernelArg (points2image_kernel, 10, sizeof(cl_mem), &intensityBuffer);
-			err = clSetKernelArg (points2image_kernel, 11, sizeof(cl_mem), &counterBuffer);
-			err = clSetKernelArg(points2image_kernel, 12, sizeof(int), nullptr);
-			err = clSetKernelArg(points2image_kernel, 13, sizeof(int), nullptr);
+			err = clSetKernelArg (points2imageKernel, 7,  sizeof(ImageSize), &imageSize[i]);
+			err = clSetKernelArg (points2imageKernel, 8,  sizeof(cl_mem), &pixelIdBuffer);
+			err = clSetKernelArg (points2imageKernel, 9, sizeof(cl_mem), &depthBuffer);
+			err = clSetKernelArg (points2imageKernel, 10, sizeof(cl_mem), &intensityBuffer);
+			err = clSetKernelArg (points2imageKernel, 11, sizeof(cl_mem), &counterBuffer);
+			err = clSetKernelArg(points2imageKernel, 12, sizeof(int), nullptr);
+			err = clSetKernelArg(points2imageKernel, 13, sizeof(int), nullptr);
 			// initializing arriving point number
 			int zero = 0;
 			err = clEnqueueWriteBuffer(OCL_objs.cmdqueue, counterBuffer, CL_FALSE,
 				0, sizeof(int), &zero, 0, nullptr, nullptr);
-			// Update global size
-			size_t tmp_size =  pointcloud2[i].width / local_size;
-			global_size = (tmp_size + 1) * /*MAX_NUM_WORKITEMS*/ local_size; // ~ 50000
 			// Launch kernel on device
-			err = clEnqueueNDRangeKernel(OCL_objs.cmdqueue, points2image_kernel, 1, NULL,  &global_size, &local_size, 0, NULL, NULL);
-			// CPU update of msg_intensity, msg_distance, msg_min_height, msg_max_height, etc
-
+			size_t localRange = NUMWORKITEMS_PER_WORKGROUP;
+			size_t globalRange = (pointcloud2[i].width/localRange + 1)*localRange;
+			err = clEnqueueNDRangeKernel(OCL_objs.cmdqueue, points2imageKernel, 1,
+				nullptr,  &globalRange, &localRange, 0, nullptr, nullptr);
 
 			int arrivingPointNo;
 			err = clEnqueueReadBuffer(OCL_objs.cmdqueue, counterBuffer, CL_TRUE,
 				0, sizeof(int), &arrivingPointNo, 0, nullptr, nullptr);
-			
+			// move results to host memory
 			int* pixelIds = (int*) clEnqueueMapBuffer(OCL_objs.cmdqueue, pixelIdBuffer, 
-				CL_TRUE, CL_MAP_READ, 0, sizeof(int)*arrivingPointNo, 0, 0, NULL, &err);
+				CL_TRUE, CL_MAP_READ, 0, sizeof(int)*arrivingPointNo, 0, 0, nullptr, &err);
 			float* pointDepth = (float*) clEnqueueMapBuffer(OCL_objs.cmdqueue, depthBuffer,
-				CL_TRUE, CL_MAP_READ, 0, sizeof(float)*arrivingPointNo, 0, 0, NULL, &err);
+				CL_TRUE, CL_MAP_READ, 0, sizeof(float)*arrivingPointNo, 0, 0, nullptr, &err);
 			float* pointIntensity = (float*) clEnqueueMapBuffer(OCL_objs.cmdqueue, intensityBuffer,
-				CL_TRUE, CL_MAP_READ, 0, sizeof(float)*arrivingPointNo, 0, 0, NULL, &err);
- 
-			// transfer image size
+				CL_TRUE, CL_MAP_READ, 0, sizeof(float)*arrivingPointNo, 0, 0, nullptr, &err);
 			const int h          = imageSize[i].height;
 			const int pc2_height = pointcloud2[i].height;
 			const int pc2_width  = pointcloud2[i].width;
@@ -448,9 +437,9 @@ void points2image::run(int p) {
 				results[i].max_height[pid] = 0.0f;
 			}
 			// cleanup
-			clEnqueueUnmapMemObject(OCL_objs.cmdqueue, pixelIdBuffer, pixelIds, 0, NULL, NULL);
-			clEnqueueUnmapMemObject(OCL_objs.cmdqueue, depthBuffer, pointDepth, 0, NULL, NULL);
-			clEnqueueUnmapMemObject(OCL_objs.cmdqueue, intensityBuffer, pointIntensity, 0, NULL, NULL);
+			clEnqueueUnmapMemObject(OCL_objs.cmdqueue, pixelIdBuffer, pixelIds, 0, nullptr, nullptr);
+			clEnqueueUnmapMemObject(OCL_objs.cmdqueue, depthBuffer, pointDepth, 0, nullptr, nullptr);
+			clEnqueueUnmapMemObject(OCL_objs.cmdqueue, intensityBuffer, pointIntensity, 0, nullptr, nullptr);
 
 			clReleaseMemObject(cloudBuffer);
 			clReleaseMemObject(pixelIdBuffer);
@@ -462,7 +451,7 @@ void points2image::run(int p) {
 		check_next_outputs(count);
 	}
 	// cleanup
-	err = clReleaseKernel(points2image_kernel);
+	err = clReleaseKernel(points2imageKernel);
 	err = clReleaseProgram(points2image_program);
 	err = clReleaseCommandQueue(OCL_objs.cmdqueue);
 	err = clReleaseContext(OCL_objs.context);
