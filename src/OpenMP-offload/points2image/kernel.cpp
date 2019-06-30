@@ -26,8 +26,6 @@
 
 class points2image : public kernel {
 private:
-	int deviceId = 0;
-private:
 	// the number of testcases read
 	int read_testcases = 0;
 	// testcase and reference data streams
@@ -255,11 +253,6 @@ void points2image::init() {
 		std::cerr << e.what() << std::endl;
 		exit(-3);
 	}
-	// device selection
-	int deviceNo = omp_get_num_devices();
-	deviceId = std::max(0, deviceNo -1);
-	std::cout << "Selected device " << deviceId;
-	std::cout << " out of " << deviceNo << std::endl;
 
 	// prepare the first iteration
 	error_so_far = false;

@@ -1084,12 +1084,12 @@ void euclidean_clustering::init() {
 	}
 	// select device
 	#ifdef EPHOS_HOST_DEVICE_ID
-		hostDeviceId = EPHOS_HOST_DEVICE_ID
+		hostDeviceId = EPHOS_HOST_DEVICE_ID;
 	#else
 		hostDeviceId = omp_get_initial_device();
 	#endif
 	#ifdef EPHOS_TARGET_DEVICE_ID
-		targetDeviceId = EPHOS_TARGET_DEVICE_ID
+		targetDeviceId = EPHOS_TARGET_DEVICE_ID;
 	#else
 		targetDeviceId = omp_get_default_device();
 	#endif
