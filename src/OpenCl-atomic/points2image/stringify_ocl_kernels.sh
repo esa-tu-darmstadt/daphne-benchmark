@@ -14,7 +14,7 @@ echo "Stringified input kernel-files: "
 echo $IN_KERNEL
 
 # output file
-OUT=./stringify.h
+OUT=$KERNEL_DIR/ocl_kernel.h
 
 echo " "
 echo "Stringified output file: "
@@ -22,7 +22,7 @@ echo $OUT
 echo " "
 
 # temporal file
-TMP=$KERNEL_DIR/stringify_tmp
+TMP=$KERNEL_DIR/ocl_kernel_tmp
 echo "" > $TMP
 echo "#ifndef STRINGIFY_H" >>$TMP
 echo "#define STRINGIFY_H" >>$TMP
