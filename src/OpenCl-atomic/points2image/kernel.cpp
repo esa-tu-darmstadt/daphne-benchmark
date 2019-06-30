@@ -360,11 +360,11 @@ void points2image::run(int p) {
 			}
 			for (uint p=0; p<3; p++){
 				for (uint q=0; q<3; q++) {
-						tmpCameraMat.data[p][q] = cameraMat[i].data[p][q];
+					tmpCameraMat.data[p][q] = cameraMat[i].data[p][q];
 				}
 			}
 			for (uint p=0; p<5; p++){
-					tmpDistCoeff.data[p] = distCoeff[i].data[p];
+				tmpDistCoeff.data[p] = distCoeff[i].data[p];
 			}
 
 			err = clSetKernelArg (points2imageKernel, 4,  sizeof(Mat44),  &tmpCameraExtrinsic);

@@ -24,14 +24,14 @@ echo " "
 # temporal file
 TMP=$KERNEL_DIR/ocl_kernel_tmp
 echo "" > $TMP
-echo "#ifndef STRINGIFY_H" >>$TMP
-echo "#define STRINGIFY_H" >>$TMP
+echo "#ifndef OCL_KERNEL_H" >>$TMP
+echo "#define OCL_KERNEL_H" >>$TMP
 
 echo "const char *points2image_ocl_krnl =" >>$TMP
 sed 's/\\/\\\\/g;s/"/\\"/g;s/^/"/;s/$/\\n"/' $IN_KERNEL >> $TMP
 echo ";" >>$TMP
 
-echo "#endif // End of STRINGIFY_H" >>$TMP
+echo "#endif // End of OCL_KERNEL_H" >>$TMP
 
 # remove "#include" lines
 grep -v '#include' $TMP > $OUT

@@ -10,8 +10,8 @@
 #include <stdexcept>
 #include <stdlib.h>
 
-#include "ocl_ephos.h"
-#include "stringify.h"
+#include "ocl/host/ocl_ephos.h"
+#include "ocl/device/ocl_kernel.h"
 
 #define STRINGIZE2(s) #s
 #define STRINGIZE(s) STRINGIZE2(s)
