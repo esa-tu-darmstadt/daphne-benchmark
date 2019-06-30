@@ -24,7 +24,7 @@
 
   Make sure that nvcc is available
   If not already in the search path it is located at /usr/local/cuda/bin for a default CUDA installation
-  In this situation the PATH variable can temporarily be altered with:
+  In this situation the PATH variable can be temporarily altered with:
   $ export PATH=$PATH:/usr/local/cuda/bin
 
 * Compilation

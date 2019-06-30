@@ -42,6 +42,8 @@
     - folder that contains CL/cl.h
   * OPENCL_LIBRARY_PATH - if the OpenCL library is not available at the default locations
     - folder that contains libOpenCL.so or similar
+  * OPENCL_LOCAL_SIZE - to select a specific work group size
+    - number of work items in a work group, e.g. 512
 
   For example if we wanted to select our Nvidia RTX series graphics card we could type:
   $ make OPENCL_DEVICE_ID=RTX
