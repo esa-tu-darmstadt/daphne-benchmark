@@ -1,15 +1,32 @@
 #include "benchmark.h"
 #include "datatypes.h"
-#include <cmath>
+#include <math.h>
 #include <iostream>
 #include <fstream>
 #include <cstring>
 #include <omp.h>
+//#include "../include/meassurement_AverageOnly.h"
 
-// maximum allowed deviation from the reference results
 #define MAX_EPS 0.001
 
+/**
+   Author: Florian Stock 2018
+
+   Kernel extracted from Autoware suite.
+   Dependencies on the PCL (PointCloudLib) and CV (OpenCV) libs are removed.
+   For their licenses see license folder.
+
+   Kernel uses 2500 invocations of the pointcloud2_to_image function from the
+   points2image-package/node
+   (see Autoware/ros/src/sensing/fusion/packages/points2image/lib/points_image/points_image.cpp)
+
+   Computed results are compared with the Autoware computed result.
+
+ */
+
 class points2image : public kernel {
+private:
+	int deviceId = 0;
 private:
 	// the number of testcases read
 	int read_testcases = 0;
@@ -45,7 +62,7 @@ public:
 	 * Finally checks whether all input data has been processed successfully.
 	 */
 	virtual bool check_output();
-	
+
 protected:
 	/**
 	* Reads the next test cases.
@@ -55,14 +72,13 @@ protected:
 	virtual int read_next_testcases(int count);
 	/**
 	 * Compares the results from the algorithm with the reference data.
-	 * count: the number of testcases processed 
+	 * count: the number of testcases processed
 	 */
 	virtual void check_next_outputs(int count);
 	/**
 	 * Reads the number of testcases in the data set.
 	 */
 	int read_number_testcases(std::ifstream& input_file);
-	
 };
 
 /**
@@ -75,9 +91,9 @@ void  parsePointCloud(std::ifstream& input_file, PointCloud2* pointcloud2) {
 		input_file.read((char*)&(pointcloud2->point_step), sizeof(uint32_t));
 		pointcloud2->data = new float[pointcloud2->height * pointcloud2->width * pointcloud2->point_step];
 		input_file.read((char*)pointcloud2->data, pointcloud2->height * pointcloud2->width * pointcloud2->point_step);
-    }  catch (std::ifstream::failure) {
+	}  catch (std::ifstream::failure) {
 		throw std::ios_base::failure("Error reading the next point cloud.");
-    }
+	}
 }
 /**
  * Parses the next camera extrinsic matrix.
@@ -88,7 +104,7 @@ void  parseCameraExtrinsicMat(std::ifstream& input_file, Mat44* cameraExtrinsicM
 			for (int w = 0; w < 4; w++)
 				input_file.read((char*)&(cameraExtrinsicMat->data[h][w]),sizeof(double));
 	} catch (std::ifstream::failure) {
-		throw std::ios_base::failure("Error reading the next extrinsic matrix.");		
+		throw std::ios_base::failure("Error reading the next extrinsic matrix.");
 	}
 }
 /**
@@ -96,12 +112,12 @@ void  parseCameraExtrinsicMat(std::ifstream& input_file, Mat44* cameraExtrinsicM
  */
 void parseCameraMat(std::ifstream& input_file, Mat33* cameraMat ) {
 	try {
-	for (int h = 0; h < 3; h++)
-		for (int w = 0; w < 3; w++)
-			input_file.read((char*)&(cameraMat->data[h][w]), sizeof(double));
+		for (int h = 0; h < 3; h++)
+			for (int w = 0; w < 3; w++)
+				input_file.read((char*)&(cameraMat->data[h][w]), sizeof(double));
 	} catch (std::ifstream::failure) {
 		throw std::ios_base::failure("Error reading the next camera matrix.");
-    }
+	}
 }
 /**
  * Parses the next distance coefficients.
@@ -118,12 +134,12 @@ void  parseDistCoeff(std::ifstream& input_file, Vec5* distCoeff) {
  * Parses the next image sizes.
  */
 void  parseImageSize(std::ifstream& input_file, ImageSize* imageSize) {
-	try {
-		input_file.read((char*)&(imageSize->width), sizeof(int32_t));
-		input_file.read((char*)&(imageSize->height), sizeof(int32_t));
-	} catch (std::ifstream::failure) {
-		throw std::ios_base::failure("Error reading the next image size.");
-	}
+        try {
+                input_file.read((char*)&(imageSize->width), sizeof(int32_t));
+                input_file.read((char*)&(imageSize->height), sizeof(int32_t));
+        } catch (std::ifstream::failure) {
+                throw std::ios_base::failure("Error reading the next image size.");
+        }
 }
 /**
  * Parses the next reference image.
@@ -160,7 +176,7 @@ int points2image::read_next_testcases(int count)
 {
 	// free the memory that has been allocated in the previous iteration
 	// and allocate new for the currently required data sizes
-	if (pointcloud2) 
+	if (pointcloud2)
 		for (int m = 0; m < count; ++m)
 			delete [] pointcloud2[m].data;
 	delete [] pointcloud2;
@@ -183,7 +199,7 @@ int points2image::read_next_testcases(int count)
 	}
 	delete [] results;
 	results = new PointsImage[count];
-	
+
 	// iteratively read the data for the test cases
 	int i;
 	for (i = 0; (i < count) && (read_testcases < testcases); i++,read_testcases++)
@@ -216,7 +232,7 @@ int points2image::read_number_testcases(std::ifstream& input_file)
 
 void points2image::init() {
 	std::cout << "init\n";
-	
+
 	// open testcase and reference data streams
 	input_file.exceptions ( std::ifstream::failbit | std::ifstream::badbit );
 	output_file.exceptions ( std::ifstream::failbit | std::ifstream::badbit );
@@ -239,7 +255,12 @@ void points2image::init() {
 		std::cerr << e.what() << std::endl;
 		exit(-3);
 	}
-	
+	// device selection
+	int deviceNo = omp_get_num_devices();
+	deviceId = std::max(0, deviceNo -1);
+	std::cout << "Selected device " << deviceId;
+	std::cout << " out of " << deviceNo << std::endl;
+
 	// prepare the first iteration
 	error_so_far = false;
 	max_delta = 0.0;
@@ -252,6 +273,7 @@ void points2image::init() {
 
 	std::cout << "done\n" << std::endl;
 }
+
 
 /**
  * This code is extracted from Autoware, file:
@@ -288,10 +310,8 @@ PointsImage pointcloud2_to_image(
 	msg.image_width = imageSize.width;
 	int32_t max_y = -1;
 	int32_t min_y = h;
-	
-	// prepare cloud data pointer to read the data correctly
-	uintptr_t cp = (uintptr_t)pointcloud2.data;
-	
+
+	float* cloud = (float *)pointcloud2.data;
 	// preprocess the given matrices
 	// transposed 3x3 camera extrinsic matrix
 	Mat33 invR;
@@ -305,149 +325,158 @@ PointsImage pointcloud2_to_image(
 		for (int col = 0; col < 3; col++)
 			invT.data[row] -= invR.data[row][col] * cameraExtrinsicMat.data[col][3];
 	}
-	// apply the algorithm for each point in the cloud
-	for (uint32_t y = 0; y < pointcloud2.height; ++y) {
-	#pragma omp parallel for reduction(max : max_y) reduction(min : min_y) schedule(static)
-		for (uint32_t x = 0; x < pointcloud2.width; ++x) {
-			float* fp = (float *)(cp + (x + y*pointcloud2.width) * pointcloud2.point_step);
+	// various data sizes in bytes
+	int sizeMat = pointcloud2.width * pointcloud2.height;
+	int sizeMaxCp = pointcloud2.height * pointcloud2.width * pointcloud2.point_step;
+	double* distanceArr = new double[sizeMat];
+	Point2d* imagePointArr = new Point2d[sizeMat];
+	int cloudHeight = pointcloud2.height;
+	int cloudWidth = pointcloud2.width;
+	int cloudStepSize = pointcloud2.point_step;
+
+	// point transformation
+	#pragma omp target \
+	map(from:distanceArr[:sizeMat],imagePointArr[:sizeMat]) \
+	map(to:cloud[:sizeMaxCp],distCoeff,cameraMat,invT,invR,cloudHeight,cloudWidth,cloudStepSize)
+	{
+	#pragma omp teams distribute parallel for collapse(2)
+	for (uint32_t x = 0; x < cloudWidth; ++x) {
+		for (uint32_t y = 0; y < cloudHeight; ++y) {
+			int iPoint =x + y * cloudWidth;
+			float* fp = (float *)(((uintptr_t)cloud) + (x + y*cloudWidth) * cloudStepSize);
+
 			double intensity = fp[4];
-			// apply the transformations
+
 			Mat13 point, point2;
 			point2.data[0] = double(fp[0]);
 			point2.data[1] = double(fp[1]);
 			point2.data[2] = double(fp[2]);
-			//point = point * invR.t() + invT.t();
+			// apply matrices
 			for (int row = 0; row < 3; row++) {
 				point.data[row] = invT.data[row];
-				for (int col = 0; col < 3; col++) 
-				point.data[row] += point2.data[col] * invR.data[row][col];
+				for (int col = 0; col < 3; col++)
+					point.data[row] += point2.data[col] * invR.data[row][col];
 			}
-			
+			distanceArr[iPoint] = point.data[2] * 100.0;
+			// discard points that are too near
 			if (point.data[2] <= 2.5) {
-					continue;
+				Point2d imagepointError;
+				imagepointError.x = -1;
+				imagepointError.y = -1;
+				imagePointArr[iPoint] = imagepointError;
+				continue;
 			}
-
+			// determine image coordinates
 			double tmpx = point.data[0] / point.data[2];
-			double tmpy = point.data[1]/ point.data[2];
+			double tmpy = point.data[1] / point.data[2];
 			double r2 = tmpx * tmpx + tmpy * tmpy;
 			double tmpdist = 1 + distCoeff.data[0] * r2
 					+ distCoeff.data[1] * r2 * r2
 					+ distCoeff.data[4] * r2 * r2 * r2;
-
 			Point2d imagepoint;
 			imagepoint.x = tmpx * tmpdist
-					+ 2 * distCoeff.data[2] * tmpx * tmpy
-					+ distCoeff.data[3] * (r2 + 2 * tmpx * tmpx);
+				+ 2 * distCoeff.data[2] * tmpx * tmpy
+				+ distCoeff.data[3] * (r2 + 2 * tmpx * tmpx);
 			imagepoint.y = tmpy * tmpdist
-					+ distCoeff.data[2] * (r2 + 2 * tmpy * tmpy)
-					+ 2 * distCoeff.data[3] * tmpx * tmpy;
+				+ distCoeff.data[2] * (r2 + 2 * tmpy * tmpy)
+				+ 2 * distCoeff.data[3] * tmpx * tmpy;
 			imagepoint.x = cameraMat.data[0][0] * imagepoint.x + cameraMat.data[0][2];
 			imagepoint.y = cameraMat.data[1][1] * imagepoint.y + cameraMat.data[1][2];
-			int px = int(imagepoint.x + 0.5);
-			int py = int(imagepoint.y + 0.5);
-			// continue with points inside image bounds
-			if(0 <= px && px < w && 0 <= py && py < h)
-			{
-				int pid = py * w + px;
-				#pragma omp critical
-				{
-					if(msg.distance[pid] == 0 ||
-						msg.distance[pid] > (point.data[2] * 100.0))
-					{
-						msg.distance[pid] = float(point.data[2] * 100);
-						msg.intensity[pid] = float(intensity);
-
-						max_y = py > max_y ? py : max_y;
-						min_y = py < min_y ? py : min_y;
-
-					}
-				}
-				#pragma omp critical
-				{
-					if (0 == y && pointcloud2.height == 2)//process simultaneously min and max during the first layer
-					{
-						float* fp2 = (float *)(cp + (x + (y+1)*pointcloud2.width) * pointcloud2.point_step);
-						msg.min_height[pid] = fp[2];
-						msg.max_height[pid] = fp2[2];
-					}
-					else
-					{
-						msg.min_height[pid] = -1.25;
-						msg.max_height[pid] = 0;
-					}
-				}
+			imagePointArr[iPoint] = imagepoint;
 			}
 		}
 	}
-	msg.max_y = max_y;
-	msg.min_y = min_y;
+	// image formation
+	for (uint32_t x = 0; x < cloudWidth; ++x) {
+		for (uint32_t y = 0; y < cloudHeight; ++y) {
+			int iPoint =x + y * cloudWidth;
+			// restore values
+			double distance = distanceArr[iPoint];
+			// discard near points again
+			if (distance <= (2.5 * 100.0)) {
+				continue;
+			}
+			float* fp = (float *)(((uintptr_t)cloud) + (x + y*cloudWidth) * cloudStepSize);
+			double intensity = fp[4];
+			Point2d imagepoint = imagePointArr[iPoint];
+			int px = int(imagepoint.x + 0.5);
+			int py = int(imagepoint.y + 0.5);
+			if(0 <= px && px < w && 0 <= py && py < h)
+			{
+				// write to image and update vertical extends
+				int pid = py * w + px;
+				if(msg.distance[pid] == 0 || msg.distance[pid] > distance)
+				{
+					msg.distance[pid] = float(distance); //msg is das problem beim paralelisieren
+					msg.intensity[pid] = float(intensity);
+					msg.max_y = py > msg.max_y ? py : msg.max_y;
+					msg.min_y = py < msg.min_y ? py : msg.min_y;
+				}
+				msg.min_height[pid] = -1.25;
+				msg.max_height[pid] = 0;
+			}
+		}
+	}
+	delete distanceArr;
+	delete imagePointArr;
 	return msg;
 }
 
+
+
 void points2image::run(int p) {
-	// pause while reading and comparing data
-	// only run the timer when the algorithm is active
 	pause_func();
 	while (read_testcases < testcases)
 	{
 		int count = read_next_testcases(p);
 		unpause_func();
-		// run the algorithm for each input data set
 		for (int i = 0; i < count; i++)
 		{
+			// actual kernel invocation
 			results[i] = pointcloud2_to_image(pointcloud2[i],
-								cameraExtrinsicMat[i],
-								cameraMat[i], distCoeff[i],
-								imageSize[i]);
+			cameraExtrinsicMat[i],
+			cameraMat[i], distCoeff[i],
+			imageSize[i]);
 		}
 		pause_func();
-		// compare with the reference data
 		check_next_outputs(count);
 	}
+
 }
 
 void points2image::check_next_outputs(int count)
 {
 	PointsImage reference;
-	// parse the next reference image
-	// and compare it to the data generated by the algorithm
+
 	for (int i = 0; i < count; i++)
 	{
-		try {
-			parsePointsImage(output_file, &reference);
-		} catch (std::ios_base::failure& e) {
-			std::cerr << e.what() << std::endl;
-			exit(-3);
-		}
-		// detect image size deviation
+		parsePointsImage(output_file, &reference);
 		if ((results[i].image_height != reference.image_height)
 			|| (results[i].image_width != reference.image_width))
 		{
 			error_so_far = true;
 		}
-		// detect image extend deviation
 		if ((results[i].min_y != reference.min_y)
 			|| (results[i].max_y != reference.max_y))
 		{
 			error_so_far = true;
 		}
-		// compare all pixels
+
 		int pos = 0;
 		for (int h = 0; h < reference.image_height; h++)
 			for (int w = 0; w < reference.image_width; w++)
 			{
-				// compare members individually and detect deviations
-				if (std::fabs(reference.intensity[pos] - results[i].intensity[pos]) > max_delta)
+				if (fabs(reference.intensity[pos] - results[i].intensity[pos]) > max_delta)
 					max_delta = fabs(reference.intensity[pos] - results[i].intensity[pos]);
-				if (std::fabs(reference.distance[pos] - results[i].distance[pos]) > max_delta)
+				if (fabs(reference.distance[pos] - results[i].distance[pos]) > max_delta)
 					max_delta = fabs(reference.distance[pos] - results[i].distance[pos]);
-				if (std::fabs(reference.min_height[pos] - results[i].min_height[pos]) > max_delta)
+				if (fabs(reference.min_height[pos] - results[i].min_height[pos]) > max_delta)
 					max_delta = fabs(reference.min_height[pos] - results[i].min_height[pos]);
-				if (std::fabs(reference.max_height[pos] - results[i].max_height[pos]) > max_delta)
+				if (fabs(reference.max_height[pos] - results[i].max_height[pos]) > max_delta)
 					max_delta = fabs(reference.max_height[pos] - results[i].max_height[pos]);
 				pos++;
 			}
-		// free the memory allocated by the reference image read above
+		// complement to read_next_testcases()
 		delete [] reference.intensity;
 		delete [] reference.distance;
 		delete [] reference.min_height;
@@ -460,13 +489,12 @@ bool points2image::check_output() {
 	// complement to init()
 	input_file.close();
 	output_file.close();
+
 	std::cout << "max delta: " << max_delta << "\n";
-	if ((max_delta > MAX_EPS) || error_so_far) {
-		return false;
-	} else {
-		return true;
-	}
+	if ((max_delta > MAX_EPS) || error_so_far)
+			return false;
+	return true;
 }
-// set the external kernel instance used in main()
+
 points2image a = points2image();
 kernel& myKernel = a;
