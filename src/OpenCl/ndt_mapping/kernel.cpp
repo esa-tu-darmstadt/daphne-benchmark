@@ -1685,10 +1685,11 @@ void ndt_mapping::initCompute(OCL_Struct* OCL_objs)
 			minVoxel.data[elem] = (*target_)[i].data[elem];
 		}
 	}
-	voxelDimension[0] = (maxVoxel.data[0] - minVoxel.data[0]) / resolution_ + 1 ;
-	voxelDimension[1] = (maxVoxel.data[1] - minVoxel.data[1]) / resolution_ + 1;
-	voxelDimension[2] = (maxVoxel.data[2] - minVoxel.data[2]) / resolution_ + 1;
-
+	for (int i = 0; i < 3; i++) {
+		minVoxel.data[i] -= 0.01f;
+		maxVoxel.data[i] += 0.01f;
+		voxelDimension[i] = (maxVoxel.data[i] - minVoxel.data[i]) / resolution_ + 1;
+	}
 	// init the voxel grid
 	target_cells_.clear();
 	target_cells_.resize(voxelDimension[0] * voxelDimension[1] * voxelDimension[2]);

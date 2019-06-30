@@ -1315,12 +1315,12 @@ void ndt_mapping::initCompute()
 		max2 = (elem2 > max2) ? elem2 : max2;
 		max3 = (elem3 > max3) ? elem3 : max3;
 	}
-	minVoxel.data[0] = min1;
-	minVoxel.data[1] = min2;
-	minVoxel.data[2] = min3;
-	maxVoxel.data[0] = max1;
-	maxVoxel.data[1] = max2;
-	maxVoxel.data[2] = max3;
+	minVoxel.data[0] = min1 - 0.01f;
+	minVoxel.data[1] = min2 - 0.01f;
+	minVoxel.data[2] = min3 - 0.01f;
+	maxVoxel.data[0] = max1 + 0.01f;
+	maxVoxel.data[1] = max2 + 0.01f;
+	maxVoxel.data[2] = max3 + 0.01f;
 
 	voxelDimension[0] = (maxVoxel.data[0] - minVoxel.data[0]) / resolution_ + 1 ;
 	voxelDimension[1] = (maxVoxel.data[1] - minVoxel.data[1]) / resolution_ + 1;

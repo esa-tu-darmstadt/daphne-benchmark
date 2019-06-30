@@ -12,9 +12,6 @@
 #include <vector>
 #include <algorithm>
 
-#define MAX_EPS 0.001
-
-
 /**
 Author: Florian Stock 2018
 
@@ -33,11 +30,11 @@ For their licenses see license folder.
 
 #pragma omp declare reduction(min:PointXYZI:  omp_out.data[0] = omp_out.data[0] < omp_in.data[0] ? omp_out.data[0] : omp_in.data[0],  omp_out.data[1] = omp_out.data[1] < omp_in.data[1] ? omp_out.data[1] : omp_in.data[1], omp_out.data[2] = omp_out.data[2] < omp_in.data[2] ? omp_out.data[2] : omp_in.data[2]) initializer (omp_priv={{FLT_MAX ,FLT_MAX ,FLT_MAX ,0}})
 
-
 #pragma omp declare reduction(max:PointXYZI:  omp_out.data[0] = omp_out.data[0] > omp_in.data[0] ? omp_out.data[0] : omp_in.data[0],  omp_out.data[1] = omp_out.data[1] > omp_in.data[1] ? omp_out.data[1] : omp_in.data[1], omp_out.data[2] = omp_out.data[2] > omp_in.data[2] ? omp_out.data[2] : omp_in.data[2]) initializer (omp_priv= {{FLT_MIN ,FLT_MIN ,FLT_MIN ,0}})
 
 
 // maximum allowed deviation from reference
+#define MAX_EPS 0.001
 #define MAX_TRANSLATION_EPS 0.001
 #define MAX_ROTATION_EPS 0.9
 
@@ -311,9 +308,10 @@ int ndt_mapping::voxelRadiusSearch(VoxelGrid &grid, const PointXYZI& point, doub
 	indices.clear();
 	distances.clear();
 	// checking the voxel and its surroundings
-	for (float x = point.data[0] - radius; x <= point.data[0]+radius; x+= resolution_)
-	for (float y = point.data[1] - radius; y <= point.data[1]+radius; y+= resolution_)
-		for (float z = point.data[2] - radius; z <= point.data[2]+radius; z+= resolution_)
+	float radiusFinal = radius + 0.001f;
+	for (float x = point.data[0] - radius; x <= point.data[0] + radiusFinal; x+= resolution_)
+	for (float y = point.data[1] - radius; y <= point.data[1] + radiusFinal; y+= resolution_)
+		for (float z = point.data[2] - radius; z <= point.data[2] + radiusFinal; z+= resolution_)
 		{
 			if ((x < minVoxel.data[0]) ||
 			(x > maxVoxel.data[0]) ||
@@ -427,12 +425,12 @@ void ndt_mapping::init() {
 	filtered_scan_ptr = nullptr;
 	results = nullptr;
 	#ifdef EPHOS_TARGET_DEVICE_ID
-		targetDeviceId = EPHOS_TARGET_DEVICE_ID
+		targetDeviceId = EPHOS_TARGET_DEVICE_ID;
 	#else
 		targetDeviceId = omp_get_default_device();
 	#endif
 	#ifdef EPHOS_HOST_DEVICE_ID
-		hostDeviceId = EPHOS_HOST_DEVICE_ID
+		hostDeviceId = EPHOS_HOST_DEVICE_ID;
 	#else
 		hostDeviceId = omp_get_initial_device();
 	#endif
@@ -743,7 +741,7 @@ double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 	int* pNeighborNo = &neighborNo;
 	double resolution = resolution_;
 	double radiusStart = resolution_;
-	double radiusFinal = resolution_;
+	double radiusFinal = resolution_ + 0.001f;
 	double step = resolution_;
 	double radius = resolution_;
 	PointXYZI* transCloudData = trans_cloud.data();
@@ -1461,10 +1459,11 @@ void ndt_mapping::initCompute()
 				minVoxel.data[elem] = (*target_)[i].data[elem];
 		}
 	}
-
-	voxelDimension[0] = (maxVoxel.data[0] - minVoxel.data[0]) / resolution_ + 1;
-	voxelDimension[1] = (maxVoxel.data[1] - minVoxel.data[1]) / resolution_ + 1;
-	voxelDimension[2] = (maxVoxel.data[2] - minVoxel.data[2]) / resolution_ + 1;
+	for (int i = 0; i < 3; i++) {
+		minVoxel.data[i] -= 0.01f;
+		maxVoxel.data[i] += 0.01f;
+		voxelDimension[i] = (maxVoxel.data[i] - minVoxel.data[i]) / resolution_ + 1;
+	}
 	// openmp accessible data structure pointers
 	int sizeOfDatacell = voxelDimension[0] * voxelDimension[1] * voxelDimension[2];
 	int targetSize = target_->size();
