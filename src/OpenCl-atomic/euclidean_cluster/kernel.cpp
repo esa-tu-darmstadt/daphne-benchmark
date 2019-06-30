@@ -9,8 +9,8 @@
 
 #include "benchmark.h"
 #include "datatypes.h"
-#include "ocl_ephos.h"
-#include "stringify.h"
+#include "ocl/host/ocl_ephos.h"
+#include "ocl/device/ocl_kernel.h"
 
 #define STRINGIZE2(s) #s
 #define STRINGIZE(s) STRINGIZE2(s)
@@ -610,11 +610,14 @@ void extractEuclideanClusters (
 	OCL_objs->cmdqueue.enqueueNDRangeKernel(
 		OCL_objs->kernel_initRS, offsetRange, globalSizeRange, localSizeRange);
 	// raidus search progress indicators
-	std::vector<int> processed (cloudSize, 0);
+	bool* processed = new bool[cloudSize];
+	std::memset(processed, 0, sizeof(bool)*cloudSize);
 	cl::Buffer seedQueueLengthBuffer(OCL_objs->context, CL_MEM_READ_WRITE, sizeof(int));
-	cl::Buffer processedBuffer(OCL_objs->context, CL_MEM_READ_WRITE, sizeof(int)*cloudSize);
+	cl::Buffer processedBuffer(OCL_objs->context, CL_MEM_READ_WRITE, sizeof(bool)*cloudSize);
+
 	OCL_objs->cmdqueue.enqueueWriteBuffer(processedBuffer, CL_FALSE,
-		0, sizeof(int)*cloudSize, processed.data());
+		0, sizeof(bool)*cloudSize, processed);
+
 	OCL_objs->kernel_parallelRS.setArg(0, seedQueueBuffer);
 	OCL_objs->kernel_parallelRS.setArg(1, distanceBuffer);
 	OCL_objs->kernel_parallelRS.setArg(2, processedBuffer);
@@ -623,17 +626,17 @@ void extractEuclideanClusters (
 	for (int i = 0; i < cloudSize; ++i)
 	{
 		// skip elements that have already been looked at
-		if (processed[i] > 0)
+		if (processed[i])
 			continue;
 		// begin a new candidate with one element
-		processed[i] = 1;
+		processed[i] = true;
 		int staticCandidateNo = 0;
 		int nextCandidateNo = 1;
 		bool proc = true;
 		OCL_objs->cmdqueue.enqueueWriteBuffer(seedQueueBuffer, CL_FALSE,
 			0, sizeof(int), &i);
 		OCL_objs->cmdqueue.enqueueWriteBuffer(processedBuffer, CL_FALSE,
-			sizeof(int)*i, sizeof(int), &nextCandidateNo);
+			sizeof(bool)*i, sizeof(bool), &proc);
 		OCL_objs->cmdqueue.enqueueWriteBuffer(seedQueueLengthBuffer, CL_FALSE,
 			0, sizeof(int), &nextCandidateNo);
 		// grow the candidate until convergence
@@ -665,18 +668,19 @@ void extractEuclideanClusters (
 				0, sizeof(int)*nextCandidateNo, cluster.indices.data());
 			std::sort(cluster.indices.begin(), cluster.indices.end());
 			for (int j = 1; j < nextCandidateNo; j++) {
-				processed[cluster.indices[j]] = 1;
+				processed[cluster.indices[j]] = true;
 			}
 		} else if (nextCandidateNo > 1) {
 			// mark all except the starting element as processsed
 			int* candidateStorage = (int *) OCL_objs->cmdqueue.enqueueMapBuffer(seedQueueBuffer, CL_TRUE, CL_MAP_READ,
 				sizeof(int), sizeof(int)*(nextCandidateNo - 1));
 			for (int j = 0; j < nextCandidateNo; j++) {
-				processed[candidateStorage[j]] = 1;
+				processed[candidateStorage[j]] = true;
 			}
 			OCL_objs->cmdqueue.enqueueUnmapMemObject(seedQueueBuffer, candidateStorage);
 		}
 	}
+	delete processed;
 }
 
 /**

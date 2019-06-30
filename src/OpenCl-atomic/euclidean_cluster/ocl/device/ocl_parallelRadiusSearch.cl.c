@@ -14,7 +14,7 @@ void __attribute__ ((reqd_work_group_size(NUMWORKITEMS_PER_WORKGROUP,1,1)))
 parallelRadiusSearch(
 	__global int*  restrict seedQueue,
 	__global const bool* restrict distances,
-	__global int* processed,
+	__global bool* processed,
 	__global int* nextQueueSize,
 	int iQueueStart,
 	int staticQueueSize,
@@ -45,7 +45,7 @@ parallelRadiusSearch(
 		if (found) {
 			int iTarget = atomic_inc(nextQueueSize);
 			seedQueue[iTarget] = id;
-			processed[id] = 1;
+			processed[id] = true;
 		}
 	}
 }
