@@ -674,7 +674,7 @@ void extractEuclideanClusters (
 			// mark all except the starting element as processsed
 			int* candidateStorage = (int *) OCL_objs->cmdqueue.enqueueMapBuffer(seedQueueBuffer, CL_TRUE, CL_MAP_READ,
 				sizeof(int), sizeof(int)*(nextCandidateNo - 1));
-			for (int j = 0; j < nextCandidateNo; j++) {
+			for (int j = 0; j < nextCandidateNo - 1; j++) {
 				processed[candidateStorage[j]] = true;
 			}
 			OCL_objs->cmdqueue.enqueueUnmapMemObject(seedQueueBuffer, candidateStorage);
