@@ -38,7 +38,7 @@ The benchmarks have been developed for a large number of platforms in mind. Howe
 | col 2 is      | centered         |   $12             | ok                 |
 | zebra stripes | are neat         |    $1             | ok                 |
 
-| Compatibility                    | Platform         |                   |                    |
+
 | Benchmark                        | Consumer Desktop | Linux Workstation | Nvidia Jetson TX 2 |
 | -------------------------------- |:----------------:|:-----------------:| ------------------:|
 | CPU/points2image                 | ok               | ok                | ok                 |
