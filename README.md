@@ -40,7 +40,7 @@ The benchmarks have been developed for a large number of platforms in mind. Howe
 
 | Compatibility                    | Platform         |                   |                    |
 | Benchmark                        | Consumer Desktop | Linux Workstation | Nvidia Jetson TX 2 |
-| -------------------------------- | :--------------: | :---------------: | -----------------: |
+| -------------------------------- |:----------------:|:-----------------:| ------------------:|
 | CPU/points2image                 | ok               | ok                | ok                 |
 | CPU/euclidean_cluster            | ok               | ok                | ok                 |
 | CPU/ndt_mapping                  | ok               | ok                | ok                 |
