@@ -32,11 +32,11 @@ For the points2image benchmark, this release also contains an OpenCL implementat
 
 The benchmarks have been developed for a large number of platforms in mind. However compatibility out of the box can not be guaranteed. Since some platforms require manual configuration or do not run the benchmarks at all we provide information about which results to expect.
 
-| Benchmark     | Consumer Desk | Stati |
-| ------------- |:-------------:| -----:|
-| col 3 is      | right-aligned | $1600 |
-| col 2 is      | centered      |   $12 |
-| zebra stripes | are neat      |    $1 |
+| Benchmark     | Consumer Desktop | Linux Workstation |
+| ------------- |:----------------:| -----------------:|
+| col 3 is      | right-aligned    | $1600             |
+| col 2 is      | centered         |   $12             |
+| zebra stripes | are neat         |    $1             |
 
 | Compatibility                    | Platform         |                   |                    |
 | Benchmark                        | Consumer Desktop | Linux Workstation | Nvidia Jetson TX 2 |
