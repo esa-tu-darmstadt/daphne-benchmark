@@ -32,11 +32,11 @@ For the points2image benchmark, this release also contains an OpenCL implementat
 
 The benchmarks have been developed for a large number of platforms in mind. However compatibility out of the box can not be guaranteed. Since some platforms require manual configuration or do not run the benchmarks at all we provide information about which results to expect.
 
-| Benchmark     | Consumer Desktop | Linux Workstation |
-| ------------- |:----------------:| -----------------:|
-| col 3 is      | right-aligned    | $1600             |
-| col 2 is      | centered         |   $12             |
-| zebra stripes | are neat         |    $1             |
+| Benchmark     | Consumer Desktop | Linux Workstation | Nvidia Jetson TX 2 |
+| ------------- |:----------------:|:-----------------:| ------------------:|
+| col 3 is      | right-aligned    | $1600             | ok                 |
+| col 2 is      | centered         |   $12             | ok                 |
+| zebra stripes | are neat         |    $1             | ok                 |
 
 | Compatibility                    | Platform         |                   |                    |
 | Benchmark                        | Consumer Desktop | Linux Workstation | Nvidia Jetson TX 2 |
@@ -66,11 +66,18 @@ The benchmarks have been developed for a large number of platforms in mind. Howe
 | OpenMP-offload/ndt_mapping       | failed (CPU)(7)  | ok (CPU), ok (CUDA)(4)| failed (8)      |
 
 (1) Compute Capability set to 6.0 or lower
+
 (2) Compute Capability set to 6.2 or lower
+
 (3) Results outside error tolerances
+
 (4) Results not accurate but inside error tolerances
+
 (5) Running on POCL with CUDA support
+
 (6) cl_khr_int64_base_atomics not supported
+
 (7) internal compilation error
+
 (8) undeclared omp_target functions
 
