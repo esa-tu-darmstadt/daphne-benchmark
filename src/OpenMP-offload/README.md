@@ -41,7 +41,14 @@
   The automatically selected host and target devices might not match your hardware.
   The device IDs used for buffer allocation and memory copies can be set with
   OPENMP_TARGET_DEVICE_ID and OPENMP_HOST_DEVICE_ID:
-  $ make OPENMP_HOST_DEVICE_ID=2 OPENMP_TARGET_DEVICE_ID=0
+  $ make OPENMP_HOST_DEVICE_ID=-2 OPENMP_TARGET_DEVICE_ID=0
+
+  Note: Not settings these correctly may result in segmentation faults at runtime.
+  GCC can be configured to offload to CUDA devices. This requires CUDA capable hardware 
+  alongside a working CUDA Toolkit installation. Not meeting these requirements may lead to 
+  compilation errors or segmentation faults and error messages a runtime.
+  Additionally we have identified that the compilation process may fail with internal compiler errors 
+  on certain software and hardware configurations despite of the correctness of the given code.
 
 * Execute the benchmark
 

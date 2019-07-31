@@ -27,3 +27,44 @@ Input- and golden reference data resides in the subdirectory 'data'. In this pac
 ### FPGA Implementation ###
 
 For the points2image benchmark, this release also contains an OpenCL implementation targeting Xilinx FPGAs (Zynq Ultrascale+ ZCU102) with Xilinx SDSoC/SDAccel. Due to the peculiarities of the setup, the long compilation times and the additional licenses required, building for FPGA is not include in the top-level Makefile.
+
+### Compatibility Overview ###
+
+The benchmarks have been developed for a large number of platforms in mind. However compatibility out of the box can not be guaranteed. Since some platforms require manual configuration or do not run the benchmarks at all we provide information about which results to expect.
+
+| Compatibility                    | Platform         |                   |                    |
+| Benchmark                        | Consumer Desktop | Linux Workstation | Nvidia Jetson TX 2 |
+| -------------------------------- | :--------------: | :---------------: | -----------------: |
+| CPU/points2image                 | ok               | ok                | ok                 |
+| CPU/euclidean_cluster            | ok               | ok                | ok                 |
+| CPU/ndt_mapping                  | ok               | ok                | ok                 |
+|                                  |                  |                   |                    |
+| Cuda/points2image                | ok               | ok (1)            | ok (2)             |
+| Cuda/euclidean_cluster           | ok (1)           | ok (2)            |                    |
+| Cuda/ndt_mapping                 | failed (3)       | failed (3)(1)     | ok (4)(2)          |
+|                                  |                  |                   |                    |
+| OpenCl/points2image              | ok               | ok                | ok (5)             |
+| OpenCl/euclidean_cluster         | ok               | ok                | ok (5)             |
+| OpenCl/ndt_mapping               | ok (4)           | ok (4)            | failed (5)(6)      |
+|                                  |                  |                   |                    |
+| OpenCl-atomic/points2image       | ok               | ok                | ok (5)             |
+| OpenCl-atomic/euclidean_cluster  | ok               | ok                | ok (5)             |
+| OpenCl-atomic/ndt_mapping        | ok (4)           | ok (4)            | ok (5)(4)          |
+|                                  |                  |                   |                    |
+| OpenMP/points2image              | ok               | ok                | ok                 |
+| OpenMP/eulidean_cluster          | ok               | ok                | ok                 |
+| OpenMP/ndt_mapping               | ok               | ok                | ok (4)             |
+|                                  |                  |                   |                    |
+| OpenMP-offload/points2image      | ok (CPU)         | ok (CPU), ok (CUDA)| ok (CPU)           |
+| OpenMP-offload/euclidean_cluster | ok (CPU)         | ok (CPU), ok (CUDA)| failed (8)         |
+| OpenMP-offload/ndt_mapping       | failed (CPU)(7)  | ok (CPU), ok (CUDA)(4)| failed (8)      |
+
+(1) Compute Capability set to 6.0 or lower
+(2) Compute Capability set to 6.2 or lower
+(3) Results outside error tolerances
+(4) Results not accurate but inside error tolerances
+(5) Running on POCL with CUDA support
+(6) cl_khr_int64_base_atomics not supported
+(7) internal compilation error
+(8) undeclared omp_target functions
+
