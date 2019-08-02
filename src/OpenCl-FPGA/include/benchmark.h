@@ -1,3 +1,8 @@
+/**
+ * Author:  Florian Stock, Technische Universität Darmstadt,
+ * Embedded Systems & Applications Group 2018
+ * License: Apache 2.0 (see attachached File)
+ */
 #ifndef benchmark_h
 #define benchmark_h
 

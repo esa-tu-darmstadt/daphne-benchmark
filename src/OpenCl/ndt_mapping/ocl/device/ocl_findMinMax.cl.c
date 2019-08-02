@@ -1,4 +1,8 @@
-
+/**
+ * Author:  Leonardo Solis, Technische Universität Darmstadt,
+ * Embedded Systems & Applications Group 2018
+ * License: Apache 2.0 (see attachached File)
+ */
 typedef struct {
     float data[4];
 } PointXYZI;

@@ -1,4 +1,9 @@
 /**
+ * Author:  Leonardo Solis, Technische Universität Darmstadt,
+ * Embedded Systems & Applications Group 2018
+ * License: Apache 2.0 (see attachached File)
+ */
+/**
  * Radius search base on a precomputed distance matrix.
  * Near points are marked through the indices array.
  * The search can be executed for multiple reference points.

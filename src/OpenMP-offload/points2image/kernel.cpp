@@ -1,3 +1,22 @@
+/**
+ * Author:  Florian Stock, Technische Universität Darmstadt,
+ * Embedded Systems & Applications Group 2018
+ * Author:  Lukas Sommer, Technische Universität Darmstadt,
+ * Embedded Systems & Applications Group 2018
+ * Author:  Sebastian Müller, Techinsche Universität Darmstadt,
+ * Embedded Systems & Applications Group 2018 - 2019
+ * License: Apache 2.0 (see attachached File)
+ *
+ * Kernel extracted from Autoware suite.
+ * Dependencies on the PCL (PointCloudLib) and CV (OpenCV) libs are removed.
+ * For their licenses see license folder.
+ *
+ * Kernel uses 2500 invocations of the pointcloud2_to_image function from the
+ * points2image-package/node
+ * (see Autoware/ros/src/sensing/fusion/packages/points2image/lib/points_image/points_image.cpp)
+ *
+ * Computed results are compared with the Autoware computed result.
+ */
 #include "benchmark.h"
 #include "datatypes.h"
 #include <math.h>
@@ -8,21 +27,6 @@
 //#include "../include/meassurement_AverageOnly.h"
 
 #define MAX_EPS 0.001
-
-/**
-   Author: Florian Stock 2018
-
-   Kernel extracted from Autoware suite.
-   Dependencies on the PCL (PointCloudLib) and CV (OpenCV) libs are removed.
-   For their licenses see license folder.
-
-   Kernel uses 2500 invocations of the pointcloud2_to_image function from the
-   points2image-package/node
-   (see Autoware/ros/src/sensing/fusion/packages/points2image/lib/points_image/points_image.cpp)
-
-   Computed results are compared with the Autoware computed result.
-
- */
 
 class points2image : public kernel {
 private:

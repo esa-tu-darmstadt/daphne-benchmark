@@ -1,3 +1,24 @@
+/**
+ * Author:  Florian Stock, Technische Universität Darmstadt,
+ * Embedded Systems & Applications Group 2018
+ * Author:  Lukas Sommer, Technische Universität Darmstadt,
+ * Embedded Systems & Applications Group 2018
+ * Author: Sebastian Müller, Technische Universität Darmstadt,
+ * Embedded Systems & Applications Group 2018 - 2019
+ * Author:  Thilo Gabel, Techinsche Universität Darmstadt,
+ * Embedded Systems & Applications Group 2019
+ * License: Apache 2.0 (see attachached File)
+ *
+ * Kernel extracted from Autoware suite.
+ * Dependencies on the PCL (PointCloudLib, flann)  are removed.
+ * For their licenses see license folder.
+ *
+ * (see Autoware/ros/src/computing/perception/localization/packages/ndt_localizer/nodes/ndt_mapping/ndt_mapping.cpp,
+ * function points_callback)
+ * (restricted to the align/getFitnessScore computation, as a openmp seems to be available, which can be compared to our)
+ *
+ * Computed results are compared with the Autoware computed result.
+ */
 #include "../include/benchmark.h"
 #include "datatypes.h"
 #include <math.h>
@@ -11,22 +32,6 @@
 #include <float.h>
 #include <vector>
 #include <algorithm>
-
-/**
-Author: Florian Stock 2018
-
-Kernel extracted from Autoware suite.
-Dependencies on the PCL (PointCloudLib, flann)  are removed.
-For their licenses see license folder.
-
-
-(see Autoware/ros/src/computing/perception/localization/packages/ndt_localizer/nodes/ndt_mapping/ndt_mapping.cpp,
-  function points_callback)
-  (restricted to the align/getFitnessScore computation, as a openmp seems to be available, which can be compared to our)
-
-  Computed results are compared with the Autoware computed result.
-
-  */
 
 #pragma omp declare reduction(min:PointXYZI:  omp_out.data[0] = omp_out.data[0] < omp_in.data[0] ? omp_out.data[0] : omp_in.data[0],  omp_out.data[1] = omp_out.data[1] < omp_in.data[1] ? omp_out.data[1] : omp_in.data[1], omp_out.data[2] = omp_out.data[2] < omp_in.data[2] ? omp_out.data[2] : omp_in.data[2]) initializer (omp_priv={{FLT_MAX ,FLT_MAX ,FLT_MAX ,0}})
 

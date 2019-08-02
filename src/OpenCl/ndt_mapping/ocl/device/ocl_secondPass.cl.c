@@ -1,4 +1,9 @@
 /**
+ * Author:  Leonardo Solis, Technische Universität Darmstadt,
+ * Embedded Systems & Applications Group 2018
+ * License: Apache 2.0 (see attachached File)
+ */
+/**
  * Simple matrix inversion using the determinant
  */
 void invertMatrix(Mat33* m)

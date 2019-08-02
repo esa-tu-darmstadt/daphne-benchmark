@@ -1,3 +1,12 @@
+/**
+ * Author:  Florian Stock, Technische Universität Darmstadt,
+ * Embedded Systems & Applications Group 2018
+ * Author:  Lukas Sommer, Technische Universität Darmstadt,
+ * Embedded Systems & Applications Group 2018
+ * Author:  Thilo Gabel, Techinsche Universität Darmstadt,
+ * Embedded Systems & Applications Group 2019
+ * License: Apache 2.0 (see attachached File)
+ */
 #include "benchmark.h"
 #include "datatypes.h"
 #include <iostream>

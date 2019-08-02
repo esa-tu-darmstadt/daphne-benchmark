@@ -1,3 +1,8 @@
+/**
+ * Author:  Leonardo Solis, Technische Universität Darmstadt,
+ * Embedded Systems & Applications Group 2018
+ * License: Apache 2.0 (see attachached File)
+ */
 #if defined (DOUBLE_FP)
 #pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
 
