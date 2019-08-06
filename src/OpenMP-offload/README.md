@@ -47,12 +47,13 @@
   GCC can be configured to offload to CUDA devices. This requires CUDA capable hardware 
   alongside a working CUDA Toolkit installation. Not meeting these requirements may lead to 
   compilation errors or segmentation faults and error messages a runtime.
-  Additionally we have identified that the compilation process may fail with internal compiler errors 
-  on certain software and hardware configurations despite of the correctness of the given code.
+  Additionally we have identified that the compilation process can unexpectedly fail
+  with internal compiler errors on certain software and hardware configurations.
 
 * Execute the benchmark
 
   In the respective kernel subfolder type:
   $ ./kernel
 
-  This will given information about offloading devices, kernel runtime, unexpected deviations from the reference results
+  This will given information about offloading devices, kernel runtime,
+  unexpected deviations from the reference results
