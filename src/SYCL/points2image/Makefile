@@ -3,7 +3,8 @@
 
 -include Makefile.deps
 
-CXXFLAGS=-O3
+#CXXFLAGS=-O3
+CXXFLAGS=-g
 CXXFLAGS+= -std=c++11
 # TODO: configure target ir, device type, computecpp path 
 SYCL_DEVICE_TYPE=GPU

@@ -8,6 +8,7 @@
 #include "benchmark.h"
 #include "datatypes.h"
 #include "sycl/sycl_tools.h"
+#include <SYCL/sycl.hpp>
 #include <cmath>
 #include <iostream>
 #include <fstream>
@@ -23,6 +24,7 @@
 // maximum allowed deviation from the reference results
 #define MAX_EPS 0.001
 
+class points2image_main;
 class points2image : public kernel {
 private:
 	// the number of testcases read
@@ -45,6 +47,9 @@ private:
 	ImageSize* imageSize = nullptr;
 	// Algorithm results for the current iteration
 	PointsImage* results = nullptr;
+	// sycl state
+	cl::sycl::device computeDevice;
+	cl::sycl::queue computeQueue;
 public:
 	/*
 	 * Initializes the kernel. Must be called before run().
@@ -59,6 +64,8 @@ public:
 	 * Finally checks whether all input data has been processed successfully.
 	 */
 	virtual bool check_output();
+
+
 	
 protected:
 	/**
@@ -76,6 +83,12 @@ protected:
 	 * Reads the number of testcases in the data set.
 	 */
 	int read_number_testcases(std::ifstream& input_file);
+
+	PointsImage pointcloud2_to_image(
+		const PointCloud2& pointcloud2,
+		const Mat44& cameraExtrinsicMat,
+		const Mat33& cameraMat, const Vec5& distCoeff,
+		const ImageSize& imageSize);
 	
 };
 /**
@@ -256,60 +269,8 @@ void points2image::init() {
 		exit(-3);
 	}
 	std::string deviceType = EPHOS_DEVICE_TYPE_S;
-	cl::sycl::device dev = SyclTools::findComputeDevice(deviceType);
-	std::cout << "host: " << dev.is_host() << std::endl;
-	int length = 1024;
-	float tolerance = 0.01f;
-	std::vector<int> h_a(length);             // a vector
-  std::vector<int> h_b(length);             // b vector
-  std::vector<int> h_c(length);             // c vector
-  std::vector<int> h_r(length, 0xdeadbeef); // d vector (result)
-  // Fill vectors a and b with random float values
-  int count = length;
-  for (int i = 0; i < count; i++) {
-    h_a[i] = rand() / (float)RAND_MAX;
-    h_b[i] = rand() / (float)RAND_MAX;
-    h_c[i] = rand() / (float)RAND_MAX;
-  }
-  {
-    // Device buffers
-    cl::sycl::buffer<int> d_a(h_a.data(), cl::sycl::range<1>(length));
-    cl::sycl::buffer<int> d_b(h_b.data(), cl::sycl::range<1>(length));
-    cl::sycl::buffer<int> d_c(h_c.data(), cl::sycl::range<1>(length));
-    cl::sycl::buffer<int> d_r(h_r.data(), cl::sycl::range<1>(length));
-    cl::sycl::queue myQueue(dev);
-    myQueue.submit([&](cl::sycl::handler& h) {
-      // Data accessors
-     auto a = d_a.get_access<cl::sycl::access::mode::read>(h);
-     auto b = d_b.get_access<cl::sycl::access::mode::read>(h);
-     auto c = d_c.get_access<cl::sycl::access::mode::read>(h);
-     auto r = d_r.get_access<cl::sycl::access::mode::write>(h); 
-      // Kernel
-     h.parallel_for<points2image>(cl::sycl::range<1>(count), [=](cl::sycl::id<1> item) {
-        int i = item.get(0);
-        r[i] = a[i] + b[i] + c[i];
-      });
-    });
-  }
-  // Test the results
-  int correct = 0;
-  float tmp;
-  for (int i = 0; i < count; i++) {
-    tmp = h_a[i] + h_b[i] + h_c[i]; // assign element i of a+b+c to tmp
-    tmp -= h_r[i]; // compute deviation of expected and output result
-    if (tmp * tmp < tolerance*tolerance) // correct if square deviation is less than
-                               // tolerance squared
-    {
-      correct++;
-    } else {
-      printf(" tmp %f h_a %f h_b %f h_c %f h_r %f \n", tmp, h_a[i], h_b[i],
-             h_c[i], h_r[i]);
-    }
-  }
-  // summarize results
-  printf("R = A+B+C: %d out of %d results were correct.\n", correct, count);
-
-	
+	computeDevice = SyclTools::findComputeDevice(deviceType);
+	computeQueue = cl::sycl::queue(computeDevice);
 	// prepare the first iteration
 	error_so_far = false;
 	max_delta = 0.0;
@@ -333,7 +294,7 @@ void points2image::init() {
  * imageSize: the size of the resulting image
  * returns: the two dimensional image of transformed points
  */
-PointsImage pointcloud2_to_image(
+PointsImage points2image::pointcloud2_to_image(
 	const PointCloud2& pointcloud2,
 	const Mat44& cameraExtrinsicMat,
 	const Mat33& cameraMat, const Vec5& distCoeff,
@@ -372,10 +333,120 @@ PointsImage pointcloud2_to_image(
 		for (int col = 0; col < 3; col++)
 			invT.data[row] -= invR.data[row][col] * cameraExtrinsicMat.data[col][3];
 	}
-	// apply the algorithm for each point in the cloud
+	// initialize buffers
+	int cloudSize = pointcloud2.width*pointcloud2.height;
+	std::vector<int> positions(cloudSize*2);
+	std::vector<float> properties(cloudSize*2);
+	cl::sycl::buffer<float> cloudBuffer(pointcloud2.data, cl::sycl::range<1>(cloudSize));
+	cl::sycl::buffer<int> positionBuffer(positions);
+	cl::sycl::buffer<float> propertyBuffer(properties);
+	// apply the algorithm
+	// perform transformations
+	computeQueue.submit([&](cl::sycl::handler& h) {
+		auto cloud = cloudBuffer.get_access<cl::sycl::access::mode::read>(h);
+		auto positions = positionBuffer.get_access<cl::sycl::access::mode::write>(h);
+		auto properties = propertyBuffer.get_access<cl::sycl::access::mode::write>(h);
+		Vec5 coeff = distCoeff;
+		int pointStep = pointcloud2.point_step/sizeof(float);
+		int width = imageSize.width;
+		int height = imageSize.height;
+		double mCamera[9];
+		std::memcpy(mCamera, cameraMat.data, sizeof(double)*9);
+		double mProjection[9];
+		std::memcpy(mProjection, invR.data, sizeof(double)*9);
+		h.parallel_for<points2image>(cl::sycl::range<1>(cloudSize), [=](cl::sycl::id<1> item) {
+			int iPos = item.get(0)*2;
+			positions[iPos] = -1;
+			positions[iPos + 1] = -1;
+		});
+// 		h.parallel_for<points2image_main>(cl::sycl::range<1>(cloudSize), [=](cl::sycl::id<1> item) {
+// 			int iPos = item.get(0)*2;
+// 			positions[iPos] = -1;
+// 			positions[iPos + 1] = -1;
+//
+// 			int iCloud = item.get(0)*pointStep;
+// 			Mat13 point0 = {{
+// 				cloud[iCloud + 0],
+// 				cloud[iCloud + 1],
+// 				cloud[iCloud + 2]
+// 			}};
+// 			// apply first transform
+// 			Mat13 point1;
+// 			float intensity = cloud[iCloud + 4];
+// 			for (int row = 0; row < 3; row++) {
+// 				point1.data[row] = invT.data[row];
+// 				for (int col = 0; col < 3; col++) {
+// 					point1.data[row] += point0.data[col]*mProjection[row*3 + col];
+// 				}
+// 			}
+// 			// discard small depth values
+// 			if (point1.data[2] > 2.5) {
+//
+// 				// perform perspective division
+// 				point1.data[0] /= point1.data[2];
+// 				point1.data[1] /= point1.data[2];
+// 				// apply distortion coefficiients
+// // 				double radius = point1.data[0]*point1.data[0] + point1.data[1]*point1.data[1];
+// // 				double dist = 1 + coeff.data[0]*radius
+// // 				+ coeff.data[1]*radius*radius
+// // 				+ coeff.data[4]*radius*radius*radius;
+// //
+// // 				Point2d point2 = {
+// // 					point1.data[0]*dist + 2*coeff.data[2]*point1.data[0]*point1.data[1] + coeff.data[3]*(radius + 2*point1.data[0]*point1.data[1]),
+// // 					point1.data[1]*dist + 2*coeff.data[3]*point1.data[0]*point1.data[1] + coeff.data[2]*(radius + 2*point1.data[0]*point1.data[1])
+// // 				};
+// 				Point2d point2;
+// 				point2.x = point1.data[0];
+// 				point2.y = point1.data[1];
+// 				int point3x = (int)(mCamera[0]*point2.x + mCamera[0*3 + 2] + 0.5);
+// 				int point3y = (int)(mCamera[1*3 + 1]*point2.y + mCamera[1*3 + 2] + 0.5);
+// 				if (0 <= point3x && point3x < width && 0 <= point3y && point3y < height) {
+// 					positions[iPos] = point3x;
+// 					positions[iPos + 1] = point3y;
+// 					properties[iPos] = float(point1.data[2]*100);
+// 					properties[iPos + 1] = intensity;
+// 					printf("main");
+// 				} else {
+// 					positions[iPos] = -2;
+// 					//printf("high");
+// 				}
+// 			} else {
+// 				positions[iPos] = -1;
+// 			}
+// 		});
+	});
+	computeQueue.wait();
+	// postprocess results
+	for (int iPos = 0; iPos < cloudSize*2; iPos += 2) {
+		if (positions[iPos] != -1) {
+			int iPixel = positions[iPos] + positions[iPos + 1]*imageSize.width;
+			if (msg.distance[iPixel] == 0 || properties[iPos] <= msg.distance[iPixel]) {
+
+
+				//properties[iPos] == msg.distance[iPixel] && msg.intensity[iPixel] < properties[iPos + 1]) {
+
+				msg.intensity[iPixel] = properties[iPos + 1];
+				msg.distance[iPixel] = properties[iPos];
+				msg.min_height[iPixel] = -1.25;
+				msg.max_height[iPixel] = 0;
+				if (msg.max_y < positions[iPos + 1]) {
+					msg.max_y = positions[iPos + 1];
+				}
+				if (msg.min_y > positions[iPos + 1]) {
+					msg.min_y = positions[iPos + 1];
+				}
+			}
+		}
+	}
+
+
+
+	//apply the algorithm for each point in the cloud
 	for (uint32_t y = 0; y < pointcloud2.height; ++y) {
 		for (uint32_t x = 0; x < pointcloud2.width; ++x) {
 			// the start of the current point in the cloud to process
+			int iPoint = (x + y*pointcloud2.width);
+			int iPos = iPoint*2;
 			float* fp = (float *)(cp + (x + y*pointcloud2.width) * pointcloud2.point_step);
 			double intensity = fp[4];
 
@@ -383,65 +454,73 @@ PointsImage pointcloud2_to_image(
 			point2.data[0] = double(fp[0]);
 			point2.data[1] = double(fp[1]);
 			point2.data[2] = double(fp[2]);
-			
+
 			// start the the predetermined translation
 			for (int row = 0; row < 3; row++) {
 				point.data[row] = invT.data[row];
 			// add the transformed cloud point
-			for (int col = 0; col < 3; col++) 
+			for (int col = 0; col < 3; col++)
 				point.data[row] += point2.data[col] * invR.data[row][col];
 			}
 			// discard points with small depth values
 			if (point.data[2] <= 2.5) {
-				continue;
+				if (positions[iPos] != -1) {
+					std::cout << "Position " << iPos << " ("<< positions[iPos] << ") is not discarded" << std::endl;
+				}
 			}
 			// perform perspective division
 			double tmpx = point.data[0]/point.data[2];
 			double tmpy = point.data[1]/point.data[2];
 			// apply the distance coefficients
-			double r2 = tmpx * tmpx + tmpy * tmpy;
-			double tmpdist = 1 + distCoeff.data[0] * r2
-			+ distCoeff.data[1] * r2 * r2
-			+ distCoeff.data[4] * r2 * r2 * r2;
+// 			double r2 = tmpx * tmpx + tmpy * tmpy;
+// 			double tmpdist = 1 + distCoeff.data[0] * r2
+// 			+ distCoeff.data[1] * r2 * r2
+// 			+ distCoeff.data[4] * r2 * r2 * r2;
 
 			Point2d imagepoint;
-			imagepoint.x = tmpx * tmpdist
-			+ 2 * distCoeff.data[2] * tmpx * tmpy
-			+ distCoeff.data[3] * (r2 + 2 * tmpx * tmpx);
-			imagepoint.y = tmpy * tmpdist
-			+ distCoeff.data[2] * (r2 + 2 * tmpy * tmpy)
-			+ 2 * distCoeff.data[3] * tmpx * tmpy;
-			
+			imagepoint.x = tmpx;
+			imagepoint.y = tmpy;
+// 			imagepoint.x = tmpx * tmpdist
+// 				+ 2 * distCoeff.data[2] * tmpx * tmpy
+// 				+ distCoeff.data[3] * (r2 + 2 * tmpx * tmpx);
+// 			imagepoint.y = tmpy * tmpdist
+// 				+ distCoeff.data[2] * (r2 + 2 * tmpy * tmpy)
+// 				+ 2 * distCoeff.data[3] * tmpx * tmpy;
+
 			// apply the camera matrix (camera intrinsics) and end up with a two dimensional point
 			imagepoint.x = cameraMat.data[0][0] * imagepoint.x + cameraMat.data[0][2];
 			imagepoint.y = cameraMat.data[1][1] * imagepoint.y + cameraMat.data[1][2];
 			int px = int(imagepoint.x + 0.5);
 			int py = int(imagepoint.y + 0.5);
-			
+
 			// continue with points that landed inside image bounds
 			if(0 <= px && px < w && 0 <= py && py < h)
 			{
 				// target pixel index linearization
 				int pid = py * w + px;
-				// replace unset pixels as well as pixels with a higher distance value
-				if(msg.distance[pid] == 0 ||
-					msg.distance[pid] >= float(point.data[2] * 100.0))
-				{
-					// make the result always deterministic and independent from the point order
-					// in case two points get the same distance, take the one with higher intensity
-					if (((msg.distance[pid] == float(point.data[2] * 100.0)) &&  msg.intensity[pid] < float(intensity)) ||
-						(msg.distance[pid] > float(point.data[2] * 100.0)) ||
-						msg.distance[pid] == 0) 
-					{
-						msg.intensity[pid] = float(intensity);
-					}
-					msg.distance[pid] = float(point.data[2] * 100.0);
-					msg.min_height[pid] = -1.25;
-					msg.max_height[pid] = 0;
-					// update image usage extends
-					msg.max_y = py > msg.max_y ? py : msg.max_y;
-					msg.min_y = py < msg.min_y ? py : msg.min_y;
+				if (positions[iPos] != px || positions[iPos + 1] != py) {
+					std::cout << "Position " << iPos << " (" << positions[iPos] << " " << positions[iPos + 1] << ")";
+					std::cout << " is not " << px << " " << py << std::endl;
 				}
+				// replace unset pixels as well as pixels with a higher distance value
+// 				if(msg.distance[pid] == 0 ||
+// 					msg.distance[pid] >= float(point.data[2] * 100.0))
+// 				{
+// 					// make the result always deterministic and independent from the point order
+// 					// in case two points get the same distance, take the one with higher intensity
+// 					if (((msg.distance[pid] == float(point.data[2] * 100.0)) &&  msg.intensity[pid] < float(intensity)) ||
+// 						(msg.distance[pid] > float(point.data[2] * 100.0)) ||
+// 						msg.distance[pid] == 0)
+// 					{
+// 						msg.intensity[pid] = float(intensity);
+// 					}
+// 					msg.distance[pid] = float(point.data[2] * 100.0);
+// 					msg.min_height[pid] = -1.25;
+// 					msg.max_height[pid] = 0;
+// 					// update image usage extends
+// 					msg.max_y = py > msg.max_y ? py : msg.max_y;
+// 					msg.min_y = py < msg.min_y ? py : msg.min_y;
+// 				}
 			}
 		}
 	}
