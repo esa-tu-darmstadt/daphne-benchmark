@@ -1930,24 +1930,51 @@ void ndt_mapping::check_next_outputs(int count)
 		{
 			error_so_far = true;
 		}
-		// compare the matrices
-		for (int h = 0; h < 4; h++)
-			for (int w = 0; w < 4; w++)
-			{
-				float delta = std::fabs(reference.final_transformation.data[h][w] - results[i].final_transformation.data[h][w]);
-				if (delta > max_delta)
-					max_delta = delta;
-				// apply different thresholds for the rotation and translation components
-				if (w < 3) {
-					if (delta > MAX_ROTATION_EPS) {
-						error_so_far = true;
-					}
-				} else {
-					if (delta > MAX_TRANSLATION_EPS) {
-						error_so_far = true;
-					}
-				}
+		// transform a point for error checking
+		PointXYZI origin = {
+			{ 1.0f, 1.0f, 1.0f, 1.0f }
+		};
+		PointXYZI refPoint = {
+			{ 0.0f, 0.0f, 0.0f, 0.0f }
+		};
+		PointXYZI resPoint = {
+			{ 0.0f, 0.0f, 0.0f, 0.0f }
+		};
+		for (int h = 0; h < 4; h++) {
+			for (int w = 0; w < 4; w++) {
+				refPoint.data[h] += reference.final_transformation.data[h][w]*origin.data[w];
+				resPoint.data[h] += results[i].final_transformation.data[h][w]*origin.data[w];
 			}
+		}
+		// assuming points are in carthesian coordinates
+		// compare the transformation results
+		for (int h = 0; h < 3; h++) {
+			float delta = std::fabs(refPoint.data[h] - resPoint.data[h]);
+			if (delta > max_delta) {
+				max_delta = delta;
+			}
+			if (delta > MAX_TRANSLATION_EPS) {
+				error_so_far = true;
+			}
+		}
+		// compare the matrices
+// 		for (int h = 0; h < 4; h++)
+// 			for (int w = 0; w < 4; w++)
+// 			{
+// 				float delta = std::fabs(reference.final_transformation.data[h][w] - results[i].final_transformation.data[h][w]);
+// 				if (delta > max_delta)
+// 					max_delta = delta;
+// 				// apply different thresholds for the rotation and translation components
+// 				if (w < 3) {
+// 					if (delta > MAX_ROTATION_EPS) {
+// 						error_so_far = true;
+// 					}
+// 				} else {
+// 					if (delta > MAX_TRANSLATION_EPS) {
+// 						error_so_far = true;
+// 					}
+// 				}
+// 			}
 	}
 }
   

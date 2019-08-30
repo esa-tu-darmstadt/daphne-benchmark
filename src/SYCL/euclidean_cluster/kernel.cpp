@@ -10,17 +10,27 @@
 #include <cmath>
 #include <algorithm>
 
+#include <SYCL/sycl.hpp>
+
 #include "benchmark.h"
 #include "datatypes.h"
+#include "sycl/sycl_tools.h"
+
 
 // algorithm parameters
 const int _cluster_size_min = 20;
 const int _cluster_size_max = 100000;
 const bool _pose_estimation = true;
 
+#ifndef EPHOS_DEVICE_TYPE
+#define EPHOS_DEVICE_TYPE GPU
+#endif
+#define MKSTR(s) #s
+#define EPHOS_DEVICE_TYPE_S MKSTR(EPHOS_DEVICE_TYPE)
 // maximum allowed deviation from the reference data
 #define MAX_EPS 0.001
-
+class euclidean_clustering_init_radius_search;
+class euclidean_clustering_radius_search;
 class euclidean_clustering : public kernel {
 private:
 	// input point cloud
@@ -39,6 +49,9 @@ private:
 	bool error_so_far = false;
 	// the measured maximum deviation from the reference data
 	double max_delta = 0.0;
+	// sycl state
+	cl::sycl::device computeDevice;
+	cl::sycl::queue computeQueue;
 public:
 	virtual void init();
 	virtual void run(int p = 1);
@@ -49,6 +62,17 @@ protected:
 		BoundingboxArray *in_out_boundingbox_array,
 		Centroid *in_out_centroids,
 		double in_max_cluster_distance);
+
+	void extract (
+		const PointCloud *input_,
+		std::vector<PointIndices> &clusters,
+		double cluster_tolerance_);
+
+	void extractEuclideanClusters (
+		const PointCloud &cloud,
+		float tolerance, std::vector<PointIndices> &clusters,
+		unsigned int min_pts_per_cluster,
+		unsigned int max_pts_per_cluster);
 	/**
 	 * Cluster the point cloud according to the pairwise point distances.
 	 * Clustering of the same input data is performed multiple times with different thresholds
@@ -559,66 +583,101 @@ int radiusSearch(
  * min_pts_per_cluster: lower cluster size restriction
  * max_pts_per_cluster: higher cluster size restriction
  */
-void extractEuclideanClusters (
+void euclidean_clustering::extractEuclideanClusters (
 	const PointCloud &cloud, 
 	float tolerance, std::vector<PointIndices> &clusters,
 	unsigned int min_pts_per_cluster, 
 	unsigned int max_pts_per_cluster)
 {
-	int nn_start_idx = 0;
-
 	// indicates the processed status for each point
-	std::vector<bool> processed (cloud.size(), false);
-	// temporary radius search results
-	std::vector<int> nn_indices;
-	// precompute the distance matrix
-	bool *sqr_distances;
-	initRadiusSearch(cloud, &sqr_distances, tolerance);
+	std::vector<char> processed (cloud.size(), false);
+	int cloudSize = cloud.size();
+	cl::sycl::buffer<Point> cloudBuffer(cloud.data(), cloudSize);
+	cl::sycl::buffer<bool, 2> distanceBuffer(cl::sycl::range<2>(cloudSize, cloudSize));
+	cl::sycl::buffer<bool> processedBuffer((bool*)processed.data(), cl::sycl::range<1>(cloudSize));
+	cl::sycl::buffer<int> seedQueueBuffer((cl::sycl::range<1>(cloudSize)));
 
-	// iterate for all points in the cloud
-	for (int i = 0; i < cloud.size(); ++i)
-	{
-		// ignore if already tested
-		if (processed[i])
+	// init distance matrix
+	computeQueue.submit([&](cl::sycl::handler& h) {
+		auto cloud = cloudBuffer.get_access<cl::sycl::access::mode::read>(h);
+		auto distances = distanceBuffer.get_access<cl::sycl::access::mode::write>(h);
+		float radius = tolerance*tolerance;
+		h.parallel_for<euclidean_clustering_init_radius_search>(
+			cl::sycl::range<1>(cloudSize),
+			[=](cl::sycl::id<1> item) {
+
+			int iRow = item.get(0);
+			for (int iCol = 0; iCol < cloudSize; iCol++) {
+				float dx = cloud[iRow].x - cloud[iCol].x;
+				float dy = cloud[iRow].y - cloud[iCol].y;
+				float dz = cloud[iRow].z - cloud[iCol].z;
+				float dist = dx*dx + dy*dy + dz*dz;
+				distances[iRow][iCol] = (dist <= radius);
+			}
+		});
+	});
+	for (int iStart = 0; iStart < cloudSize; iStart++) {
+		if (processed[iStart]) {
 			continue;
-		// begin a cluster candidate with one item
-		std::vector<int> seed_queue;
-		int sq_idx = 0;
-		seed_queue.push_back(i);
-		processed[i] = true;
-		
-		// grow the cluster candidate until all items have been searched through
-		while (sq_idx < seed_queue.size())
-		{
-			int ret = radiusSearch(seed_queue[sq_idx], nn_indices, sqr_distances, cloud.size());
-			if (!ret)
-			{
-				sq_idx++;
-				continue;
-			}
-			// add indices of near points to the cluster candidate
-			for (size_t j = nn_start_idx; j < nn_indices.size (); ++j)             // can't assume sorted (default isn't!)
-			{
-				if (nn_indices[j] == -1 || processed[nn_indices[j]])        // Has this point been processed before ?
-					continue;
-				seed_queue.push_back (nn_indices[j]);
-				processed[nn_indices[j]] = true;
-			}
-			sq_idx++;
 		}
+		// start with a new cluster
+		std::vector<int> seedQueue(1, iStart);
+		processed[iStart] = true;
+		int oldQueueSize = 0;
+		// grow the cluster
+		for (int iQueue = 0; iQueue < seedQueue.size(); iQueue = oldQueueSize) {
+			// radius search
+			// update device seed queue
+			if (oldQueueSize != seedQueue.size()) {
+				auto seedQueueStorage = seedQueueBuffer.get_access<cl::sycl::access::mode::write>();
+				for (int i = oldQueueSize; i < seedQueue.size(); i++) {
+					seedQueueStorage[i] = seedQueue[i];
+				}
+			}
+			// mark near points
+			int iQueueStart = oldQueueSize;
+			int queueLength = seedQueue.size();
+			computeQueue.submit([&](cl::sycl::handler& h) {
+				auto distances = distanceBuffer.get_access<cl::sycl::access::mode::read>(h);
+				auto processed = processedBuffer.get_access<cl::sycl::access::mode::read_write>(h);
+				auto seedQueue = seedQueueBuffer.get_access<cl::sycl::access::mode::read>(h);
+				h.parallel_for<euclidean_clustering_radius_search>(
+					cl::sycl::range<1>(cloudSize),
+					[=](cl::sycl::id<1> item) {
 
+					int iCloud = item.get(0);
+					bool near = false;
+					for (int iQueue = iQueueStart; iQueue < queueLength; iQueue++) {
+						if (distances[iCloud][seedQueue[iQueue]]) {
+							near = true;
+						}
+					}
+					if (near) {
+						processed[iCloud] = true;
+					}
+				});
+			});
+			// process search results
+			oldQueueSize = seedQueue.size();
+			auto processedStorage = processedBuffer.get_access<cl::sycl::access::mode::read>();
+			for (int i = 0; i < cloudSize; i++) {
+				if (processedStorage[i] && !processed[i]) {
+					seedQueue.push_back(i);
+					processed[i] = true;
+				}
+			}
+		}
 		// add cluster candidate of fitting size to the resulting clusters
-		if (seed_queue.size() >= min_pts_per_cluster && seed_queue.size() <= max_pts_per_cluster)
+		if (seedQueue.size() >= min_pts_per_cluster && seedQueue.size() <= max_pts_per_cluster)
 		{
 			PointIndices r;
-			r.indices.resize(seed_queue.size ());
-			for (size_t j = 0; j < seed_queue.size (); ++j)
-				r.indices[j] = seed_queue[j];
+			r.indices.resize(seedQueue.size ());
+			for (size_t j = 0; j < seedQueue.size (); ++j)
+				r.indices[j] = seedQueue[j];
 			std::sort (r.indices.begin (), r.indices.end ());
 			clusters.push_back(r);
 		}
 	}
-	free(sqr_distances);
 }
 
 /**
@@ -632,7 +691,7 @@ inline bool comparePointClusters (const PointIndices &a, const PointIndices &b)
 /**
  * Computes euclidean clustering and sorts the resulting clusters.
  */
-void extract (const PointCloud *input_, std::vector<PointIndices> &clusters, double cluster_tolerance_)
+void euclidean_clustering::extract (const PointCloud *input_, std::vector<PointIndices> &clusters, double cluster_tolerance_)
 {
 	if (input_->empty())
 	{
@@ -961,6 +1020,9 @@ void euclidean_clustering::init() {
 	out_boundingbox_array = nullptr;
 	out_centroids = nullptr;
 
+	std::string deviceType = EPHOS_DEVICE_TYPE_S;
+	computeDevice = SyclTools::findComputeDevice(deviceType);
+	computeQueue = cl::sycl::queue(computeDevice);
 	std::cout << "done\n" << std::endl;
 }
 

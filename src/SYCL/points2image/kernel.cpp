@@ -274,10 +274,6 @@ void points2image::init() {
 	computeDevice = SyclTools::findComputeDevice(deviceType);
 	computeQueue = cl::sycl::queue(computeDevice);
 	
-
-	
-
-	
 	// prepare the first iteration
 	error_so_far = false;
 	max_delta = 0.0;
@@ -308,11 +304,9 @@ PointsImage points2image::pointcloud2_to_image(
 	const ImageSize& imageSize)
 {
 	int cloudSize = pointcloud2.width*pointcloud2.height;
-	std::vector<int> positions(cloudSize*2);
-	std::vector<float> properties(cloudSize*2);
 	cl::sycl::buffer<float> cloudBuffer(pointcloud2.data, cl::sycl::range<1>(cloudSize*pointcloud2.point_step/sizeof(float)));
-	cl::sycl::buffer<float> propertyBuffer(properties.data(), cl::sycl::range<1>(cloudSize*2));
-	cl::sycl::buffer<int> positionBuffer(positions.data(), cl::sycl::range<1>(cloudSize*2));
+	cl::sycl::buffer<float> propertyBuffer(cl::sycl::range<1>(cloudSize*2));
+	cl::sycl::buffer<int> positionBuffer(cl::sycl::range<1>(cloudSize*2));
 	
 	// initialize the resulting image data structure
 	int w = imageSize.width;
@@ -362,11 +356,6 @@ PointsImage points2image::pointcloud2_to_image(
 		std::memcpy(mCamera, cameraMat.data, sizeof(double)*9);
 		double mProjection[9];
 		std::memcpy(mProjection, invR.data, sizeof(double)*9);
-		/*h.parallel_for<points2image>(cl::sycl::range<1>(cloudSize), [=](cl::sycl::id<1> item) {
-			int iPos = item.get(0)*2;
-			positions[iPos] = -1;
-			positions[iPos + 1] = -1;
-		});*/
 		h.parallel_for<points2image_main>(cl::sycl::range<1>(cloudSize), [=](cl::sycl::id<1> item) {
 			int iPos = item.get(0)*2;
 
@@ -551,22 +540,66 @@ void points2image::run(int p) {
 	// pause while reading and comparing data
 	// only run the timer when the algorithm is active
 	pause_func();
-	while (read_testcases < testcases)
+	int count = read_next_testcases(p);
+	for (int i = 0; i < count; i++)
 	{
-		int count = read_next_testcases(p);
+		results[i] = pointcloud2_to_image(
+			pointcloud2[i],
+			cameraExtrinsicMat[i],
+			cameraMat[i], distCoeff[i],
+			imageSize[i]);
+	}
+	if (results) {
+		for (int m = 0; m < count; ++m)
+		{
+			delete [] results[m].intensity;
+			delete [] results[m].distance;
+			delete [] results[m].min_height;
+			delete [] results[m].max_height;
+		}
+		delete [] results;
+	}
+	results = new PointsImage[count];
+
+	while (true)
+	{
 		unpause_func();
 		// run the algorithm for each input data set
 		for (int i = 0; i < count; i++)
 		{
-			results[i] = pointcloud2_to_image(pointcloud2[i],
-								cameraExtrinsicMat[i],
-								cameraMat[i], distCoeff[i],
-								imageSize[i]);
+			results[i] = pointcloud2_to_image(
+				pointcloud2[i],
+				cameraExtrinsicMat[i],
+				cameraMat[i], distCoeff[i],
+				imageSize[i]);
 		}
 		pause_func();
 		// compare with the reference data
 		check_next_outputs(count);
+		if (read_testcases < testcases) {
+			count = read_next_testcases(p);
+		} else {
+			break;
+		}
 	}
+
+// 	pause_func();
+// 	while (read_testcases < testcases)
+// 	{
+// 		int count = read_next_testcases(p);
+// 		unpause_func();
+// 		// run the algorithm for each input data set
+// 		for (int i = 0; i < count; i++)
+// 		{
+// 			results[i] = pointcloud2_to_image(pointcloud2[i],
+// 								cameraExtrinsicMat[i],
+// 								cameraMat[i], distCoeff[i],
+// 								imageSize[i]);
+// 		}
+// 		pause_func();
+// 		// compare with the reference data
+// 		check_next_outputs(count);
+// 	}
 }
 
 void points2image::check_next_outputs(int count)
