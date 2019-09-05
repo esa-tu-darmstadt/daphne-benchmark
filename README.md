@@ -30,7 +30,7 @@ For the points2image benchmark, this release also contains an OpenCL implementat
 
 ### Compatibility Overview ###
 
-The benchmarks have been developed for a large number of platforms in mind. However compatibility out of the box can not be guaranteed. Since some platforms require manual configuration or do not run the benchmarks at all we provide information about which results to expect.
+The benchmarks have been developed for a large number of platforms in mind. However compatibility out of the box can not be guaranteed. Since some platforms require manual configuration or do not support the technology the following list provides information about which results to expect.
 
 | Benchmark                        | Consumer Desktop | Linux Workstation | Nvidia Jetson TX 2 |
 | -------------------------------- |:----------------:|:-----------------:| ------------------:|
@@ -40,11 +40,11 @@ The benchmarks have been developed for a large number of platforms in mind. Howe
 |                                  |                  |                   |                    |
 | Cuda/points2image                | ok               | ok (1)            | ok (2)             |
 | Cuda/euclidean_cluster           | ok (1)           | ok (2)            |                    |
-| Cuda/ndt_mapping                 | failed (3)       | failed (3)(1)     | ok (4)(2)          |
+| Cuda/ndt_mapping                 | ok (4)           | ok (4)(1)         | ok (4)(2)          |
 |                                  |                  |                   |                    |
 | OpenCl/points2image              | ok               | ok                | ok (5)             |
 | OpenCl/euclidean_cluster         | ok               | ok                | ok (5)             |
-| OpenCl/ndt_mapping               | ok (4)           | ok (4)            | failed (5)(6)      |
+| OpenCl/ndt_mapping               | ok (4)           | ok (4)            | not supported (5)(6) |
 |                                  |                  |                   |                    |
 | OpenCl-atomic/points2image       | ok               | ok                | ok (5)             |
 | OpenCl-atomic/euclidean_cluster  | ok               | ok                | ok (5)             |
@@ -55,8 +55,8 @@ The benchmarks have been developed for a large number of platforms in mind. Howe
 | OpenMP/ndt_mapping               | ok               | ok                | ok (4)             |
 |                                  |                  |                   |                    |
 | OpenMP-offload/points2image      | ok (CPU)         | ok (CPU), ok (CUDA)| ok (CPU)           |
-| OpenMP-offload/euclidean_cluster | ok (CPU)         | ok (CPU), ok (CUDA)| failed (8)         |
-| OpenMP-offload/ndt_mapping       | failed (CPU)(7)  | ok (CPU), ok (CUDA)(4)| failed (8)      |
+| OpenMP-offload/euclidean_cluster | ok (CPU)         | ok (CPU), ok (CUDA)| not supported (8)  |
+| OpenMP-offload/ndt_mapping       | not supported (CPU)(7) | ok (CPU), ok (CUDA)(4) | not supported (8) |
 
 (1) Compute Capability set to 6.0 or lower
 
@@ -70,7 +70,7 @@ The benchmarks have been developed for a large number of platforms in mind. Howe
 
 (6) cl_khr_int64_base_atomics not supported
 
-(7) internal compilation error
+(7) internal compiler error
 
 (8) undeclared omp_target functions
 
