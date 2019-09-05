@@ -629,7 +629,10 @@ void euclidean_clustering::extractEuclideanClusters (
 			// radius search
 			// update device seed queue
 			if (oldQueueSize != seedQueue.size()) {
-				auto seedQueueStorage = seedQueueBuffer.get_access<cl::sycl::access::mode::write>();
+				int newEntryNo = seedQueue.size() - oldQueueSize;
+				auto seedQueueStorage = seedQueueBuffer.get_access<cl::sycl::access::mode::write>(
+					cl::sycl::range<1>(newEntryNo), cl::sycl::id<1>(oldQueueSize)
+				);
 				for (int i = oldQueueSize; i < seedQueue.size(); i++) {
 					seedQueueStorage[i] = seedQueue[i];
 				}
@@ -647,7 +650,7 @@ void euclidean_clustering::extractEuclideanClusters (
 
 					int iCloud = item.get(0);
 					bool near = false;
-					for (int iQueue = iQueueStart; iQueue < queueLength; iQueue++) {
+					for (int iQueue = iQueueStart; iQueue < queueLength && !near; iQueue++) {
 						if (distances[iCloud][seedQueue[iQueue]]) {
 							near = true;
 						}
