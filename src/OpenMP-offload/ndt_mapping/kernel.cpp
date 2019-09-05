@@ -1651,8 +1651,19 @@ void ndt_mapping::check_next_outputs(int count)
 		}
 		// compare the matrices
 		for (int h = 0; h < 4; h++) {
+			// test for nan
 			for (int w = 0; w < 4; w++) {
-				if (std::isnan(results[i].final_transformation.data[h][w]) != std::isnan(reference.final_transformation.data[h][w])) {
+				if (std::isnan(results[i].final_transformation.data[h][w]) !=
+					std::isnan(reference.final_transformation.data[h][w])) {
+					error_so_far = true;
+				}
+			}
+			// compare translation
+			float delta = std::fabs(results[i].final_transformation.data[h][3] -
+				reference.final_transformation.data[h][3]);
+			if (delta > max_delta) {
+				max_delta = delta;
+				if (delta > MAX_TRANSLATION_EPS) {
 					error_so_far = true;
 				}
 			}
@@ -1667,7 +1678,6 @@ void ndt_mapping::check_next_outputs(int count)
 		PointXYZI refPoint = {
 			{ 0.0f, 0.0f, 0.0f, 0.0f }
 		};
-
 		for (int h = 0; h < 4; h++) {
 			for (int w = 0; w < 4; w++) {
 				resPoint.data[h] += results[i].final_transformation.data[h][w]*origin.data[w];
