@@ -590,12 +590,14 @@ void euclidean_clustering::extractEuclideanClusters (
 	unsigned int max_pts_per_cluster)
 {
 	// indicates the processed status for each point
-	std::vector<char> processed (cloud.size(), false);
+	std::vector<char> processed (cloud.size(), 0);
 	int cloudSize = cloud.size();
 	cl::sycl::buffer<Point> cloudBuffer(cloud.data(), cloudSize);
 	cl::sycl::buffer<bool, 2> distanceBuffer(cl::sycl::range<2>(cloudSize, cloudSize));
-	cl::sycl::buffer<bool> processedBuffer((bool*)processed.data(), cl::sycl::range<1>(cloudSize));
+	cl::sycl::buffer<char> processedBuffer(processed.data(), cl::sycl::range<1>(cloudSize));
 	cl::sycl::buffer<int> seedQueueBuffer((cl::sycl::range<1>(cloudSize)));
+	int one = 1;
+	cl::sycl::buffer<int> queueLengthBuffer((cl::sycl::range<1>(one)));
 
 	// init distance matrix
 	computeQueue.submit([&](cl::sycl::handler& h) {
@@ -622,54 +624,112 @@ void euclidean_clustering::extractEuclideanClusters (
 		}
 		// start with a new cluster
 		std::vector<int> seedQueue(1, iStart);
-		processed[iStart] = true;
+		processed[iStart] = 1;
+
 		int oldQueueSize = 0;
+		{
+			//auto processedStorage = processedBuffer.get_access<cl::sycl::access::mode::write>(
+			//	cl::sycl::range<1>(1), cl::sycl::id<1>(iStart));
+			//processedStorage[0] = 1;
+			auto queueLengthStorage = queueLengthBuffer.get_access<cl::sycl::access::mode::atomic>();
+			cl::sycl::atomic_store(queueLengthStorage[0], 1);
+			//auto seedQueueStorage = seedQueueBuffer.get_access<cl::sycl::access::mode::write>();
+			//seedQueueStorage[0] = iStart;
+		}
 		// grow the cluster
 		for (int iQueue = 0; iQueue < seedQueue.size(); iQueue = oldQueueSize) {
 			// radius search
 			// update device seed queue
 			if (oldQueueSize != seedQueue.size()) {
 				int newEntryNo = seedQueue.size() - oldQueueSize;
-				auto seedQueueStorage = seedQueueBuffer.get_access<cl::sycl::access::mode::write>(
+				/*auto seedQueueStorage = seedQueueBuffer.get_access<cl::sycl::access::mode::read_write>(
 					cl::sycl::range<1>(newEntryNo), cl::sycl::id<1>(oldQueueSize)
 				);
+				for (int i = 0; i < newEntryNo; i++) {
+					seedQueueStorage[i] = seedQueue[oldQueueSize + i];
+				}*/
+
+				auto seedQueueStorage = seedQueueBuffer.get_access<cl::sycl::access::mode::read_write>();
 				for (int i = oldQueueSize; i < seedQueue.size(); i++) {
 					seedQueueStorage[i] = seedQueue[i];
 				}
+				//auto queueLengthStorage = queueLengthBuffer.get_access<cl::sycl::access::mode::atomic>();
+				//cl::sycl::atomic_store(queueLengthStorage[0], (int)seedQueue.size());
+				//queueLengthStorage[0] = seedQueue.size();
 			}
 			// mark near points
 			int iQueueStart = oldQueueSize;
-			int queueLength = seedQueue.size();
+			int fixedQueueLength = seedQueue.size();
 			computeQueue.submit([&](cl::sycl::handler& h) {
 				auto distances = distanceBuffer.get_access<cl::sycl::access::mode::read>(h);
+				auto seedQueue = seedQueueBuffer.get_access<cl::sycl::access::mode::read_write>(h);
 				auto processed = processedBuffer.get_access<cl::sycl::access::mode::read_write>(h);
-				auto seedQueue = seedQueueBuffer.get_access<cl::sycl::access::mode::read>(h);
+				auto nextQueueLength = queueLengthBuffer.get_access<cl::sycl::access::mode::atomic>(h);
 				h.parallel_for<euclidean_clustering_radius_search>(
 					cl::sycl::range<1>(cloudSize),
 					[=](cl::sycl::id<1> item) {
 
 					int iCloud = item.get(0);
-					bool near = false;
-					for (int iQueue = iQueueStart; iQueue < queueLength && !near; iQueue++) {
-						if (distances[iCloud][seedQueue[iQueue]]) {
-							near = true;
+					if (iCloud == 0) {
+						processed[iStart] = 1;
+						seedQueue[0] = iStart;
+					}
+					if (processed[iCloud] == 0 && iCloud != iStart) {
+						bool near = false;
+						if (iQueueStart == 0) {
+							if (distances[iCloud][iStart]) {
+								near = true;
+							}
+							for (int iQueue = iQueueStart + 1; iQueue < fixedQueueLength && !near; iQueue++) {
+								if (distances[iCloud][seedQueue[iQueue]]) {
+									near = true;
+								}
+							}
+						} else {
+							for (int iQueue = iQueueStart; iQueue < fixedQueueLength && !near; iQueue++) {
+								if (distances[iCloud][seedQueue[iQueue]]) {
+									near = true;
+								}
+							}
+						}
+						if (near) {
+							processed[iCloud] = 1;
+							atomic_fetch_add(nextQueueLength[0], 1, cl::sycl::memory_order::relaxed);
 						}
 					}
-					if (near) {
-						processed[iCloud] = true;
-					}
+
 				});
 			});
+
+			//computeQueue.wait();
 			// process search results
 			oldQueueSize = seedQueue.size();
-			auto processedStorage = processedBuffer.get_access<cl::sycl::access::mode::read>();
-			for (int i = 0; i < cloudSize; i++) {
-				if (processedStorage[i] && !processed[i]) {
-					seedQueue.push_back(i);
-					processed[i] = true;
+			try {
+
+				auto queueLengthStorage = queueLengthBuffer.get_access<cl::sycl::access::mode::atomic>();
+				auto processedStorage = processedBuffer.get_access<cl::sycl::access::mode::read>();
+				int newQueueLength = cl::sycl::atomic_load(queueLengthStorage[0]);
+				for (int i = 0; i < cloudSize; i++) {
+					if (processedStorage[i] && !processed[i]) {
+						seedQueue.push_back(i);
+						processed[i] = true;
+					}
+					/*if (!processedStorage[i] && processed[i]) {
+						std::cout << "Element not processed on device: ";
+						std::cout << i << std::endl;
+					}*/
 				}
+				/*if (seedQueue.size() != newQueueLength) {
+					std::cout << "Deviating queue length " << newQueueLength;
+					std::cout << " != " << seedQueue.size() << std::endl;
+				} else {
+					std::cout << "Queue Length ok" << std::endl;
+				}*/
+			} catch (cl::sycl::exception& e) {
+				std::cout << e.what() << " " << e.get_cl_code() << std::endl;
 			}
 		}
+		//std::cout << "cluster finished" << std::endl;
 		// add cluster candidate of fitting size to the resulting clusters
 		if (seedQueue.size() >= min_pts_per_cluster && seedQueue.size() <= max_pts_per_cluster)
 		{
@@ -1024,7 +1084,7 @@ void euclidean_clustering::init() {
 	out_centroids = nullptr;
 
 	std::string deviceType = EPHOS_DEVICE_TYPE_S;
-	computeDevice = SyclTools::findComputeDevice(deviceType);
+	computeDevice = cl::sycl::gpu_selector().select_device();//SyclTools::findComputeDevice(deviceType);
 	computeQueue = cl::sycl::queue(computeDevice);
 	std::cout << "done\n" << std::endl;
 }

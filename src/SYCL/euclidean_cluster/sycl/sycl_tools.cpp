@@ -10,7 +10,7 @@
 cl::sycl::device SyclTools::findComputeDevice(const std::string& deviceType) {
 	cl::sycl::device result;
 	if (deviceType.compare("CPU")) {
-		result = cl::sycl::host_selector().select_device();
+		result = cl::sycl::cpu_selector().select_device();
 	} else if (deviceType.compare("GPU")) {
 		result = cl::sycl::gpu_selector().select_device();
 	} else if (deviceType.compare("HOST")) {
