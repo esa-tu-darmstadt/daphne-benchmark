@@ -3,8 +3,8 @@
 
 -include Makefile.deps
 
-#CXXFLAGS=-O3
-CXXFLAGS=-g
+CXXFLAGS=-O3
+#CXXFLAGS=-g
 CXXFLAGS+= -std=c++11
 
 SYCL_DEVICE_TYPE=GPU
@@ -20,6 +20,8 @@ ifneq ($(SYCL_LIBRARY_PATH),)
 	LDDFLAGS+= -L$(SYCL_LIBRARY_PATH)
 endif
 LDDFLAGS+= -lComputeCpp
+SYCLFLAGS=-sycl
+SYCLFLAGS+= -sycl-target ptx64
 
 all: kernel checkdata
 
@@ -33,7 +35,7 @@ kernel.o: kernel.cpp sycl/kernel.sycl
 	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -include sycl/kernel.sycl -I../include $< -o $@
 
 sycl/kernel.sycl: kernel.cpp
-	compute++ -sycl -sycl-target ptx64 $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include kernel.cpp
+	compute++ $(SYCLFLAGS) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include kernel.cpp
 	mv kernel.sycl sycl/
 	mv kernel-sycl* sycl/
 
@@ -49,7 +51,9 @@ ifeq ($(wildcard ../../../data/ec_output.dat),)
 endif
 
 clean:
-	rm -f kernel kernel.o ../common/main.o sycl/kernel.sycl sycl/kernel-sycl* Makefile.deps
+	rm -f kernel kernel.o ../common/main.o \
+	sycl/sycl_tools.o sycl/kernel.sycl sycl/kernel-sycl* \
+	Makefile.deps
 
 Makefile.deps:
 	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include -MM -MG \
