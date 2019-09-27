@@ -12,11 +12,27 @@
 #include <cstring>
 #include <chrono>
 
+#include "sycl/sycl_tools.h"
+
 // maximum allowed deviation from reference
 #define MAX_TRANSLATION_EPS 0.001
 #define MAX_ROTATION_EPS 0.9
 
+#ifndef EPHOS_DEVICE_TYPE
+#define EPHOS_DEVICE_TYPE GPU
+#endif
+#define MKSTR2(s) #s
+#define MKSTR(s) MKSTR2(s)
+#define EPHOS_DEVICE_TYPE_S MKSTR(EPHOS_DEVICE_TYPE)
+
+class ndt_mapping_init;
+class ndt_mapping_distribute;
+class ndt_mapping_normalize;
+class ndt_mapping_radius_search;
 class ndt_mapping : public kernel {
+private:
+	cl::sycl::device computeDevice;
+	cl::sycl::queue computeQueue;
 private:
 	// the number of testcases read
 	int read_testcases = 0;
@@ -370,6 +386,13 @@ void ndt_mapping::init() {
 	init_guess = nullptr;
 	filtered_scan_ptr = nullptr;
 	results = nullptr;
+
+	std::string deviceType = EPHOS_DEVICE_TYPE_S;
+	std::cout << deviceType << std::endl;
+	//computeDevice = cl::sycl::gpu_selector().select_device();//SyclTools::findComputeDevice(deviceType);
+	computeDevice = SyclTools::findComputeDevice(deviceType);
+	computeQueue = cl::sycl::queue(computeDevice);
+
 	std::cout << "done\n" << std::endl;
 }
 
@@ -1318,21 +1341,122 @@ void ndt_mapping::initCompute()
 		voxelDimension[i] = (maxVoxel.data[i] - minVoxel.data[i]) / resolution_ + 1;
 	}
 
+	cl::sycl::buffer<PointXYZI> cloudBuffer(target_->data(), cl::sycl::range<1>(target_->size()));
+	cl::sycl::buffer<Voxel, 3> gridBuffer(cl::sycl::range<3>(voxelDimension[0], voxelDimension[1], voxelDimension[2]));
+	cl::sycl::buffer<int, 3> queueStartBuffer(cl::sycl::range<3>(voxelDimension[0], voxelDimension[1], voxelDimension[2]));
+	//cl::sycl::buffer<int, 1> queueStartBuffer(cl::sycl::range<1>(voxelDimension[0]*voxelDimension[1]*voxelDimension[2]));
+	// initialize the voxel grid
+	computeQueue.submit([&](cl::sycl::handler& h) {
+		auto voxelGrid = gridBuffer.get_access<cl::sycl::access::mode::write>(h);
+		auto queueStart = queueStartBuffer.get_access<cl::sycl::access::mode::write>(h);
+		h.parallel_for<ndt_mapping_init>(
+			cl::sycl::range<3>(voxelDimension[0], voxelDimension[1], voxelDimension[2]),
+			[=](cl::sycl::item<3> item) {
+
+			Voxel voxel;
+			voxel.numberPoints = 0;
+			voxel.mean[0] = 0;
+			voxel.mean[1] = 0;
+			voxel.mean[2] = 0;
+			voxel.invCovariance = (Mat33){
+				0.0, 0.0, 1.0,
+				0.0, 1.0, 0.0,
+				1.0, 0.0, 0.0
+			};
+			voxelGrid[item[0]][item[1]][item[2]] = voxel;
+			queueStart[item[0]][item[1]][item[2]] = -1;
+		});
+	});
+	auto voxelGrid = gridBuffer.get_access<cl::sycl::access::mode::read>();
+	// assign points to voxels
+	computeQueue.submit([&](cl::sycl::handler& h) {
+		auto cloud = cloudBuffer.get_access<cl::sycl::access::mode::read_write>(h);
+		auto queueStart = queueStartBuffer.get_access<cl::sycl::access::mode::atomic>(h);
+		PointXYZI voxelMin = minVoxel;
+		int voxelDimX = voxelDimension[0];
+		int voxelDimY = voxelDimension[1];
+		float resolution = resolution_;
+		h.parallel_for<ndt_mapping_distribute>(
+			cl::sycl::range<1>(target_->size()),
+			[=](cl::sycl::item<1> item) {
+// inline int ndt_mapping::linearizeAddr(const int x, const int y, const int z)
+// {
+// 	return  (x + voxelDimension[0] * (y + voxelDimension[1] * z));
+// }
+//
+// inline int ndt_mapping::linearizeCoord(const float x, const float y, const float z)
+// {
+// 	// determine cell index
+// 	int idx_x = (x - minVoxel.data[0]) / resolution_;
+// 	int idx_y = (y - minVoxel.data[1]) / resolution_;
+// 	int idx_z = (z - minVoxel.data[2]) / resolution_;
+// 	// then linearize it
+// 	return linearizeAddr(idx_x, idx_y, idx_z);
+// }
+			int iCloud = item[0];
+			PointXYZI point = cloud[iCloud];
+			int iVoxelX = (point.data[0] - voxelMin.data[0])/resolution;
+			int iVoxelY = (point.data[1] - voxelMin.data[1])/resolution;
+			int iVoxelZ = (point.data[2] - voxelMin.data[2])/resolution;
+			//int iVoxel = iVoxelX + voxelDimX*(iVoxelY + voxelDimY*iVoxelZ);
+			//atomic_store(queueStart[iVoxel], iCloud);
+			//int iNext = atomic_exchange(queueStart[iVoxel], iCloud);
+			int iNext = atomic_exchange(queueStart[cl::sycl::id<3>(iVoxelZ, iVoxelY, iVoxelX)], iCloud);
+			cloud[iCloud].data[3] = *((float*)&iNext);
+
+		});
+	});
+// 	cl::sycl::buffer<PointXYZI> cloudBuffer(target_->data(), cl::sycl::range<1>(target_->size()));
+// 	cl::sycl::buffer<Voxel> gridBuffer(cl::sycl::range<1>(voxelDimension[0]*voxelDimension[1]*voxelDimension[2]));
+// 	cl::sycl::buffer<int> queueStartBuffer(cl::sycl::range<1>
+// 	// initialize the voxel grid
+// 	computeQueue.submit([&](cl::sycl::handler& h) {
+// 		auto voxelGrid = gridBuffer.get_access<cl::sycl::access::mode::write>(h);
+// 		h.parallel_for<ndt_mapping_init>(
+// 			cl::sycl::range<1>(voxelDimension[0]*voxelDimension[1]*voxelDimension[2]),
+// 			[=](cl::sycl::item<1> item) {
+// 				Voxel voxel;
+// 				voxel.numberPoints = 0;
+// 				voxel.mean[0] = 0;
+// 				voxel.mean[1] = 0;
+// 				voxel.mean[2] = 0;
+// 				voxel.invCovariance = (Mat33){
+// 					0.0, 0.0, 1.0,
+// 					0.0, 1.0, 0.0,
+// 					1.0, 0.0, 0.0
+// 				};
+// 				voxelGrid[item[0]] = voxel;
+// 			});
+// 	});
+// 	auto voxelGrid = gridBuffer.get_access<cl::sycl::access::mode::read>();
+
+
+
 	// initialize the voxel grid
 	// spans over the point cloud
 	target_cells_.clear();
 	target_cells_.resize(voxelDimension[0] * voxelDimension[1] * voxelDimension[2]);
-	for (int i = 0; i < target_cells_.size(); i++)
-	{
-		target_cells_[i].numberPoints = 0;
-		target_cells_[i].mean[0] = 0;
-		target_cells_[i].mean[1] = 0;
-		target_cells_[i].mean[2] = 0;
-		memset(target_cells_[i].invCovariance.data, 0, sizeof(double) * 3 * 3);
-		target_cells_[i].invCovariance.data[2][0] = 1.0;
-		target_cells_[i].invCovariance.data[1][1] = 1.0;
-		target_cells_[i].invCovariance.data[0][2] = 1.0;
+
+	for (int z = 0; z < voxelDimension[2]; z++) {
+		for (int y = 0; y < voxelDimension[1]; y++) {
+			for (int x = 0; x < voxelDimension[0]; x++) {
+				target_cells_[z*voxelDimension[0]*voxelDimension[1] + y*voxelDimension[0] + x] =
+					voxelGrid[z][y][x];
+			}
+		}
 	}
+
+// 	for (int i = 0; i < target_cells_.size(); i++)
+// 	{
+// 		target_cells_[i].numberPoints = 0;
+// 		target_cells_[i].mean[0] = 0;
+// 		target_cells_[i].mean[1] = 0;
+// 		target_cells_[i].mean[2] = 0;
+// 		memset(target_cells_[i].invCovariance.data, 0, sizeof(double) * 3 * 3);
+// 		target_cells_[i].invCovariance.data[2][0] = 1.0;
+// 		target_cells_[i].invCovariance.data[1][1] = 1.0;
+// 		target_cells_[i].invCovariance.data[0][2] = 1.0;
+// 	}
 
 	// assign the points to their respective voxel
 	for (int i = 0; i < target_->size(); i++)
