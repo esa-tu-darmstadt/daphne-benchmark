@@ -74,3 +74,16 @@ The benchmarks have been developed for a large number of platforms in mind. Howe
 
 (8) undeclared omp_target functions
 
+## Data ##
+
+The test-data (input and reference output data) is available in four different sizes:
+
+* Full (~4.6GB): https://hessenbox.tu-darmstadt.de/getlink/fiJUFuNr4NHzo7Mmg8opPbn7/daphne-data-full
+
+* Medium (~1.2GB): https://hessenbox.tu-darmstadt.de/getlink/fiNBiGrqB3mH964QEJNEbNiC/daphne-data-medium
+
+* Small (~80MB): https://hessenbox.tu-darmstadt.de/getlink/fiEc6XdBxPKx9vUstKQwXRGU/daphne-data-small
+
+* Minimal (~12MB): https://hessenbox.tu-darmstadt.de/getlink/fiEzcNF864HPfrEt1oXrnq9L/daphne-data-minimal
+
+To use the data, just unpack the contained archive. Each archive contains input- and output data for all three benchmarks.
