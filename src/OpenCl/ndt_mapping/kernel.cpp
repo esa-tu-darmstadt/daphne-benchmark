@@ -29,6 +29,7 @@
 // maximum allowed deviation from reference
 #define MAX_TRANSLATION_EPS 0.001
 #define MAX_ROTATION_EPS 1.8
+#define MAX_EPS 2
 
 // opencl platform hints
 #if defined(EPHOS_PLATFORM_HINT)
@@ -1931,23 +1932,49 @@ void ndt_mapping::check_next_outputs(int count)
 			error_so_far = true;
 		}
 		// compare the matrices
-		for (int h = 0; h < 4; h++)
-			for (int w = 0; w < 4; w++)
-			{
-				float delta = std::fabs(reference.final_transformation.data[h][w] - results[i].final_transformation.data[h][w]);
-				if (delta > max_delta)
-					max_delta = delta;
-				// apply different thresholds for the rotation and translation components
-				if (w < 3) {
-					if (delta > MAX_ROTATION_EPS) {
-						error_so_far = true;
-					}
-				} else {
-					if (delta > MAX_TRANSLATION_EPS) {
-						error_so_far = true;
-					}
+		for (int h = 0; h < 4; h++) {
+			// test for nan
+			for (int w = 0; w < 4; w++) {
+				if (std::isnan(results[i].final_transformation.data[h][w]) !=
+					std::isnan(reference.final_transformation.data[h][w])) {
+					error_so_far = true;
 				}
 			}
+			// compare translation
+			float delta = std::fabs(results[i].final_transformation.data[h][3] -
+				reference.final_transformation.data[h][3]);
+			if (delta > max_delta) {
+				max_delta = delta;
+				if (delta > MAX_TRANSLATION_EPS) {
+					error_so_far = true;
+				}
+			}
+		}
+		// compare transformed points
+		PointXYZI origin = {
+			{ 0.724f, 0.447f, 0.525f, 1.0f }
+		};
+		PointXYZI resPoint = {
+			{ 0.0f, 0.0f, 0.0f, 0.0f }
+		};
+		PointXYZI refPoint = {
+			{ 0.0f, 0.0f, 0.0f, 0.0f }
+		};
+		for (int h = 0; h < 4; h++) {
+			for (int w = 0; w < 4; w++) {
+				resPoint.data[h] += results[i].final_transformation.data[h][w]*origin.data[w];
+				refPoint.data[h] += reference.final_transformation.data[h][w]*origin.data[w];
+			}
+		}
+		for (int w = 0; w < 4; w++) {
+			float delta = std::fabs(resPoint.data[w] - refPoint.data[w]);
+			if (delta > max_delta) {
+				max_delta = delta;
+				if (delta > MAX_EPS) {
+					error_so_far = true;
+				}
+			}
+		}
 	}
 }
   
