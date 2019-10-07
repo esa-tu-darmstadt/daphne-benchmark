@@ -66,6 +66,12 @@ typedef struct TaggedVoxel {
 	int reference;
 } TaggedVoxel;
 
+typedef struct HessianScore {
+	Mat66 hessian;
+	Vec6 score;
+	double increase;
+} HessianScore;
+
 
 typedef std::vector<Voxel> VoxelGrid;
 

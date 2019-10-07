@@ -25,7 +25,8 @@ const bool _pose_estimation = true;
 #ifndef EPHOS_DEVICE_TYPE
 #define EPHOS_DEVICE_TYPE GPU
 #endif
-#define MKSTR(s) #s
+#define MKSTR2(s) #s
+#define MKSTR(s) MKSTR2(s)
 #define EPHOS_DEVICE_TYPE_S MKSTR(EPHOS_DEVICE_TYPE)
 // maximum allowed deviation from the reference data
 #define MAX_EPS 0.001

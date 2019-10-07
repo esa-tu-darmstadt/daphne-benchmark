@@ -29,6 +29,8 @@ class ndt_mapping_init;
 class ndt_mapping_distribute;
 class ndt_mapping_normalize;
 class ndt_mapping_radius_search;
+class ndt_mapping_hessian_update;
+class ndt_mapping_hessian_combine;
 class ndt_mapping : public kernel {
 private:
 	cl::sycl::device computeDevice;
@@ -666,62 +668,6 @@ void ndt_mapping::updateHessian (Mat66 &hessian, Vec3 &x_trans, Mat33 &c_inv)
 		}
 	}
 }
-
-// double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
-// 	Mat66 &hessian,
-// 	PointCloudSource &trans_cloud,
-// 	Vec6 &p,
-// 	bool compute_hessian)
-// {
-// 	// Original Point and Transformed Point
-// 	PointXYZI x_pt, x_trans_pt;
-// 	// Original Point and Transformed Point (for math)
-// 	Vec3 x, x_trans;
-// 	// Occupied Voxel
-// 	Voxel cell;
-// 	// Inverse Covariance of Occupied Voxel
-// 	Mat33 c_inv;
-// 	// initialization to 0
-// 	memset(&(score_gradient[0]), 0, sizeof(double) * 6 );
-// 	memset(&(hessian.data[0][0]), 0, sizeof(double) * 6 * 6);
-// 	double score = 0.0;
-// 	// Precompute Angular Derivatives (eq. 6.19 and 6.21)[Magnusson 2009]
-// 	computeAngleDerivatives (p);
-// 	// Update gradient and hessian for each point, line 17 in Algorithm 2 [Magnusson 2009]
-// 	for (size_t idx = 0; idx < input_->size (); idx++)
-// 	{
-// 		x_trans_pt = trans_cloud[idx];
-//
-// 		// Find nieghbors (Radius search has been experimentally faster than direct neighbor checking.
-// 		std::vector<Voxel> neighborhood;
-// 		std::vector<float> distances;
-// 		voxelRadiusSearch (target_cells_, x_trans_pt, resolution_, neighborhood, distances);
-//
-// 		for (auto neighborhood_it = neighborhood.begin (); neighborhood_it != neighborhood.end (); neighborhood_it++)
-// 		{
-// 			cell = *neighborhood_it;
-// 			x_pt = (*input_)[idx];
-// 			x[0] = x_pt.data[0];
-// 			x[1] = x_pt.data[1];
-// 			x[2] = x_pt.data[2];
-// 			x_trans[0] = x_trans_pt.data[0];
-// 			x_trans[1] = x_trans_pt.data[1];
-// 			x_trans[2] = x_trans_pt.data[2];
-// 			// Denorm point, x_k' in Equations 6.12 and 6.13 [Magnusson 2009]
-// 			x_trans[0] -= cell.mean[0];
-// 			x_trans[1] -= cell.mean[1];
-// 			x_trans[2] -= cell.mean[2];
-// 			// Uses precomputed covariance for speed.
-// 			c_inv = cell.invCovariance;
-// 			// Equations 6.18 and 6.20 [Magnusson 2009]
-// 			computePointDerivatives (x);
-// 			// Equations 6.10, 6.12 and 6.13, respectively [Magnusson 2009]
-// 			score += updateDerivatives (score_gradient, hessian, x_trans, c_inv, compute_hessian);
-//
-// 		}
-// 	}
-// 	return score;
-// }
 double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 	Mat66 &hessian,
 	PointCloudSource &trans_cloud,
@@ -798,28 +744,264 @@ double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 		});
 
 	});
-	computeQueue.wait();
+	cl::sycl::buffer<HessianScore> hessianScoreBuffer(cl::sycl::range<1>(trans_cloud.size()*9));
 	auto voxelCounter = voxelCountBuffer.get_access<cl::sycl::access::mode::atomic>();
 	voxelNo = cl::sycl::atomic_load(voxelCounter[0]);
-	auto voxels = voxelBuffer.get_access<cl::sycl::access::mode::read>();
-	std::cout << " near " << voxelNo << std::endl;
-// 	for (int i = 0; i < voxelNo; i++) {
-//
-// 		int iCloud = voxels[i].reference;
-// 		Vec3 ref = {
-// 			input_->at(iCloud).data[0],
-// 			input_->at(iCloud).data[1],
-// 			input_->at(iCloud).data[2]
-// 		};
-// 		Vec3 trans = {
-// 				trans_cloud[iCloud].data[0] - voxels[i].mean[0],
-// 				trans_cloud[iCloud].data[1] - voxels[i].mean[1],
-// 				trans_cloud[iCloud].data[2] - voxels[i].mean[2]
-// 		};
-// 		computePointDerivatives(ref);
-// 		Mat33 invCovariance = voxels[i].invCovariance;
-// 		score += updateDerivatives (score_gradient, hessian, trans, invCovariance, compute_hessian);
+	computeQueue.submit([&](cl::sycl::handler& h) {
+		auto voxels = voxelBuffer.get_access<cl::sycl::access::mode::read>(h);
+		auto hessianScore = hessianScoreBuffer.get_access<cl::sycl::access::mode::write>(h);
+		Vec6 transform = { p[0], p[1], p[2], p[3], p[4], p[5] };
+		h.parallel_for<ndt_mapping_hessian_update>(
+			cl::sycl::range<1>(voxelNo),
+			[=](cl::sycl::id<1> item) {
+
+			int iVoxel = item[0];
+
+			double cx, cy, cz, sx, sy, sz;
+			if (abs(transform[3]) < 10e-5) {
+				cx = 1.0;
+				sx = 0.0;
+			} else {
+				//cx = cos(transform[3]);
+				//sx = sin(transform[3]);
+			}
+
+			TaggedVoxel voxel = voxels[iVoxel];
+
+			Mat36 pointGradient;
+
+
+
+			HessianScore score;
+			hessianScore[iVoxel] = score;
+		});
+
+// double cx, cy, cz, sx, sy, sz;
+// 	if (std::fabs (p[3]) < 10e-5)
+// 	{
+// 		//p(3) = 0;
+// 		cx = 1.0;
+// 		sx = 0.0;
 // 	}
+// 	else
+// 	{
+// 		cx = cos (p[3]);
+// 		sx = sin (p[3]);
+// 	}
+// 	if (std::fabs (p[4]) < 10e-5)
+// 	{
+// 		//p(4) = 0;
+// 		cy = 1.0;
+// 		sy = 0.0;
+// 	}
+// 	else
+// 	{
+// 		cy = cos (p[4]);
+// 		sy = sin (p[4]);
+// 	}
+//
+// 	if (std::fabs (p[5]) < 10e-5)
+// 	{
+// 		//p(5) = 0;
+// 		cz = 1.0;
+// 		sz = 0.0;
+// 	}
+// 	else
+// 	{
+// 		cz = cos (p[5]);
+// 		sz = sin (p[5]);
+// 	}
+// 	// Precomputed angular gradiant components. Letters correspond to Equation 6.19 [Magnusson 2009]
+// 	j_ang_a_[0] = (-sx * sz + cx * sy * cz);
+// 	j_ang_a_[1] = (-sx * cz -  cx * sy * sz);
+// 	j_ang_a_[2] = (-cx * cy);
+// 	j_ang_b_[0] = (cx * sz + sx * sy * cz);
+// 	j_ang_b_[1] = (cx * cz - sx * sy * sz);
+// 	j_ang_b_[2] = (-sx * cy);
+// 	j_ang_c_[0] =  (-sy * cz);
+// 	j_ang_c_[1] = sy * sz;
+// 	j_ang_c_[2] = cy;
+// 	j_ang_d_[0] = sx * cy * cz;
+// 	j_ang_d_[1] = (-sx * cy * sz);
+// 	j_ang_d_[2] = sx * sy;
+// 	j_ang_e_[0] = (-cx * cy * cz);
+// 	j_ang_e_[1] = cx * cy * sz;
+// 	j_ang_e_[2] = (-cx * sy);
+// 	j_ang_f_[0] = (-cy * sz);
+// 	j_ang_f_[1] = (-cy * cz);
+// 	j_ang_f_[2] = 0;
+// 	j_ang_g_[0] = (cx * cz - sx * sy * sz);
+// 	j_ang_g_[1] = (-cx * sz - sx * sy * cz);
+// 	j_ang_g_[2] = 0;
+// 	j_ang_h_[0] = (sx * cz + cx * sy * sz);
+// 	j_ang_h_[1] =(cx * sy * cz - sx * sz);
+// 	j_ang_h_[2] = 0;
+//
+// 	if (compute_hessian)
+// 	{
+// 		// Precomputed angular hessian components. Letters correspond to Equation 6.21 and numbers correspond to row index [Magnusson 2009]
+// 		h_ang_a2_[0] = (-cx * sz - sx * sy * cz);
+// 		h_ang_a2_[1] =  (-cx * cz + sx * sy * sz);
+// 		h_ang_a2_[2] = sx * cy;
+// 		h_ang_a3_[0] =  (-sx * sz + cx * sy * cz);
+// 		h_ang_a3_[1] = (-cx * sy * sz - sx * cz);
+// 		h_ang_a3_[2] = (-cx * cy);
+//
+// 		h_ang_b2_[0] = (cx * cy * cz);
+// 		h_ang_b2_[1] = (-cx * cy * sz);
+// 		h_ang_b2_[2] = (cx * sy);
+// 		h_ang_b3_[0] = (sx * cy * cz);
+// 		h_ang_b3_[1] = (-sx * cy * sz);
+// 		h_ang_b3_[2] = (sx * sy);
+//
+// 		h_ang_c2_[0] = (-sx * cz - cx * sy * sz);
+// 		h_ang_c2_[1] = (sx * sz - cx * sy * cz);
+// 		h_ang_c2_[2] = 0;
+// 		h_ang_c3_[0] = (cx * cz - sx * sy * sz);
+// 		h_ang_c3_[1] = (-sx * sy * cz - cx * sz);
+// 		h_ang_c3_[2] = 0;
+//
+// 		h_ang_d1_[0] = (-cy * cz);
+// 		h_ang_d1_[1] = (cy * sz);
+// 		h_ang_d1_[2] = (sy);
+// 		h_ang_d2_[0] =  (-sx * sy * cz);
+// 		h_ang_d2_[1] = (sx * sy * sz);
+// 		h_ang_d2_[2] = (sx * cy);
+// 		h_ang_d3_[0] = (cx * sy * cz);
+// 		h_ang_d3_[1] = (-cx * sy * sz);
+// 		h_ang_d3_[2] = (-cx * cy);
+//
+// 		h_ang_e1_[0] = (sy * sz);
+// 		h_ang_e1_[1] = (sy * cz);
+// 		h_ang_e1_[2] = 0;
+// 		h_ang_e2_[0] =  (-sx * cy * sz);
+// 		h_ang_e2_[1] = (-sx * cy * cz);
+// 		h_ang_e2_[2] = 0;
+// 		h_ang_e3_[0] = (cx * cy * sz);
+// 		h_ang_e3_[1] = (cx * cy * cz);
+// 		h_ang_e3_[2] = 0;
+//
+// 		h_ang_f1_[0] = (-cy * cz);
+// 		h_ang_f1_[1] = (cy * sz);
+// 		h_ang_f1_[2] = 0;
+// 		h_ang_f2_[0] = (-cx * sz - sx * sy * cz);
+// 		h_ang_f2_[1] = (-cx * cz + sx * sy * sz);
+// 		h_ang_f2_[2] = 0;
+// 		h_ang_f3_[0] = (-sx * sz + cx * sy * cz);
+// 		h_ang_f3_[1] = (-cx * sy * sz - sx * cz);
+// 		h_ang_f3_[2] = 0;
+// 	point_gradient_.data[1][3] = dot_product(x, j_ang_a_);
+// 	point_gradient_.data[2][3] = dot_product(x, j_ang_b_);
+// 	point_gradient_.data[0][4] = dot_product(x, j_ang_c_);
+// 	point_gradient_.data[1][4] = dot_product(x, j_ang_d_);
+// 	point_gradient_.data[2][4] = dot_product(x, j_ang_e_);
+// 	point_gradient_.data[0][5] = dot_product(x, j_ang_f_);
+// 	point_gradient_.data[1][5] = dot_product(x, j_ang_g_);
+// 	point_gradient_.data[2][5] = dot_product(x, j_ang_h_);
+//
+// 	if (compute_hessian)
+// 	{
+// 		//equation 6.21 [Magnusson 2009]
+// 		Vec3 a, b, c, d, e, f;
+// 		a[0] = 0;
+// 		a[1] = dot_product(x, h_ang_a2_);
+// 		a[2] = dot_product(x, h_ang_a3_);
+// 		b[0] = 0;
+// 		b[1] = dot_product(x, h_ang_b2_);
+// 		b[2] = dot_product(x, h_ang_b3_);
+// 		c[0] = 0;
+// 		c[1] = dot_product(x, h_ang_c2_);
+// 		c[2] = dot_product(x, h_ang_c3_);
+// 		d[0] = dot_product(x, h_ang_d1_);
+// 		d[1] = dot_product(x, h_ang_d2_);
+// 		d[2] = dot_product(x, h_ang_d3_);
+// 		e[0] = dot_product(x, h_ang_e1_);
+// 		e[1] = dot_product(x, h_ang_e2_);
+// 		e[2] = dot_product(x, h_ang_e3_);
+// 		f[0] = dot_product(x, h_ang_f1_);
+// 		f[1] = dot_product(x, h_ang_f2_);
+// 		f[2] = dot_product(x, h_ang_f3_);
+// 		// second derivative of Transformation Equation 6.17 w.r.t. transform vector p.
+// 		// Derivative w.r.t. ith and jth elements of transform vector corresponds to the 3x1 block matrix starting at (3i,j), Equation 6.20 and 6.21 [Magnusson 2009]
+// 		point_hessian_.data[9][3] = a[0];
+// 		point_hessian_.data[10][3] = a[1];
+// 		point_hessian_.data[11][3] = a[2];
+// 		point_hessian_.data[12][3] = b[0];
+// 		point_hessian_.data[13][3] = b[1];
+// 		point_hessian_.data[14][3] = b[2];
+// 		point_hessian_.data[15][3] = c[0];
+// 		point_hessian_.data[16][3] = c[1];
+// 		point_hessian_.data[17][3] = c[2];
+// 		point_hessian_.data[9][4] = b[0];
+// 		point_hessian_.data[10][4] = b[1];
+// 		point_hessian_.data[11][4] = b[2];
+// 		point_hessian_.data[12][4] = d[0];
+// 		point_hessian_.data[13][4] = d[1];
+// 		point_hessian_.data[14][4] = d[2];
+// 		point_hessian_.data[15][4] = e[0];
+// 		point_hessian_.data[16][4] = e[1];
+// 		point_hessian_.data[17][4] = e[2];
+// 		point_hessian_.data[9][5] = c[0];
+// 		point_hessian_.data[10][5] = c[1];
+// 		point_hessian_.data[11][5] = c[2];
+// 		point_hessian_.data[12][5] = e[0];
+// 		point_hessian_.data[13][5] = e[1];
+// 		point_hessian_.data[14][5] = e[2];
+// 		point_hessian_.data[15][5] = f[0];
+// 		point_hessian_.data[16][5] = f[1];
+// 		point_hessian_.data[17][5] = f[2];
+// 		double xCx = c_inv.data[0][0] * x_trans[0] * x_trans[0] +
+// 		c_inv.data[1][1] * x_trans[1] * x_trans[1] +
+// 		c_inv.data[2][2] * x_trans[2] * x_trans[2] +
+// 		(c_inv.data[0][1] + c_inv.data[1][0]) * x_trans[0] * x_trans[1] +
+// 		(c_inv.data[0][2] + c_inv.data[2][0]) * x_trans[0] * x_trans[2] +
+// 		(c_inv.data[1][2] + c_inv.data[2][1]) * x_trans[1] * x_trans[2];
+//
+// 	double e_x_cov_x = exp (-gauss_d2_ * (xCx) / 2);
+// 	// calculate probability of transtormed points existance, equation 6.9 [Magnusson 2009]
+// 	double score_inc = -gauss_d1_ * e_x_cov_x;
+// 	e_x_cov_x = gauss_d2_ * e_x_cov_x;
+// 	// error checking for invalid values.
+// 	if (e_x_cov_x > 1 || e_x_cov_x < 0 || e_x_cov_x != e_x_cov_x)
+// 		return 0;
+// 	// equation 6.12 and 6.13 [Magnusson 2009]
+// 	e_x_cov_x *= gauss_d1_;
+// 	Vec3 cov_dxd_pi;
+// 	for (int i = 0; i < 6; i++)
+// 	{
+// 		// equation 6.12 and 6.13 [Magnusson 2009]
+// 		for (int row = 0; row < 3; row++)
+// 		{
+// 			cov_dxd_pi[row] = 0;
+// 			for (int col = 0; col < 3; col++)
+// 			cov_dxd_pi[row] += c_inv.data[row][col] * point_gradient_.data[col][i];
+// 		}
+// 		// update gradient, Equation 6.12 [Magnusson 2009]
+// 		score_gradient[i] += dot_product(x_trans, cov_dxd_pi) * e_x_cov_x;
+// 		if (compute_hessian)
+// 		{
+// 			for (int j = 0; j < 6; j++)
+// 			{
+// 				Vec3 colVec = { point_gradient_.data[0][j], point_gradient_.data[1][j], point_gradient_.data[2][j] };
+// 				Vec3 colVecHess = {colVec[0] + point_hessian_.data[3*i][j], colVec[1] + point_hessian_.data[3*i+1][j], colVec[2] + point_hessian_.data[3*i+2][j] };
+// 				Vec3 matProd;
+// 				for (int row = 0; row < 3; row++)
+// 				{
+// 					matProd[row] = 0;
+// 					for (int col = 0; col < 3; col++)
+// 					matProd[row] += c_inv.data[row][col] * colVecHess[col];
+// 				}
+// 				// Update hessian, Equation 6.13 [Magnusson 2009]
+// 				hessian.data[i][j] += e_x_cov_x * (-gauss_d2_ * dot_product(x_trans, cov_dxd_pi) *
+// 									dot_product(x_trans, matProd) +
+// 									dot_product( colVec, cov_dxd_pi) );
+// 			}
+// 		}
+// 	}
+// 	return score_inc;
+	});
+
+	auto voxels = voxelBuffer.get_access<cl::sycl::access::mode::read>();
 	for (int i = 0; i < voxelNo; i++) {
 		int iCloud = voxels[i].reference;
 		Vec3 ref = {

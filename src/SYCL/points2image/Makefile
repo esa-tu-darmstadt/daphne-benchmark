@@ -34,7 +34,7 @@ kernel.o: kernel.cpp sycl/kernel.sycl
 	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -include sycl/kernel.sycl -I../include $< -o $@
 
 sycl/kernel.sycl: kernel.cpp
-	compute++ -sycl -sycl-target ptx64 $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include kernel.cpp
+	compute++ -sycl -sycl-target spir64 $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include kernel.cpp
 	mv kernel.sycl sycl/
 	mv kernel-sycl* sycl/
 	
