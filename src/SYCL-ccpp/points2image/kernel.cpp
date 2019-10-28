@@ -271,7 +271,7 @@ void points2image::init() {
 		exit(-3);
 	}
 	std::string deviceType = EPHOS_DEVICE_TYPE_S;
-	computeDevice = SyclTools::findComputeDevice(deviceType);
+	computeDevice = cl::sycl::gpu_selector().select_device();//SyclTools::findComputeDevice(deviceType);
 	computeQueue = cl::sycl::queue(computeDevice);
 	
 	// prepare the first iteration

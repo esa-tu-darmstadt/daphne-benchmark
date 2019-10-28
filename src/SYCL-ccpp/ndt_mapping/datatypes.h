@@ -60,6 +60,18 @@ typedef struct Voxel {
     int numberPoints;
 } Voxel;
 
+typedef struct TaggedVoxel {
+	Mat33 invCovariance;
+	Vec3 mean;
+	int reference;
+} TaggedVoxel;
+
+typedef struct HessianScore {
+	Mat66 hessian;
+	Vec6 score;
+	double increase;
+} HessianScore;
+
 
 typedef std::vector<Voxel> VoxelGrid;
 
