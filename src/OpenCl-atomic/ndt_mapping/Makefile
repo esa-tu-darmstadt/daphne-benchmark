@@ -3,7 +3,8 @@
 
 -include Makefile.deps
 
-CXXFLAGS=-O3
+CXXFLAGS=-g
+#CXXFLAGS=-O3
 CXXFLAGS+= -std=c++11
 
 # work items per work group

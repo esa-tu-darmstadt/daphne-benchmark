@@ -35,7 +35,7 @@ kernel.o: kernel.cpp sycl/kernel.sycl
 	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -include sycl/kernel.sycl -I../include $< -o $@
 
 sycl/kernel.sycl: kernel.cpp
-	compute++ $(SYCLFLAGS) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include kernel.cpp
+	compute++ $(SYCLFLAGS) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include -I/usr/include/c++/7 -I/usr/include/aarch64-linux-gnu/c++/7/bits kernel.cpp
 	mv kernel.sycl sycl/
 	mv kernel-sycl* sycl/
 
