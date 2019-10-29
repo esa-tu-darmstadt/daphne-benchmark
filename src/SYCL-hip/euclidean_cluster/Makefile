@@ -3,7 +3,9 @@
 
 -include Makefile.deps
 
-CXXFLAGS=-O3
+#CXXFLAGS=-O3
+CXXFLAGS=-g
+LDDFLAGS=-g
 CXX=syclcc-clang
 SYCL_DEVICE_TYPE=GPU
 CPPFLAGS+= -I.

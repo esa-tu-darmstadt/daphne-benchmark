@@ -590,12 +590,14 @@ void euclidean_clustering::extractEuclideanClusters (
 	unsigned int min_pts_per_cluster, 
 	unsigned int max_pts_per_cluster)
 {
+{
 	// indicates the processed status for each point
 	std::vector<char> processed (cloud.size(), 0);
 	int cloudSize = cloud.size();
 	cl::sycl::buffer<Point> cloudBuffer(cloud.data(), cloudSize);
-	cl::sycl::buffer<bool, 2> distanceBuffer(cl::sycl::range<2>(cloudSize, cloudSize));
-	cl::sycl::buffer<char> processedBuffer(processed.data(), cl::sycl::range<1>(cloudSize));
+	cl::sycl::buffer<char> distanceBuffer(cl::sycl::range<1>(cloudSize*cloudSize));
+	//cl::sycl::buffer<char> processedBuffer(processed.data(), cl::sycl::range<1>(cloudSize)); // avoid host side memory
+	cl::sycl::buffer<char> processedBuffer((cl::sycl::range<1>(cloudSize)));
 	cl::sycl::buffer<int> seedQueueBuffer((cl::sycl::range<1>(cloudSize)));
 	int one = 1;
 	cl::sycl::buffer<int> queueLengthBuffer((cl::sycl::range<1>(one)));
@@ -604,6 +606,7 @@ void euclidean_clustering::extractEuclideanClusters (
 	computeQueue.submit([&](cl::sycl::handler& h) {
 		auto cloud = cloudBuffer.get_access<cl::sycl::access::mode::read>(h);
 		auto distances = distanceBuffer.get_access<cl::sycl::access::mode::write>(h);
+		auto processed = processedBuffer.get_access<cl::sycl::access::mode::write>(h);
 		float radius = tolerance*tolerance;
 		h.parallel_for<euclidean_clustering_init_radius_search>(
 			cl::sycl::range<1>(cloudSize),
@@ -615,16 +618,34 @@ void euclidean_clustering::extractEuclideanClusters (
 				float dy = cloud[iRow].y - cloud[iCol].y;
 				float dz = cloud[iRow].z - cloud[iCol].z;
 				float dist = dx*dx + dy*dy + dz*dz;
-				distances[iRow][iCol] = (dist <= radius);
+				distances[iRow*cloudSize + iCol] = (dist <= radius) ? 1 : 0;
 			}
+			processed[iRow] = 0;
 		});
 	});
+	{
+		auto processedStorage = processedBuffer.get_access<cl::sycl::access::mode::read>();
+		for (int i = 0; i < cloudSize; i++) {
+			if (processedStorage[i] != 0) {
+				std::cout << "preprocessed at " << i << std::endl;
+			}
+		}
+	}
+	/*{
+		auto distanceStorage = distanceBuffer.get_access<cl::sycl::access::mode::read>();
+		for (int i = 0; i < cloudSize*cloudSize; i++) {
+			if (distanceStorage[i]) {
+				std::cout << "near at " << i << std::endl;
+			}
+		}
+	}*/
 	for (int iStart = 0; iStart < cloudSize; iStart++) {
 		if (processed[iStart]) {
 			continue;
 		}
 		// start with a new cluster
 		std::vector<int> seedQueue;
+		seedQueue.push_back(iStart);
 		processed[iStart] = 1;
 		int newQueueLength = 1;
 		int oldQueueLength = 0;
@@ -644,6 +665,15 @@ void euclidean_clustering::extractEuclideanClusters (
 				auto seedQueueStorage = seedQueueBuffer.get_access<cl::sycl::access::mode::write>();
 				for (int i = iQueueStart; i < newQueueLength; i++) {
 					seedQueueStorage[i] = seedQueue[i];
+				}
+			}
+			{ 
+				auto seedQueueStorage = seedQueueBuffer.get_access<cl::sycl::access::mode::read>();
+				for (int i = 0; i < newQueueLength; i++) {
+					if (seedQueueStorage[i] != seedQueue[i]) {
+						std::cout << "seed queue deviation at " << i << " ";
+						std::cout <<  seedQueueStorage[i] << " != " << seedQueue[i] << std::endl;
+					}
 				}
 			}
 			computeQueue.submit([&](cl::sycl::handler& h) {
@@ -672,7 +702,7 @@ void euclidean_clustering::extractEuclideanClusters (
 							// the first seed queue element might not yet be a member of the seed queue
 							// as it is written by only one thread
 							// compare distance with the the initial seed queue element
-							if (distances[iCloud][iStart]) {
+							if (distances[iCloud*cloudSize + iStart] == 1) {
 								near = true;
 							}
 							// no more comparisons necessary as this is the only element
@@ -680,7 +710,7 @@ void euclidean_clustering::extractEuclideanClusters (
 						} else {
 							// use the standard search method for subsequent kernel calls
 							for (int iQueue = iQueueStart; iQueue < fixedQueueLength && !near; iQueue++) {
-								if (distances[iCloud][seedQueue[iQueue]]) {
+								if (distances[iCloud*cloudSize + seedQueue[iQueue]] == 1) {
 									near = true;
 								}
 							}
@@ -696,15 +726,26 @@ void euclidean_clustering::extractEuclideanClusters (
 
 				});
 			});
+			computeQueue.wait();
 			{
 				oldQueueLength = newQueueLength;
 				auto processedStorage = processedBuffer.get_access<cl::sycl::access::mode::read>();
 				for (int i = 0; i < cloudSize; i++) {
-					if (!processed[i] && processedStorage[i]) {
+					if (processed[i] == 0 && processedStorage[i] == 1) {
+						std::cout << "item " << i << " is part of cluster " << iQueue << std::endl;
+						for (int j = 0; j < seedQueue.size(); j++) {
+							if (i == seedQueue[j]) {
+								std::cout << "but item " << i << " is already at index " << j << std::endl;
+							}
+						}
 						seedQueue.push_back(i);
+						processed[i] = 1;
+					} else if (processedStorage[i] == 0 && processed[i] == 1) {
+						std::cout << "device side processed at " << i << " should be set" << std::endl;
 					}
 				}
 				newQueueLength = seedQueue.size();
+				std::cout << "max size " << cloudSize << std::endl;
 			}
 		}
 		// add the seed queue as cluster if it is satisfactory
@@ -719,9 +760,20 @@ void euclidean_clustering::extractEuclideanClusters (
 			for (int i = 0; i < newQueueLength; i++) {
 				cluster.indices[i] = seedQueue[i];
 			}
+		} else if (newQueueLength > 1) {
+			std::cout << "queue length " << newQueueLength << " out of bounds" << std::endl;
 		}
 	}
-}
+	/*{
+		auto processedStorage = processedBuffer.get_access<cl::sycl::access::mode::read>();
+		for (int i = 0; i < cloudSize; i++) {
+			if (processedStorage[i] != 0) {
+				std::cout << "postprocessed at " << i << std::endl;
+			}
+		}
+	}*/
+	
+}}
 
 /**
  * Helper function that compares cluster sizes.
@@ -1051,6 +1103,7 @@ void euclidean_clustering::init() {
 	// consume the number of testcases from the input file
 	try {
 		testcases = read_number_testcases(input_file);
+		testcases = 1;
 	} catch (std::ios_base::failure& e) {
 		std::cerr << e.what() << std::endl;
 		exit(-3);
@@ -1169,7 +1222,9 @@ void euclidean_clustering::check_next_outputs(int count)
 		if (reference_out_cloud.size() != out_cloud_ptr[i].size())
 		{
 			error_so_far = true;
+			std::cout << "cloud size "  << out_cloud_ptr[i].size() << " != " << reference_out_cloud.size() << std::endl;
 			continue;
+			
 		}
 		if (reference_bb_array.boxes.size() != out_boundingbox_array[i].boxes.size())
 		{
