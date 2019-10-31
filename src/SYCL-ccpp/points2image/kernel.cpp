@@ -18,7 +18,8 @@
 #ifndef EPHOS_DEVICE_TYPE
 #define EPHOS_DEVICE_TYPE GPU
 #endif
-#define MKSTR(s) #s
+#define MKSTR2(s) #s
+#define MKSTR(s) MKSTR2(s)
 #define EPHOS_DEVICE_TYPE_S MKSTR(EPHOS_DEVICE_TYPE)
 
 // maximum allowed deviation from the reference results
@@ -52,6 +53,7 @@ private:
 	// sycl state
 	cl::sycl::device computeDevice;
 	cl::sycl::queue computeQueue;
+	size_t computeGroupSize = 0;
 public:
 	/*
 	 * Initializes the kernel. Must be called before run().
@@ -271,7 +273,10 @@ void points2image::init() {
 		exit(-3);
 	}
 	std::string deviceType = EPHOS_DEVICE_TYPE_S;
-	computeDevice = cl::sycl::gpu_selector().select_device();//SyclTools::findComputeDevice(deviceType);
+	computeDevice = SyclTools::findComputeDevice(deviceType);
+	std::string deviceName = computeDevice.get_info<cl::sycl::info::device::name>();
+	std::cout << "Compute device name: " << deviceName << std::endl;
+	computeGroupSize = computeDevice.get_info<cl::sycl::info::device::max_work_group_size>();
 	computeQueue = cl::sycl::queue(computeDevice);
 	
 	// prepare the first iteration

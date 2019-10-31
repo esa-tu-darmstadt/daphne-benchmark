@@ -3,23 +3,28 @@
 
 -include Makefile.deps
 
-#CXXFLAGS=-O3
-CXXFLAGS=-g
+CXXFLAGS=-O3
+#CXXFLAGS=-g
 CXXFLAGS+= -std=c++11
-# TODO: configure target ir, device type, computecpp path 
-SYCL_DEVICE_TYPE=GPU
-CPPFLAGS+= -DEPHOS_DEVICE_TYPE=$(SYCL_DEVICE_TYPE)
 CPPFLAGS+= -I.
+ifdef SYCL_DEVICE_TYPE
+	CPPFLAGS+= -DEPHOS_DEVICE_TYPE=$(SYCL_DEVICE_TYPE)
+endif
 
-SYCL_INCLUDE_PATH=
-SYCL_LIBRARY_PATH=
-ifneq ($(SYCL_INCLUDE_PATH),)
+ifdef SYCL_INCLUDE_PATH
 	CPPFLAGS+= -I$(SYCL_INCLUDE_PATH)
 endif
-ifneq ($(SYCL_LIBRARY_PATH),)
+ifdef SYCL_LIBRARY_PATH
 	LDDFLAGS+= -L$(SYCL_LIBRARY_PATH)
 endif
 LDDFLAGS+= -lComputeCpp
+
+SYCLFLAGS=-sycl
+ifdef SYCL_KERNEL_FORMAT
+	SYCLFLAGS+= -sycl-target $(SYCL_KERNEL_FORMAT)
+else
+	SYCLFLAGS+= -sycl-target spir64
+endif
 
 
 all: kernel checkdata
@@ -34,7 +39,7 @@ kernel.o: kernel.cpp sycl/kernel.sycl
 	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -include sycl/kernel.sycl -I../include $< -o $@
 
 sycl/kernel.sycl: kernel.cpp
-	compute++ -sycl -sycl-target spir64 $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include kernel.cpp
+	compute++ $(SYCLFLAGS) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include kernel.cpp
 	mv kernel.sycl sycl/
 	mv kernel-sycl* sycl/
 	
@@ -53,5 +58,6 @@ clean:
 	rm -f kernel kernel.o ../common/main.o sycl/kernel.sycl sycl/kernel-sycl* Makefile.deps 
 
 Makefile.deps:
-	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include -MM -MG ../common/main.cpp *.cpp sycl/sycl_tools.cpp > Makefile.deps
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include -MM -MG \
+	../common/main.cpp *.cpp sycl/sycl_tools.cpp > Makefile.deps
 
