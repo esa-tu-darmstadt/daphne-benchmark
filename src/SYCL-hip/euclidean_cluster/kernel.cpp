@@ -53,6 +53,7 @@ private:
 	// sycl state
 	cl::sycl::device computeDevice;
 	cl::sycl::queue computeQueue;
+	size_t computeGroupSize = 0;
 public:
 	virtual void init();
 	virtual void run(int p = 1);
@@ -597,40 +598,50 @@ void euclidean_clustering::extractEuclideanClusters (
 	cl::sycl::buffer<Point> cloudBuffer(cloud.data(), cloudSize);
 	cl::sycl::buffer<char> distanceBuffer(cl::sycl::range<1>(cloudSize*cloudSize));
 	//cl::sycl::buffer<char> processedBuffer(processed.data(), cl::sycl::range<1>(cloudSize)); // avoid host side memory
-	cl::sycl::buffer<char> processedBuffer((cl::sycl::range<1>(cloudSize)));
+	//cl::sycl::buffer<char> processedBuffer((cl::sycl::range<1>(cloudSize)));
+	std::vector<char> processedStorage(cloud.size(), 0);
+	cl::sycl::buffer<char> processedBuffer(processedStorage.data(), cl::sycl::range<1>(cloudSize),
+		{ cl::sycl::property::buffer::use_host_ptr() });
 	cl::sycl::buffer<int> seedQueueBuffer((cl::sycl::range<1>(cloudSize)));
-	int one = 1;
-	cl::sycl::buffer<int> queueLengthBuffer((cl::sycl::range<1>(one)));
+	//int one = 1;
+	//cl::sycl::buffer<int> queueLengthBuffer((cl::sycl::range<1>(one)));
+	
 
 	// init distance matrix
 	computeQueue.submit([&](cl::sycl::handler& h) {
 		auto cloud = cloudBuffer.get_access<cl::sycl::access::mode::read>(h);
 		auto distances = distanceBuffer.get_access<cl::sycl::access::mode::write>(h);
 		auto processed = processedBuffer.get_access<cl::sycl::access::mode::write>(h);
+		size_t workGroupNo = cloudSize/computeGroupSize + 1;
+		//auto queueLength = queueLengthBuffer.get_access<cl::sycl::access::mode::atomic>(h);
 		float radius = tolerance*tolerance;
 		h.parallel_for<euclidean_clustering_init_radius_search>(
-			cl::sycl::range<1>(cloudSize),
-			[=](cl::sycl::id<1> item) {
-
-			int iRow = item.get(0);
-			for (int iCol = 0; iCol < cloudSize; iCol++) {
+			//cl::sycl::range<1>(cloudSize),
+			cl::sycl::nd_range<1>(workGroupNo*computeGroupSize, computeGroupSize),
+			[=](cl::sycl::nd_item<1> item) {
+			
+			int iRow = item.get_global_id(0);
+			if (iRow < cloudSize) {
+			    for (int iCol = 0; iCol < cloudSize; iCol++) {
 				float dx = cloud[iRow].x - cloud[iCol].x;
 				float dy = cloud[iRow].y - cloud[iCol].y;
 				float dz = cloud[iRow].z - cloud[iCol].z;
 				float dist = dx*dx + dy*dy + dz*dz;
 				distances[iRow*cloudSize + iCol] = (dist <= radius) ? 1 : 0;
-			}
+			    }
 			processed[iRow] = 0;
+			}
+			//cl::sycl::atomic_fetch_add(queueLength[0], 1);
 		});
 	});
-	{
+	/*{
 		auto processedStorage = processedBuffer.get_access<cl::sycl::access::mode::read>();
 		for (int i = 0; i < cloudSize; i++) {
 			if (processedStorage[i] != 0) {
 				std::cout << "preprocessed at " << i << std::endl;
 			}
 		}
-	}
+	}*/
 	/*{
 		auto distanceStorage = distanceBuffer.get_access<cl::sycl::access::mode::read>();
 		for (int i = 0; i < cloudSize*cloudSize; i++) {
@@ -662,12 +673,19 @@ void euclidean_clustering::extractEuclideanClusters (
 			int iQueueStart = oldQueueLength;
 			int fixedQueueLength = newQueueLength;
 			{
-				auto seedQueueStorage = seedQueueBuffer.get_access<cl::sycl::access::mode::write>();
+				auto seedQueueStorage = seedQueueBuffer.get_access<cl::sycl::access::mode::write>(
+					cl::sycl::range<1>(newQueueLength - iQueueStart), cl::sycl::id<1>(iQueueStart));
 				for (int i = iQueueStart; i < newQueueLength; i++) {
 					seedQueueStorage[i] = seedQueue[i];
 				}
 			}
-			{ 
+			/*{
+				auto seedQueueStorage = seedQueueBuffer.get_access<cl::sycl::access::mode::write>();
+				for (int i = iQueueStart; i < newQueueLength; i++) {
+					seedQueueStorage[i] = seedQueue[i];
+				}
+			}*/
+			/*{ 
 				auto seedQueueStorage = seedQueueBuffer.get_access<cl::sycl::access::mode::read>();
 				for (int i = 0; i < newQueueLength; i++) {
 					if (seedQueueStorage[i] != seedQueue[i]) {
@@ -675,7 +693,7 @@ void euclidean_clustering::extractEuclideanClusters (
 						std::cout <<  seedQueueStorage[i] << " != " << seedQueue[i] << std::endl;
 					}
 				}
-			}
+			}*/
 			computeQueue.submit([&](cl::sycl::handler& h) {
 				auto distances = distanceBuffer.get_access<cl::sycl::access::mode::read>(h);
 				auto seedQueue = seedQueueBuffer.get_access<cl::sycl::access::mode::write>(h);
@@ -732,20 +750,20 @@ void euclidean_clustering::extractEuclideanClusters (
 				auto processedStorage = processedBuffer.get_access<cl::sycl::access::mode::read>();
 				for (int i = 0; i < cloudSize; i++) {
 					if (processed[i] == 0 && processedStorage[i] == 1) {
-						std::cout << "item " << i << " is part of cluster " << iQueue << std::endl;
+						/*std::cout << "item " << i << " is part of cluster " << iQueue << std::endl;
 						for (int j = 0; j < seedQueue.size(); j++) {
 							if (i == seedQueue[j]) {
 								std::cout << "but item " << i << " is already at index " << j << std::endl;
 							}
-						}
+						}*/
 						seedQueue.push_back(i);
 						processed[i] = 1;
-					} else if (processedStorage[i] == 0 && processed[i] == 1) {
-						std::cout << "device side processed at " << i << " should be set" << std::endl;
+					//} else if (processedStorage[i] == 0 && processed[i] == 1) {
+					//	std::cout << "device side processed at " << i << " should be set" << std::endl;
 					}
 				}
 				newQueueLength = seedQueue.size();
-				std::cout << "max size " << cloudSize << std::endl;
+				//std::cout << "max size " << cloudSize << std::endl;
 			}
 		}
 		// add the seed queue as cluster if it is satisfactory
@@ -760,8 +778,8 @@ void euclidean_clustering::extractEuclideanClusters (
 			for (int i = 0; i < newQueueLength; i++) {
 				cluster.indices[i] = seedQueue[i];
 			}
-		} else if (newQueueLength > 1) {
-			std::cout << "queue length " << newQueueLength << " out of bounds" << std::endl;
+		//} else if (newQueueLength > 1) {
+		//	std::cout << "queue length " << newQueueLength << " out of bounds" << std::endl;
 		}
 	}
 	/*{
@@ -1103,7 +1121,6 @@ void euclidean_clustering::init() {
 	// consume the number of testcases from the input file
 	try {
 		testcases = read_number_testcases(input_file);
-		testcases = 1;
 	} catch (std::ios_base::failure& e) {
 		std::cerr << e.what() << std::endl;
 		exit(-3);
@@ -1118,6 +1135,9 @@ void euclidean_clustering::init() {
 
 	std::string deviceType = EPHOS_DEVICE_TYPE_S;
 	computeDevice = cl::sycl::gpu_selector().select_device();//SyclTools::findComputeDevice(deviceType);
+	computeGroupSize = computeDevice.get_info<cl::sycl::info::device::max_work_group_size>();
+	std::string deviceName = computeDevice.get_info<cl::sycl::info::device::name>();
+	std::cout << "Compute device name: " << deviceName << std::endl;
 	computeQueue = cl::sycl::queue(computeDevice);
 	std::cout << "done\n" << std::endl;
 }
@@ -1222,7 +1242,8 @@ void euclidean_clustering::check_next_outputs(int count)
 		if (reference_out_cloud.size() != out_cloud_ptr[i].size())
 		{
 			error_so_far = true;
-			std::cout << "cloud size "  << out_cloud_ptr[i].size() << " != " << reference_out_cloud.size() << std::endl;
+			// TODO: remove debug output
+			//std::cout << "cloud size "  << out_cloud_ptr[i].size() << " != " << reference_out_cloud.size() << std::endl;
 			continue;
 			
 		}

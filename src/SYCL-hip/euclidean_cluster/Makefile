@@ -3,11 +3,10 @@
 
 -include Makefile.deps
 
-#CXXFLAGS=-O3
-CXXFLAGS=-g
-LDDFLAGS=-g
+CXXFLAGS=-O3
+#CXXFLAGS=-g -fprofile-instr-generate -fcoverage-mapping
+#LDDFLAGS=-fprofile-instr-generate
 CXX=syclcc-clang
-SYCL_DEVICE_TYPE=GPU
 CPPFLAGS+= -I.
 
 ifdef SYCL_DEVICE_TYPE
