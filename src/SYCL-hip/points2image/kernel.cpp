@@ -53,6 +53,7 @@ private:
 	// sycl state
 	cl::sycl::device computeDevice;
 	cl::sycl::queue computeQueue;
+	size_t computeGroupSize = 0;
 public:
 	/*
 	 * Initializes the kernel. Must be called before run().
@@ -273,6 +274,9 @@ void points2image::init() {
 	}
 	std::string deviceType = EPHOS_DEVICE_TYPE_S;
 	computeDevice = SyclTools::findComputeDevice(deviceType);
+	std::string deviceName = computeDevice.get_info<cl::sycl::info::device::name>();
+	std::cout << "Compute device name: " << deviceName << std::endl;
+	computeGroupSize = computeDevice.get_info<cl::sycl::info::device::max_work_group_size>();
 	computeQueue = cl::sycl::queue(computeDevice);
 	
 	// prepare the first iteration
@@ -357,10 +361,12 @@ PointsImage points2image::pointcloud2_to_image(
 		std::memcpy(mCamera, cameraMat.data, sizeof(double)*9);
 		double mProjection[9];
 		std::memcpy(mProjection, invR.data, sizeof(double)*9);
-		h.parallel_for<points2image_main>(cl::sycl::range<1>(cloudSize), [=](cl::sycl::id<1> item) {
-			int iPos = item.get(0)*2;
+		size_t workGroupNo = cloudSize/computeGroupSize + 1;
+		h.parallel_for<points2image_main>(
+			cl::sycl::nd_range<1>(workGroupNo*computeGroupSize, computeGroupSize), [=](cl::sycl::nd_item<1> item) {
+			int iPos = item.get_global_id(0)*2;
 
-			int iCloud = item.get(0)*pointStep;
+			int iCloud = item.get_global_id(0)*pointStep;
 			Mat13 point0 = {{
 				cloud[iCloud + 0],
 				cloud[iCloud + 1],
