@@ -22,12 +22,26 @@ const int _cluster_size_min = 20;
 const int _cluster_size_max = 100000;
 const bool _pose_estimation = true;
 
-#ifndef EPHOS_DEVICE_TYPE
-#define EPHOS_DEVICE_TYPE GPU
-#endif
 #define MKSTR2(s) #s
 #define MKSTR(s) MKSTR2(s)
+
+#ifdef EPHOS_DEVICE_TYPE
 #define EPHOS_DEVICE_TYPE_S MKSTR(EPHOS_DEVICE_TYPE)
+#else
+#define EPHOS_DEVICE_TYPE_S ""
+#endif
+
+#ifdef EPHOS_DEVICE_NAME
+#define EPHOS_DEVICE_NAME_S MKSTR(EPHOS_DEVICE_NAME)
+#else
+#define EPHOS_DEVICE_NAME_S ""
+#endif
+
+#ifdef EPHOS_PLATFORM_NAME
+#define EPHOS_PLATFORM_NAME_S MKSTR(EPHOS_PLATFORM_NAME)
+#else
+#define EPHOS_PLATFORM_NAME_S ""
+#endif
 // maximum allowed deviation from the reference data
 #define MAX_EPS 0.001
 class euclidean_clustering_init_radius_search;
@@ -53,6 +67,7 @@ private:
 	// sycl state
 	cl::sycl::device computeDevice;
 	cl::sycl::queue computeQueue;
+	size_t computeGroupSize = 0;
 public:
 	virtual void init();
 	virtual void run(int p = 1);
@@ -605,17 +620,24 @@ void euclidean_clustering::extractEuclideanClusters (
 		auto cloud = cloudBuffer.get_access<cl::sycl::access::mode::read>(h);
 		auto distances = distanceBuffer.get_access<cl::sycl::access::mode::write>(h);
 		float radius = tolerance*tolerance;
+		int workGroupNo = cloudSize/computeGroupSize + 1;
+		//h.parallel_for<euclidean_clustering_init_radius_search>(
+			//cl::sycl::range<1>(cloudSize),
+			//[=](cl::sycl::id<1> item) {
 		h.parallel_for<euclidean_clustering_init_radius_search>(
-			cl::sycl::range<1>(cloudSize),
-			[=](cl::sycl::id<1> item) {
+			cl::sycl::nd_range<1>(workGroupNo*computeGroupSize, computeGroupSize),
+			[=](cl::sycl::nd_item<1> item) {
 
-			int iRow = item.get(0);
-			for (int iCol = 0; iCol < cloudSize; iCol++) {
-				float dx = cloud[iRow].x - cloud[iCol].x;
-				float dy = cloud[iRow].y - cloud[iCol].y;
-				float dz = cloud[iRow].z - cloud[iCol].z;
-				float dist = dx*dx + dy*dy + dz*dz;
-				distances[iRow][iCol] = (dist <= radius);
+			//int iRow = item.get(0);
+			int iRow = item.get_global_id(0);
+			if (iRow < cloudSize) {
+				for (int iCol = 0; iCol < cloudSize; iCol++) {
+					float dx = cloud[iRow].x - cloud[iCol].x;
+					float dy = cloud[iRow].y - cloud[iCol].y;
+					float dz = cloud[iRow].z - cloud[iCol].z;
+					float dist = dx*dx + dy*dy + dz*dz;
+					distances[iRow][iCol] = (dist <= radius);
+				}
 			}
 		});
 	});
@@ -643,49 +665,55 @@ void euclidean_clustering::extractEuclideanClusters (
 				auto seedQueue = seedQueueBuffer.get_access<cl::sycl::access::mode::read_write>(h);
 				auto processed = processedBuffer.get_access<cl::sycl::access::mode::read_write>(h);
 				auto nextQueueLength = queueLengthBuffer.get_access<cl::sycl::access::mode::atomic>(h);
+				int workGroupNo = cloudSize/computeGroupSize + 1;
+				//h.parallel_for<euclidean_clustering_radius_search>(
+					//cl::sycl::range<1>(cloudSize),
+					//[=](cl::sycl::id<1> item) {
 				h.parallel_for<euclidean_clustering_radius_search>(
-					cl::sycl::range<1>(cloudSize),
-					[=](cl::sycl::id<1> item) {
+					cl::sycl::nd_range<1>(workGroupNo*computeGroupSize, computeGroupSize),
+					[=](cl::sycl::nd_item<1> item) {
 
-					int iCloud = item.get(0);
-					if (iCloud == 0 && iQueueStart == 0) {
-						// make the device side consistent with the host
-						// this step is necessary on the first seed queue grow iteration
-						// initialization for first queue element
-						processed[iStart] = 1;
-						seedQueue[0] = iStart;
-					}
-					// find out whether a point is a member of the seed queue
-					// search through points that are not yet part of a cluster
-					// and avoid to add the initial element multiple times
-					if (processed[iCloud] == 0 && iCloud != iStart) {
-						bool near = false;
-						if (iQueueStart == 0) {
-							// the first seed queue element might not yet be a member of the seed queue
-							// as it is written by only one thread
-							// compare distance with the the initial seed queue element
-							if (distances[iCloud][iStart]) {
-								near = true;
-							}
-							// no more comparisons necessary as this is the only element
-							// in the seed queue in the first iteration
-						} else {
-							// use the standard search method for subsequent kernel calls
-							for (int iQueue = iQueueStart; iQueue < fixedQueueLength && !near; iQueue++) {
-								if (distances[iCloud][seedQueue[iQueue]]) {
+					//int iCloud = item.get(0);
+					int iCloud = item.get_global_id(0);
+					if (iCloud < cloudSize) {
+						if (iCloud == 0 && iQueueStart == 0) {
+							// make the device side consistent with the host
+							// this step is necessary on the first seed queue grow iteration
+							// initialization for first queue element
+							processed[iStart] = 1;
+							seedQueue[0] = iStart;
+						}
+						// find out whether a point is a member of the seed queue
+						// search through points that are not yet part of a cluster
+						// and avoid to add the initial element multiple times
+						if (processed[iCloud] == 0 && iCloud != iStart) {
+							bool near = false;
+							if (iQueueStart == 0) {
+								// the first seed queue element might not yet be a member of the seed queue
+								// as it is written by only one thread
+								// compare distance with the the initial seed queue element
+								if (distances[iCloud][iStart]) {
 									near = true;
 								}
+								// no more comparisons necessary as this is the only element
+								// in the seed queue in the first iteration
+							} else {
+								// use the standard search method for subsequent kernel calls
+								for (int iQueue = iQueueStart; iQueue < fixedQueueLength && !near; iQueue++) {
+									if (distances[iCloud][seedQueue[iQueue]]) {
+										near = true;
+									}
+								}
+							}
+							if (near) {
+								// mark a near point as processed
+								// and add it to the seed queue
+								processed[iCloud] = 1;
+								int iQueue = atomic_fetch_add(nextQueueLength[0], 1);
+								seedQueue[iQueue] = iCloud;
 							}
 						}
-						if (near) {
-							// mark a near point as processed
-							// and add it to the seed queue
-							processed[iCloud] = 1;
-							int iQueue = atomic_fetch_add(nextQueueLength[0], 1);
-							seedQueue[iQueue] = iCloud;
-						}
 					}
-
 				});
 			});
 			{
@@ -1061,8 +1089,10 @@ void euclidean_clustering::init() {
 	out_boundingbox_array = nullptr;
 	out_centroids = nullptr;
 
-	std::string deviceType = EPHOS_DEVICE_TYPE_S;
-	computeDevice = cl::sycl::gpu_selector().select_device();//SyclTools::findComputeDevice(deviceType);
+	computeDevice = SyclTools::selectComputeDevice(EPHOS_PLATFORM_NAME_S, EPHOS_DEVICE_NAME_S, EPHOS_DEVICE_TYPE_S);
+	std::string deviceName = computeDevice.get_info<cl::sycl::info::device::name>();
+	std::cout << "Compute device name: " << deviceName << std::endl;
+	computeGroupSize = computeDevice.get_info<cl::sycl::info::device::max_work_group_size>();
 	computeQueue = cl::sycl::queue(computeDevice);
 	std::cout << "done\n" << std::endl;
 }

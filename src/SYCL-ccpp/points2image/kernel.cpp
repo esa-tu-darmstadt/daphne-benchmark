@@ -15,12 +15,26 @@
 #include <cstring>
 #include <ios>
 
-#ifndef EPHOS_DEVICE_TYPE
-#define EPHOS_DEVICE_TYPE GPU
-#endif
 #define MKSTR2(s) #s
 #define MKSTR(s) MKSTR2(s)
+
+#ifdef EPHOS_DEVICE_TYPE
 #define EPHOS_DEVICE_TYPE_S MKSTR(EPHOS_DEVICE_TYPE)
+#else
+#define EPHOS_DEVICE_TYPE_S ""
+#endif
+
+#ifdef EPHOS_DEVICE_NAME
+#define EPHOS_DEVICE_NAME_S MKSTR(EPHOS_DEVICE_NAME)
+#else
+#define EPHOS_DEVICE_NAME_S ""
+#endif
+
+#ifdef EPHOS_PLATFORM_NAME
+#define EPHOS_PLATFORM_NAME_S MKSTR(EPHOS_PLATFORM_NAME)
+#else
+#define EPHOS_PLATFORM_NAME_S ""
+#endif
 
 // maximum allowed deviation from the reference results
 #define MAX_EPS 0.001
@@ -272,8 +286,7 @@ void points2image::init() {
 		std::cerr << e.what() << std::endl;
 		exit(-3);
 	}
-	std::string deviceType = EPHOS_DEVICE_TYPE_S;
-	computeDevice = SyclTools::findComputeDevice(deviceType);
+	computeDevice = SyclTools::selectComputeDevice(EPHOS_PLATFORM_NAME_S, EPHOS_DEVICE_NAME_S, EPHOS_DEVICE_TYPE_S);
 	std::string deviceName = computeDevice.get_info<cl::sycl::info::device::name>();
 	std::cout << "Compute device name: " << deviceName << std::endl;
 	computeGroupSize = computeDevice.get_info<cl::sycl::info::device::max_work_group_size>();
@@ -361,75 +374,84 @@ PointsImage points2image::pointcloud2_to_image(
 		std::memcpy(mCamera, cameraMat.data, sizeof(double)*9);
 		double mProjection[9];
 		std::memcpy(mProjection, invR.data, sizeof(double)*9);
-		h.parallel_for<points2image_main>(cl::sycl::range<1>(cloudSize), [=](cl::sycl::id<1> item) {
-			int iPos = item.get(0)*2;
+		size_t workGroupNo = cloudSize/computeGroupSize + 1;
+		h.parallel_for<points2image_main>(
+			cl::sycl::nd_range<1>(workGroupNo*computeGroupSize, computeGroupSize),
+			[=](cl::sycl::nd_item<1> item) {
+		//h.parallel_for<points2image_main>(cl::sycl::range<1>(cloudSize), [=](cl::sycl::id<1> item) {
+			//int iPos = item.get(0)*2;
 
-			int iCloud = item.get(0)*pointStep;
-			Mat13 point0 = {{
-				cloud[iCloud + 0],
-				cloud[iCloud + 1],
-				cloud[iCloud + 2]
-			}};
-			// apply first transform
-			Mat13 point1;
-			float intensity = cloud[iCloud + 4];
-			for (int row = 0; row < 3; row++) {
-				point1.data[row] = invT.data[row];
-				for (int col = 0; col < 3; col++) {
-					point1.data[row] += point0.data[col]*mProjection[row*3 + col];
+			//int iCloud = item.get(0)*pointStep;
+
+			int iPos = item.get_global_id(0)*2;
+			if (iPos < cloudSize*2) {
+				int iCloud = item.get_global_id(0)*pointStep;
+				Mat13 point0 = {{
+					cloud[iCloud + 0],
+					cloud[iCloud + 1],
+					cloud[iCloud + 2]
+				}};
+				// apply first transform
+				Mat13 point1;
+				float intensity = cloud[iCloud + 4];
+				for (int row = 0; row < 3; row++) {
+					point1.data[row] = invT.data[row];
+					for (int col = 0; col < 3; col++) {
+						point1.data[row] += point0.data[col]*mProjection[row*3 + col];
+					}
 				}
-			}
-			/*double tmpx = point.data[0]/point.data[2];
-			double tmpy = point.data[1]/point.data[2];
-			// apply the distance coefficients
-			double r2 = tmpx * tmpx + tmpy * tmpy;
-			double tmpdist = 1 + distCoeff.data[0] * r2
-			+ distCoeff.data[1] * r2 * r2
-			+ distCoeff.data[4] * r2 * r2 * r2;
+				/*double tmpx = point.data[0]/point.data[2];
+				double tmpy = point.data[1]/point.data[2];
+				// apply the distance coefficients
+				double r2 = tmpx * tmpx + tmpy * tmpy;
+				double tmpdist = 1 + distCoeff.data[0] * r2
+				+ distCoeff.data[1] * r2 * r2
+				+ distCoeff.data[4] * r2 * r2 * r2;
 
-			Point2d imagepoint;
-			imagepoint.x = tmpx * tmpdist
-			+ 2 * distCoeff.data[2] * tmpx * tmpy
-			+ distCoeff.data[3] * (r2 + 2 * tmpx * tmpx);
-			imagepoint.y = tmpy * tmpdist
-			+ distCoeff.data[2] * (r2 + 2 * tmpy * tmpy)
-			+ 2 * distCoeff.data[3] * tmpx * tmpy;
-			
-			// apply the camera matrix (camera intrinsics) and end up with a two dimensional point
-			imagepoint.x = cameraMat.data[0][0] * imagepoint.x + cameraMat.data[0][2];
-			imagepoint.y = cameraMat.data[1][1] * imagepoint.y + cameraMat.data[1][2];
-			int px = int(imagepoint.x + 0.5);
-			int py = int(imagepoint.y + 0.5);*/
-			// discard small depth values
-			if (point1.data[2] > 2.5) {
+				Point2d imagepoint;
+				imagepoint.x = tmpx * tmpdist
+				+ 2 * distCoeff.data[2] * tmpx * tmpy
+				+ distCoeff.data[3] * (r2 + 2 * tmpx * tmpx);
+				imagepoint.y = tmpy * tmpdist
+				+ distCoeff.data[2] * (r2 + 2 * tmpy * tmpy)
+				+ 2 * distCoeff.data[3] * tmpx * tmpy;
 
-				// perform perspective division
-				point1.data[0] /= point1.data[2];
-				point1.data[1] /= point1.data[2];
-				// apply distortion coefficiients
-				double radius = point1.data[0]*point1.data[0] + point1.data[1]*point1.data[1];
-				double distort = 1 + coeff.data[0]*radius
-					+ coeff.data[1]*radius*radius
-					+ coeff.data[4]*radius*radius*radius;
+				// apply the camera matrix (camera intrinsics) and end up with a two dimensional point
+				imagepoint.x = cameraMat.data[0][0] * imagepoint.x + cameraMat.data[0][2];
+				imagepoint.y = cameraMat.data[1][1] * imagepoint.y + cameraMat.data[1][2];
+				int px = int(imagepoint.x + 0.5);
+				int py = int(imagepoint.y + 0.5);*/
+				// discard small depth values
+				if (point1.data[2] > 2.5) {
 
-				Point2d point2 = {
-					point1.data[0]*distort + 2*coeff.data[2]*point1.data[0]*point1.data[1] + coeff.data[3]*(radius + 2*point1.data[0]*point1.data[0]),
-					point1.data[1]*distort + 2*coeff.data[3]*point1.data[0]*point1.data[1] + coeff.data[2]*(radius + 2*point1.data[1]*point1.data[1])
-				};
-				int point3x = (int)(mCamera[0]*point2.x + mCamera[0*3 + 2] + 0.5);
-				int point3y = (int)(mCamera[1*3 + 1]*point2.y + mCamera[1*3 + 2] + 0.5);
-				if (0 <= point3x && point3x < width && 0 <= point3y && point3y < height) {
-					positions[iPos] = point3x;
-					positions[iPos + 1] = point3y;
-					properties[iPos] = float(point1.data[2]*100);
-					properties[iPos + 1] = intensity;
+					// perform perspective division
+					point1.data[0] /= point1.data[2];
+					point1.data[1] /= point1.data[2];
+					// apply distortion coefficiients
+					double radius = point1.data[0]*point1.data[0] + point1.data[1]*point1.data[1];
+					double distort = 1 + coeff.data[0]*radius
+						+ coeff.data[1]*radius*radius
+						+ coeff.data[4]*radius*radius*radius;
+
+					Point2d point2 = {
+						point1.data[0]*distort + 2*coeff.data[2]*point1.data[0]*point1.data[1] + coeff.data[3]*(radius + 2*point1.data[0]*point1.data[0]),
+						point1.data[1]*distort + 2*coeff.data[3]*point1.data[0]*point1.data[1] + coeff.data[2]*(radius + 2*point1.data[1]*point1.data[1])
+					};
+					int point3x = (int)(mCamera[0]*point2.x + mCamera[0*3 + 2] + 0.5);
+					int point3y = (int)(mCamera[1*3 + 1]*point2.y + mCamera[1*3 + 2] + 0.5);
+					if (0 <= point3x && point3x < width && 0 <= point3y && point3y < height) {
+						positions[iPos] = point3x;
+						positions[iPos + 1] = point3y;
+						properties[iPos] = float(point1.data[2]*100);
+						properties[iPos + 1] = intensity;
+					} else {
+						positions[iPos] = -2;
+						positions[iPos + 1] = -2;
+					}
 				} else {
-					positions[iPos] = -2;
-					positions[iPos + 1] = -2;
+					positions[iPos] = -1;
+					positions[iPos + 1] = -1;
 				}
-			} else {
-				positions[iPos] = -1;
-				positions[iPos + 1] = -1;
 			}
 		});
 	});

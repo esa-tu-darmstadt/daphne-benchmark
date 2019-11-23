@@ -12,6 +12,9 @@
 class SyclTools {
 public:
 	static cl::sycl::device findComputeDevice(const std::string& deviceType); 
+	static cl::sycl::device selectComputeDevice(
+		const std::string& platformHint, const std::string& deviceHint, const std::string& deviceTypeHint);
+
 };
 
 #endif
