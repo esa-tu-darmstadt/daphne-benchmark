@@ -362,6 +362,7 @@ PointsImage points2image::pointcloud2_to_image(
 	// initialize buffers
 	// apply the algorithm
 	// perform transformations
+	try {
 	computeQueue.submit([&](cl::sycl::handler& h) {
 		auto cloud = cloudBuffer.get_access<cl::sycl::access::mode::read>(h);
 		auto positions = positionBuffer.get_access<cl::sycl::access::mode::write>(h);
@@ -456,6 +457,10 @@ PointsImage points2image::pointcloud2_to_image(
 		});
 	});
 	computeQueue.wait();
+	} catch (cl::sycl::exception& e) {
+		std::cerr << e.what() << std::endl;
+		exit(-3);
+	}
 	auto positionStorage = positionBuffer.get_access<cl::sycl::access::mode::read>();
 	auto propertyStorage = propertyBuffer.get_access<cl::sycl::access::mode::read>();
 	/*{

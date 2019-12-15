@@ -31,12 +31,14 @@ ifdef SYCL_KERNEL_FORMAT
 else
 	SYCLFLAGS+= -sycl-target spir64
 endif
+CPPFLAGS+= -DCL_TARGET_OPENCL_VERSION=120
+SYCLFLAGS+= -DCL_TARGET_OPENCL_VERSION=120
 
 
 all: kernel checkdata
 
 kernel: ../common/main.o kernel.o sycl/sycl_tools.o
-	$(CXX) $(LDDFLAGS) $^ -o $@
+	$(CXX) $^ -o $@ $(LDDFLAGS)
 
 ../common/main.o: ../common/main.cpp
 	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
