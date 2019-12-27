@@ -33,6 +33,7 @@ else
 endif
 CPPFLAGS+= -DCL_TARGET_OPENCL_VERSION=120
 SYCLFLAGS+= -DCL_TARGET_OPENCL_VERSION=120
+SYCLFLAGS+= -no-serial-memop
 
 
 all: kernel checkdata

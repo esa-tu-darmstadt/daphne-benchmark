@@ -1683,6 +1683,7 @@ void ndt_mapping::initCompute()
 	size_t local_size3     = NUMWORKITEMS_PER_WORKGROUP;
 	size_t num_workgroups3 = pointNo / local_size3 + 1;
 	size_t global_size3    = local_size3 * num_workgroups3;
+	std::cout << "points: " << pointNo << " voxels: " << cellNo << std::endl;
 
 	cl::NDRange ndrange_offset3    (offset);
 	cl::NDRange ndrange_localsize3 (local_size3);

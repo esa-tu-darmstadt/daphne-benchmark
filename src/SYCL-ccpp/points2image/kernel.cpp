@@ -282,6 +282,8 @@ void points2image::init() {
 	try {
 	// consume the total number of testcases
 		testcases = read_number_testcases(input_file);
+		//testcases = 75;
+		std::cout << "testcases: " << testcases << std::endl;
 	} catch (std::ios_base::failure& e) {
 		std::cerr << e.what() << std::endl;
 		exit(-3);

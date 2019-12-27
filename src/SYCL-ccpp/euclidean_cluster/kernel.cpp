@@ -616,6 +616,7 @@ void euclidean_clustering::extractEuclideanClusters (
 	cl::sycl::buffer<int> queueLengthBuffer((cl::sycl::range<1>(one)));
 
 	// init distance matrix
+	try {
 	computeQueue.submit([&](cl::sycl::handler& h) {
 		auto cloud = cloudBuffer.get_access<cl::sycl::access::mode::read>(h);
 		auto distances = distanceBuffer.get_access<cl::sycl::access::mode::write>(h);
@@ -641,6 +642,10 @@ void euclidean_clustering::extractEuclideanClusters (
 			}
 		});
 	});
+	} catch (cl::sycl::exception& e) {
+		std::cerr << e.what() << std::endl;
+		exit(-3);
+	}
 	for (int iStart = 0; iStart < cloudSize; iStart++) {
 		if (processed[iStart]) {
 			continue;
@@ -660,6 +665,7 @@ void euclidean_clustering::extractEuclideanClusters (
 			// mark near points
 			int iQueueStart = oldQueueLength;
 			int fixedQueueLength = newQueueLength;
+			try {
 			computeQueue.submit([&](cl::sycl::handler& h) {
 				auto distances = distanceBuffer.get_access<cl::sycl::access::mode::read>(h);
 				auto seedQueue = seedQueueBuffer.get_access<cl::sycl::access::mode::read_write>(h);
@@ -716,6 +722,10 @@ void euclidean_clustering::extractEuclideanClusters (
 					}
 				});
 			});
+			} catch (cl::sycl::exception& e) {
+				std::cerr << e.what() << std::endl;
+				exit(-3);
+			}
 			{
 				// update the queue length on the host
 				oldQueueLength = newQueueLength;
@@ -1077,6 +1087,7 @@ void euclidean_clustering::init() {
 	// consume the number of testcases from the input file
 	try {
 		testcases = read_number_testcases(input_file);
+		std::cout << "Testcases: " << testcases << std::endl;
 	} catch (std::ios_base::failure& e) {
 		std::cerr << e.what() << std::endl;
 		exit(-3);
