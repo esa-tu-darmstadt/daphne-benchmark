@@ -10,13 +10,17 @@
 #include <cmath>
 #include <iostream>
 #include <fstream>
+#include <sstream>
 #include <limits>
 #include <cstring>
 #include <chrono>
 
 // maximum allowed deviation from reference
 #define MAX_TRANSLATION_EPS 0.001
-#define MAX_ROTATION_EPS 0.9
+//#define MAX_ROTATION_EPS 0.001
+#define MAX_ROTATION_EPS 0.1
+
+//#define MAX_EPS 2
 
 class ndt_mapping : public kernel {
 private:
@@ -134,8 +138,7 @@ protected:
 	 */
 	int voxelRadiusSearch(
 		VoxelGrid &grid, const PointXYZI& point, double radius,
-		std::vector<Voxel> & indices,
-		std::vector<float> distances);
+		std::vector<Voxel*>& indices);
 };
 
 
@@ -258,19 +261,16 @@ inline int ndt_mapping::linearizeCoord(const float x, const float y, const float
 	return linearizeAddr(idx_x, idx_y, idx_z);
 }
 
-int ndt_mapping::voxelRadiusSearch(VoxelGrid &grid, const PointXYZI& point, double radius,
-	std::vector<Voxel> & indices,
-	std::vector<float> distances)
-{
+int ndt_mapping::voxelRadiusSearch(VoxelGrid& grid, const PointXYZI& point,
+	double radius, std::vector<Voxel*>& indices) {
+
 	int result = 0;
-	indices.clear();
-	distances.clear();
 	// make sure to search through all potentially near voxels
-	float radiusFinal = radius + 0.001f;
+	float radiusFinal = radius + 0.01f;
 	// test all voxels in the vicinity
-	for (float z = point.data[2] - radius; z <= point.data[2] + radiusFinal; z+= resolution_)
-		for (float y = point.data[1] - radius; y <= point.data[1] + radiusFinal; y+= resolution_)
-			for (float x = point.data[0] - radius; x <= point.data[0] + radiusFinal; x+= resolution_)
+	for (float z = point.data[2] - radius; z < point.data[2] + radiusFinal; z+= resolution_)
+		for (float y = point.data[1] - radius; y < point.data[1] + radiusFinal; y+= resolution_)
+			for (float x = point.data[0] - radius; x < point.data[0] + radiusFinal; x+= resolution_)
 			{
 				// avoid accesses out of bounds
 				if ((x < minVoxel.data[0]) ||
@@ -278,23 +278,24 @@ int ndt_mapping::voxelRadiusSearch(VoxelGrid &grid, const PointXYZI& point, doub
 					(y < minVoxel.data[1]) ||
 					(y > maxVoxel.data[1]) ||
 					(z < minVoxel.data[2]) ||
-					(z > maxVoxel.data[2]))
-				{
+					(z > maxVoxel.data[2])) {
+
 					continue;
 				}
 				// determine the distance to the voxel mean
-				int idx =  linearizeCoord(x, y, z);
-				Vec3 &c =  grid[idx].mean;
-				float dx = c[0] - point.data[0];
-				float dy = c[1] - point.data[1];
-				float dz = c[2] - point.data[2];
-				float dist = sqrt(dx * dx + dy * dy + dz * dz);
-				// add near cells to the results
-				if (dist < radius)
-				{
-					result++;
-					indices.push_back(grid[idx]);
-					distances.push_back(dist);
+				int iCell =  linearizeCoord(x, y, z);
+				Voxel* cell = grid.data() + iCell;
+				if (cell->numberPoints > 0) {
+					float dx = cell->mean[0] - point.data[0];
+					float dy = cell->mean[1] - point.data[1];
+					float dz = cell->mean[2] - point.data[2];
+					float dist = dx * dx + dy * dy + dz * dz;
+					// add near cells to the results
+					if (dist < radius*radius)
+					{
+						result += 1;
+						indices.push_back(cell);
+					}
 				}
 			}
 	return result;
@@ -302,7 +303,7 @@ int ndt_mapping::voxelRadiusSearch(VoxelGrid &grid, const PointXYZI& point, doub
 
 /**
  * Solves Ax = b for x.
- * Maybe not as good when handling very ill conditioned systems, but is faster for a 6x6 matrix 
+ * Maybe not as good when handling very ill conditioned systems, but is faster for a 6x6 matrix
  * and works well enough in practice.
  */
 void solve(Vec6& result, Mat66 A, Vec6& b)
@@ -375,9 +376,9 @@ void ndt_mapping::init() {
 		exit(-3);
 	}
 	try {
-		datagen_file.open("dategen.dat", std::ios::binary);
+		datagen_file.open("datagen.dat", std::ios::binary);
 	} catch (std::ofstream::failure e) {
-		std::cerr << "Error openeing the dategen file" << std::endl;
+		std::cerr << "Error openeing the datagen file" << std::endl;
 		exit(-3);
 	}
 	// consume the number of testcases from the testcase file
@@ -584,36 +585,31 @@ void ndt_mapping::computeHessian(
 	Mat66 &hessian, PointCloud &trans_cloud, Vec6 &)
 {
 	// temporary data structures
-	PointXYZI  x_pt, x_trans_pt; // Original Point and Transformed Point
-	Vec3 x, x_trans; // Original Point and Transformed Point
-	Voxel cell; // Occupied Voxel
-	Mat33 c_inv; // Inverse Covariance of Occupied Voxel
 	memset(&(hessian.data[0][0]), 0, sizeof(double) * 6 * 6);
 	// Update hessian for each point, line 17 in Algorithm 2 [Magnusson 2009]
-	for (size_t idx = 0; idx < input_->size (); idx++)
+	int pointNo = input_->size();
+	for (size_t i = 0; i < pointNo; i++)
 	{
-		x_trans_pt = trans_cloud[idx];
+		PointXYZI& x_trans_pt = trans_cloud[i];
+		PointXYZI& x_pt = input_->at(i);
 		// Find neighbors
-		std::vector<Voxel> neighborhood;
-		std::vector<float> distances;
-		voxelRadiusSearch (target_cells_, x_trans_pt, resolution_, neighborhood, distances);
+		std::vector<Voxel*> neighborhood;
+		voxelRadiusSearch (target_cells_, x_trans_pt, resolution_, neighborhood);
 		// execute for each neighbor
-		for (auto neighborhood_it = neighborhood.begin (); neighborhood_it != neighborhood.end (); neighborhood_it++)
+		for (Voxel* cell : neighborhood)
 		{
-			cell = *neighborhood_it;
 			// extract point
-			x_pt = (*input_)[idx];
-			x[0] = x_pt.data[0];
-			x[1] = x_pt.data[1];
-			x[2] = x_pt.data[2];
-			x_trans[0] = x_trans_pt.data[0];
-			x_trans[1] = x_trans_pt.data[1];
-			x_trans[2] = x_trans_pt.data[2];
-			// Denorm point, x_k' in Equations 6.12 and 6.13 [Magnusson 2009]
-			x_trans[0] -= cell.mean[0];
-			x_trans[1] -= cell.mean[1];
-			x_trans[2] -= cell.mean[2];
-			c_inv = cell.invCovariance;
+			Vec3 x = {
+				x_pt.data[0],
+				x_pt.data[1],
+				x_pt.data[2]
+			};
+			Vec3 x_trans = {
+				trans_cloud[i].data[0] - cell->mean[0],
+				trans_cloud[i].data[1] - cell->mean[1],
+				trans_cloud[i].data[2] - cell->mean[2]
+			};
+			Mat33 c_inv = cell->invCovariance;
 			// Compute derivative of transform function w.r.t. transform vector, J_E and H_E in Equations 6.18 and 6.20 [Magnusson 2009]
 			computePointDerivatives (x);
 			// Update hessian, lines 21 in Algorithm 2, according to Equations 6.10, 6.12 and 6.13, respectively [Magnusson 2009]
@@ -649,7 +645,7 @@ void ndt_mapping::updateHessian (Mat66 &hessian, Vec3 &x_trans, Mat33 &c_inv)
 			for (int col = 0; col < 3; col++)
 			cov_dxd_pi[row] += c_inv.data[row][col] * point_gradient_.data[col][i];
 		}
-		
+
 	for (int j = 0; j < 6; j++)
 	{
 		// Update hessian, Equation 6.13 [Magnusson 2009]
@@ -673,16 +669,8 @@ double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 	Mat66 &hessian,
 	PointCloudSource &trans_cloud,
 	Vec6 &p,
-	bool compute_hessian)
-{
-	// Original Point and Transformed Point
-	PointXYZI x_pt, x_trans_pt;
-	// Original Point and Transformed Point (for math)
-	Vec3 x, x_trans;
-	// Occupied Voxel
-	Voxel cell;
-	// Inverse Covariance of Occupied Voxel
-	Mat33 c_inv;
+	bool compute_hessian) {
+
 	// initialization to 0
 	memset(&(score_gradient[0]), 0, sizeof(double) * 6 );
 	memset(&(hessian.data[0][0]), 0, sizeof(double) * 6 * 6);
@@ -692,34 +680,31 @@ double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
 	// Update gradient and hessian for each point, line 17 in Algorithm 2 [Magnusson 2009]
 	for (size_t idx = 0; idx < input_->size (); idx++)
 	{
-		x_trans_pt = trans_cloud[idx];
+		PointXYZI& x_trans_pt = trans_cloud[idx];
+		PointXYZI& x_pt = input_->at(idx);
 
 		// Find nieghbors (Radius search has been experimentally faster than direct neighbor checking.
-		std::vector<Voxel> neighborhood;
-		std::vector<float> distances;
-		voxelRadiusSearch (target_cells_, x_trans_pt, resolution_, neighborhood, distances);
-		
-		for (auto neighborhood_it = neighborhood.begin (); neighborhood_it != neighborhood.end (); neighborhood_it++)
-		{
-			cell = *neighborhood_it;
-			x_pt = (*input_)[idx];
-			x[0] = x_pt.data[0];
-			x[1] = x_pt.data[1];
-			x[2] = x_pt.data[2];
-			x_trans[0] = x_trans_pt.data[0];
-			x_trans[1] = x_trans_pt.data[1];
-			x_trans[2] = x_trans_pt.data[2];
-			// Denorm point, x_k' in Equations 6.12 and 6.13 [Magnusson 2009]
-			x_trans[0] -= cell.mean[0];
-			x_trans[1] -= cell.mean[1];
-			x_trans[2] -= cell.mean[2];
+		std::vector<Voxel*> neighborhood;
+		voxelRadiusSearch (target_cells_, x_trans_pt, resolution_, neighborhood);
+
+		for (Voxel* cell : neighborhood) {
+			PointXYZI& x_pt = input_->at(idx);
+			Vec3 x = {
+				x_pt.data[0],
+				x_pt.data[1],
+				x_pt.data[2]
+			};
+			Vec3 x_trans = {
+				x_trans_pt.data[0] - cell->mean[0],
+				x_trans_pt.data[1] - cell->mean[1],
+				x_trans_pt.data[2] - cell->mean[2]
+			};
 			// Uses precomputed covariance for speed.
-			c_inv = cell.invCovariance;
+			Mat33 c_inv = cell->invCovariance;
 			// Equations 6.18 and 6.20 [Magnusson 2009]
 			computePointDerivatives (x);
 			// Equations 6.10, 6.12 and 6.13, respectively [Magnusson 2009]
 			score += updateDerivatives (score_gradient, hessian, x_trans, c_inv, compute_hessian);
-
 		}
 	}
 	return score;
@@ -798,21 +783,21 @@ void ndt_mapping::computeAngleDerivatives (Vec6 &p, bool compute_hessian)
 		h_ang_a3_[0] =  (-sx * sz + cx * sy * cz);
 		h_ang_a3_[1] = (-cx * sy * sz - sx * cz);
 		h_ang_a3_[2] = (-cx * cy);
-		
+
 		h_ang_b2_[0] = (cx * cy * cz);
 		h_ang_b2_[1] = (-cx * cy * sz);
 		h_ang_b2_[2] = (cx * sy);
 		h_ang_b3_[0] = (sx * cy * cz);
 		h_ang_b3_[1] = (-sx * cy * sz);
 		h_ang_b3_[2] = (sx * sy);
-		
+
 		h_ang_c2_[0] = (-sx * cz - cx * sy * sz);
 		h_ang_c2_[1] = (sx * sz - cx * sy * cz);
 		h_ang_c2_[2] = 0;
 		h_ang_c3_[0] = (cx * cz - sx * sy * sz);
 		h_ang_c3_[1] = (-sx * sy * cz - cx * sz);
 		h_ang_c3_[2] = 0;
-		
+
 		h_ang_d1_[0] = (-cy * cz);
 		h_ang_d1_[1] = (cy * sz);
 		h_ang_d1_[2] = (sy);
@@ -822,7 +807,7 @@ void ndt_mapping::computeAngleDerivatives (Vec6 &p, bool compute_hessian)
 		h_ang_d3_[0] = (cx * sy * cz);
 		h_ang_d3_[1] = (-cx * sy * sz);
 		h_ang_d3_[2] = (-cx * cy);
-		
+
 		h_ang_e1_[0] = (sy * sz);
 		h_ang_e1_[1] = (sy * cz);
 		h_ang_e1_[2] = 0;
@@ -832,7 +817,7 @@ void ndt_mapping::computeAngleDerivatives (Vec6 &p, bool compute_hessian)
 		h_ang_e3_[0] = (cx * cy * sz);
 		h_ang_e3_[1] = (cx * cy * cz);
 		h_ang_e3_[2] = 0;
-		
+
 		h_ang_f1_[0] = (-cy * cz);
 		h_ang_f1_[1] = (cy * sz);
 		h_ang_f1_[2] = 0;
@@ -1114,7 +1099,7 @@ double ndt_mapping::computeStepLengthMT (const Vec6 &x, Vec6 &step_dir, double s
 		for (int row = 0; row < 6; row++)
 			x_t[row] = x[row] + step_dir[row] * a_t;
 
-		buildTransformationMatrix(final_transformation_, x_t); 
+		buildTransformationMatrix(final_transformation_, x_t);
 		// New transformed point cloud
 		// Done on final cloud to prevent wasted computation
 		transformPointCloud (*input_, trans_cloud, final_transformation_);
@@ -1225,7 +1210,7 @@ void ndt_mapping::computeTransformation(PointCloud &output, const Matrix4f &gues
 	p[3] = ea[0];
 	p[4] = ea[1];
 	p[5] = ea[2];
-	
+
 	Mat66 hessian;
 	double score = 0;
 	double delta_p_norm;
@@ -1262,7 +1247,7 @@ void ndt_mapping::computeTransformation(PointCloud &output, const Matrix4f &gues
 		delta_p[3] /= delta_p_norm;
 		delta_p[4] /= delta_p_norm;
 		delta_p[5] /= delta_p_norm;
-		
+
 		delta_p_norm = computeStepLengthMT (p, delta_p, delta_p_norm, step_size_, transformation_epsilon_ / 2, score, score_gradient, hessian, output);
 		delta_p[0] *= delta_p_norm;
 		delta_p[1] *= delta_p_norm;
@@ -1277,7 +1262,7 @@ void ndt_mapping::computeTransformation(PointCloud &output, const Matrix4f &gues
 		p[2] = p[2] + delta_p[2];
 		p[3] = p[3] + delta_p[3];
 		p[4] = p[4] + delta_p[4];
-		p[5] = p[5] + delta_p[5];		    
+		p[5] = p[5] + delta_p[5];
 
 		if (nr_iterations_ > max_iterations_ ||
 			(nr_iterations_ && (std::fabs (delta_p_norm) < transformation_epsilon_)))
@@ -1323,72 +1308,91 @@ void invertMatrix(Mat33 &m)
 void ndt_mapping::initCompute()
 {
 	// measure the cloud
-	minVoxel = (*target_)[0];
-	maxVoxel = (*target_)[0];
+	minVoxel = target_->at(0);
+	maxVoxel = minVoxel;
+	int pointNo = target_->size();
 
-	for (int i = 1; i < target_->size(); i++)
+	for (int i = 1; i < pointNo; i++)
 	{
+		PointXYZI* point = target_->data() + i;
 		for (int elem = 0; elem < 3; elem++)
 		{
-			if ( (*target_)[i].data[elem] > maxVoxel.data[elem] )
-			maxVoxel.data[elem] = (*target_)[i].data[elem];
-			if ( (*target_)[i].data[elem] < minVoxel.data[elem] )
-			minVoxel.data[elem] = (*target_)[i].data[elem];
+			if (point->data[elem] > maxVoxel.data[elem]) {
+				maxVoxel.data[elem] = point->data[elem];
+			}
+			if (point->data[elem] < minVoxel.data[elem]) {
+				minVoxel.data[elem] = point->data[elem];
+			}
 		}
 	}
+	// span over point cloud
 	for (int i = 0; i < 3; i++) {
+		//minVoxel.data[i] -= resolution_*0.5f;
 		minVoxel.data[i] -= 0.01f;
 		maxVoxel.data[i] += 0.01f;
-		voxelDimension[i] = (maxVoxel.data[i] - minVoxel.data[i]) / resolution_ + 1;
+		voxelDimension[i] = (maxVoxel.data[i] - minVoxel.data[i])/resolution_ + 1;
 	}
+
 	// initialize the voxel grid
 	// spans over the point cloud
 	target_cells_.clear();
-	target_cells_.resize(voxelDimension[0] * voxelDimension[1] * voxelDimension[2]);
-	for (int i = 0; i < target_cells_.size(); i++)
+	int cellNo = voxelDimension[0]*voxelDimension[1]*voxelDimension[2];
+	target_cells_.resize(cellNo);
+
+	for (int i = 0; i < cellNo; i++)
 	{
-		target_cells_[i].numberPoints = 0;
-		target_cells_[i].mean[0] = 0;
-		target_cells_[i].mean[1] = 0;
-		target_cells_[i].mean[2] = 0;
-		memset(target_cells_[i].invCovariance.data, 0, sizeof(double) * 3 * 3);
-		target_cells_[i].invCovariance.data[2][0] = 1.0;
-		target_cells_[i].invCovariance.data[1][1] = 1.0;
-		target_cells_[i].invCovariance.data[0][2] = 1.0;
+		target_cells_[i] = (Voxel){
+			{ 0.0, 0.0, 1.0,
+			  0.0, 1.0, 0.0,
+			  1.0, 0.0, 0.0 },
+			{ 0.0, 0.0, 0.0 },
+			0
+		};
 	}
 
 	// assign the points to their respective voxel
-	for (int i = 0; i < target_->size(); i++)
+	for (int i = 0; i < pointNo; i++)
 	{
-		int voxelIndex = linearizeCoord( (*target_)[i].data[0], (*target_)[i].data[1], (*target_)[i].data[2]);
-		
-		target_cells_[voxelIndex].mean[0] += (*target_)[i].data[0];
-		target_cells_[voxelIndex].mean[1] += (*target_)[i].data[1];
-		target_cells_[voxelIndex].mean[2] += (*target_)[i].data[2];
-		target_cells_[voxelIndex].numberPoints++;
+		PointXYZI* point = target_->data() + i;
+		int iVoxel = linearizeCoord( point->data[0], point->data[1], point->data[2]);
+		Voxel* cell = target_cells_.data() + iVoxel;
+
+		cell->mean[0] += point->data[0];
+		cell->mean[1] += point->data[1];
+		cell->mean[2] += point->data[2];
+		cell->numberPoints += 1;
 		// sum up for single pass covariance calculation
 		for (int row = 0; row < 3; row ++)
 		for (int col = 0; col < 3; col ++)
-			target_cells_[voxelIndex].invCovariance.data[row][col] += (*target_)[i].data[row] * (*target_)[i].data[col];
+			cell->invCovariance.data[row][col] += point->data[row]*point->data[col];
 	}
 	// finish the voxel grid
 	// perform normalization
-	for (int i = 0; i < target_cells_.size(); i++)
+	for (int i = 0; i < cellNo; i++)
 	{
-		Vec3 pointSum = {target_cells_[i].mean[0], target_cells_[i].mean[1], target_cells_[i].mean[2]};
-		target_cells_[i].mean[0] /= target_cells_[i].numberPoints;
-		target_cells_[i].mean[1] /= target_cells_[i].numberPoints;
-		target_cells_[i].mean[2] /= target_cells_[i].numberPoints;
-		// finish the inverted covariance matrix
-		for (int row = 0; row < 3; row++)
-			for (int col = 0; col < 3; col++)
-			{
-				target_cells_[i].invCovariance.data[row][col] = (target_cells_[i].invCovariance.data[row][col] -
-					2 * (pointSum[row] * target_cells_[i].mean[col])) / target_cells_.size() +
-					target_cells_[i].mean[row]*target_cells_[i].mean[col];
-				target_cells_[i].invCovariance.data[row][col] *= (target_cells_.size() -1.0) / target_cells_[i].numberPoints; 
-			}
-		invertMatrix(target_cells_[i].invCovariance);
+		Voxel* cell = target_cells_.data() + i;
+		if (cell->numberPoints > 2) {
+			Vec3 pointSum = {cell->mean[0], cell->mean[1], cell->mean[2]};
+			double invPointNo = 1.0/cell->numberPoints;
+			cell->mean[0] *= invPointNo;
+			cell->mean[1] *= invPointNo;
+			cell->mean[2] *= invPointNo;
+			// complete the inverted covariance matrix
+			for (int row = 0; row < 3; row++)
+				for (int col = 0; col < 3; col++)
+				{
+					double cov = (cell->invCovariance.data[row][col] -
+						2*(pointSum[row] * cell->mean[col]))/cell->numberPoints +
+						cell->mean[row]*cell->mean[col];
+					cell->invCovariance.data[row][col] =
+						cov*(cell->numberPoints - 1.0)/cell->numberPoints;
+				}
+			invertMatrix(cell->invCovariance);
+		} else {
+			// cells with point number 0 will get sorted out
+			// the rest of the cell content does not matter
+			cell->numberPoints = 0;
+		}
 	}
 }
 
@@ -1397,14 +1401,14 @@ void ndt_mapping::ndt_align (const Matrix4f& guess)
 	PointCloud output;
 	initCompute ();
 	// Resize the output dataset
-	output.resize (input_->size ());
+	output.resize (input_->size());
 	// Copy the point data to output
 	for (size_t i = 0; i < input_->size (); ++i)
 		output[i] = (*input_)[i];
 	// Perform the actual transformation computation
 	converged_ = false;
 	final_transformation_ = transformation_ = previous_transformation_ = Matrix4f_Identity;
-	// Right before we estimate the transformation, we set all the point.data[3] values to 1 
+	// Right before we estimate the transformation, we set all the point.data[3] values to 1
 	// to aid the rigid transformation
 	for (size_t i = 0; i < input_->size (); ++i)
 		output[i].data[3] = 1.0;
@@ -1465,28 +1469,79 @@ void ndt_mapping::check_next_outputs(int count)
 			std::cerr << e.what() << std::endl;
 			exit(-3);
 		}
+		std::ostringstream sError;
+		int caseErrorNo = 0;
 		if (results[i].converged != reference.converged)
 		{
 			error_so_far = true;
+			caseErrorNo += 1;
+			if (reference.converged) {
+				sError << " computation converged invalidly" << std::endl;
+			} else {
+				sError << " computation did not converge" << std::endl;
+			}
 		}
 		// compare the matrices
-		for (int h = 0; h < 4; h++)
-			for (int w = 0; w < 4; w++)
-			{
-				float delta = std::fabs(reference.final_transformation.data[h][w] - results[i].final_transformation.data[h][w]);
-				if (delta > max_delta)
-					max_delta = delta;
-				// apply different thresholds for the rotation and translation components
-				if (w < 3) {
-					if (delta > MAX_ROTATION_EPS) {
-						error_so_far = true;
-					}
-				} else {
-					if (delta > MAX_TRANSLATION_EPS) {
-						error_so_far = true;
-					}
+		for (int h = 0; h < 4; h++) {
+			// test for nan
+			for (int w = 0; w < 4; w++) {
+				if (std::isnan(results[i].final_transformation.data[h][w]) !=
+					std::isnan(reference.final_transformation.data[h][w])) {
+
+					error_so_far = true;
+					caseErrorNo += 1;
+					sError << " matrix at [" << h << " " << w << "]: ";
+					sError << reference.final_transformation.data[h][w] << " should be ";
+					sError << results[i].final_transformation.data[h][w] << std::endl;
 				}
 			}
+			// compare translation
+			float delta = std::fabs(results[i].final_transformation.data[h][3] -
+				reference.final_transformation.data[h][3]);
+			if (delta > MAX_TRANSLATION_EPS) {
+				error_so_far = true;
+				caseErrorNo += 1;
+				sError << " matrix at [" << h << " " << 3 << "]: ";
+				sError << reference.final_transformation.data[h][3] << " should be ";
+				sError << results[i].final_transformation.data[h][3] << std::endl;
+			}
+			if (delta > max_delta) {
+				max_delta = delta;
+			}
+		}
+		// compare transformed points
+		PointXYZI origin = {
+			{ 0.724f, 0.447f, 0.525f, 1.0f }
+		};
+		PointXYZI resPoint = {
+			{ 0.0f, 0.0f, 0.0f, 0.0f }
+		};
+		PointXYZI refPoint = {
+			{ 0.0f, 0.0f, 0.0f, 0.0f }
+		};
+		for (int h = 0; h < 4; h++) {
+			for (int w = 0; w < 4; w++) {
+				resPoint.data[h] += results[i].final_transformation.data[h][w]*origin.data[w];
+				refPoint.data[h] += reference.final_transformation.data[h][w]*origin.data[w];
+			}
+		}
+		for (int w = 0; w < 4; w++) {
+			float delta = std::fabs(resPoint.data[w] - refPoint.data[w]);
+			if (delta > max_delta) {
+				max_delta = delta;
+			}
+			if (delta > MAX_ROTATION_EPS) {
+				error_so_far = true;
+				caseErrorNo += 1;
+				sError << " vector at [" << w << "]: ";
+				sError << resPoint.data[w] << " should be " << refPoint.data[w] << std::endl;
+			}
+		}
+		if (caseErrorNo > 0) {
+			std::cout << "Errors for test case " << read_testcases - count + i;
+			std::cout << " (" << caseErrorNo << "):" << std::endl;
+			std::cout << sError.str() << std::endl;
+		}
 	}
 }
 
