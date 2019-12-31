@@ -5,17 +5,15 @@
 
 CXXFLAGS= -O3
 CXXFLAGS+= -std=c++11
+CPPFLAGS+= -I../include
 
 all: kernel checkdata
 
-kernel: ../common/main.o kernel.o 
+kernel: ../common/main.o kernel.o framework.o
 	$(CXX) $^ -o $@
 
-../common/main.o: ../common/main.cpp
-	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
-
-kernel.o: kernel.cpp
-	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
+%.o: %.cpp
+	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -o $@ $<
 
 checkdata:
 ifeq ($(wildcard ../../../data/ndt_input.dat),)
@@ -26,8 +24,8 @@ ifeq ($(wildcard ../../../data/ndt_output.dat),)
 endif
 
 clean:
-	rm -f kernel kernel.o ../common/main.o Makefile.deps
+	rm -f kernel kernel.o framework.o ../common/main.o Makefile.deps
 
 Makefile.deps:
-	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include -MM ../common/main.cpp *.cpp > Makefile.deps
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) ../common/main.cpp kernel.cpp framework.cpp -MM $< > $@
 

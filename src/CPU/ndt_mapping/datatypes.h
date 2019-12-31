@@ -3,8 +3,8 @@
  * Embedded Systems & Applications Group 2018
  * License: Apache 2.0 (see attachached File)
  */
-#ifndef DATATYPES_H
-#define DATATYPES_H
+#ifndef EPHOS_DATATYPES_H
+#define EPHOS_DATATYPES_H
 
 #include <vector>
 
@@ -63,14 +63,6 @@ typedef struct Voxel {
 
 typedef std::vector<Voxel> VoxelGrid;
 
-Matrix4f Matrix4f_Identity = {
-	{{1.0, 0.0, 0.0, 0.0},
-	 {0.0, 1.0, 0.0, 0.0},
-	 {0.0, 0.0, 1.0, 0.0},
-	 {0.0, 0.0, 0.0, 1.0}}
-};
+extern Matrix4f Matrix4f_Identity;
 
-#define PI 3.1415926535897932384626433832795
-
-#endif
-
+#endif // EPHOS_DATATYPES_H
