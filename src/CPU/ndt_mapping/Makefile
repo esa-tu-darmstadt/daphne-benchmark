@@ -3,14 +3,14 @@
 
 -include Makefile.deps
 
-CXXFLAGS= -O3
+CXXFLAGS=-O3
 CXXFLAGS+= -std=c++11
 CPPFLAGS+= -I../include
 
 all: kernel checkdata
 
 kernel: ../common/main.o kernel.o framework.o
-	$(CXX) $^ -o $@
+	$(CXX) $^ -o $@ $(LDDFLAGS)
 
 %.o: %.cpp
 	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -o $@ $<
@@ -27,5 +27,5 @@ clean:
 	rm -f kernel kernel.o framework.o ../common/main.o Makefile.deps
 
 Makefile.deps:
-	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) ../common/main.cpp kernel.cpp framework.cpp -MM $< > $@
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) ../common/main.cpp kernel.cpp framework.cpp -MM > $@
 

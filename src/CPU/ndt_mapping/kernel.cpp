@@ -1221,9 +1221,3 @@ void ndt_mapping::run(int p) {
 		check_next_outputs(count);
 	}
 }
-
-
-
-// set the kernel used in main()
-ndt_mapping a = ndt_mapping();
-kernel& myKernel = a;

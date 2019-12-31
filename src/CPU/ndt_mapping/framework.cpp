@@ -1,3 +1,10 @@
+/**
+ * Author:  Florian Stock, Technische Universität Darmstadt,
+ * Embedded Systems & Applications Group 2018
+ * Author:  Thilo Gabel, Technische Universität Darmstadt,
+ * Embedded Systems & Applications Group 2019
+ * License: Apache 2.0 (see attachached File)
+ */
 #include "benchmark.h"
 #include "datatypes.h"
 #include "kernel.h"
@@ -219,3 +226,7 @@ bool ndt_mapping::check_output() {
 	std::cout << "max delta: " << max_delta << "\n";
 	return !error_so_far;
 }
+
+// set the kernel used in main()
+ndt_mapping a = ndt_mapping();
+kernel& myKernel = a;
