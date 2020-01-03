@@ -2,13 +2,13 @@
 
 This suite contains automotive benchmarks used for the evaluation of heterogeneous, parallel programming models. They are extracted from the Autoware project and should represent parallelizable workloads from the automotive field.
 
-It contains 3 kernels (euclidean\_cluster, ndt\_matching and points2image) and four different implementations for each kernel:
--Serial version
--OpenMP version
--OpenMP Offloading version
--CUDA version
--OpenCL version
--OpenCL version using atomics
+It contains 3 kernels (euclidean\_cluster, ndt\_matching and points2image) and four different implementations for each kernel:<br/>
+-Serial version<br/>
+-OpenMP version<br/>
+-OpenMP Offloading version<br/>
+-CUDA version<br/>
+-OpenCL version<br/>
+-OpenCL version using atomics<br/>
 
 
 Build the benchmarks either with
@@ -58,21 +58,14 @@ The benchmarks have been developed for a large number of platforms in mind. Howe
 | OpenMP-offload/euclidean_cluster | ok (CPU)         | ok (CPU), ok (CUDA)| not supported (8)  |
 | OpenMP-offload/ndt_mapping       | not supported (CPU)(7) | ok (CPU), ok (CUDA)(4) | not supported (8) |
 
-(1) Compute Capability set to 6.0 or lower
-
-(2) Compute Capability set to 6.2 or lower
-
-(3) Results outside error tolerances
-
-(4) Results not accurate but inside error tolerances
-
-(5) Running on POCL with CUDA support
-
-(6) cl_khr_int64_base_atomics not supported
-
-(7) internal compiler error
-
-(8) undeclared omp_target functions
+(1) Compute Capability set to 6.0 or lower<br/>
+(2) Compute Capability set to 6.2 or lower<br/>
+(3) Results outside error tolerances<br/>
+(4) Results not accurate but inside error tolerances<br/>
+(5) Running on POCL with CUDA support<br/>
+(6) cl_khr_int64_base_atomics not supported<br/>
+(7) internal compiler error<br/>
+(8) undeclared omp_target functions<br/>
 
 ## Data ##
 
