@@ -283,8 +283,6 @@ void euclidean_clustering::check_next_outputs(int count)
 			std::cerr << "Errors for test case " << read_testcases - count + i;
 			std::cerr << " (" << caseErrorNo << "):" << std::endl;
 			std::cerr << sError.str() << std::endl;
-		} else {
-			std::cerr << "Case " << read_testcases - count + i << " ready" << std::endl;
 		}
 		// finishing steps for the next iteration
 		reference_bb_array.boxes.clear();
