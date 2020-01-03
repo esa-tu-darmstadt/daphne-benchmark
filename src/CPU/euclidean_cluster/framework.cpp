@@ -178,22 +178,22 @@ void euclidean_clustering::check_next_outputs(int count)
 		{
 			error_so_far = true;
 			caseErrorNo += 1;
-			//sError << " invalid point number: " << out_cloud_ptr[i].size();
-			//sError << " should be " << reference_out_cloud.size() << std::endl;
+			sError << " invalid point number: " << out_cloud_ptr[i].size();
+			sError << " should be " << reference_out_cloud.size() << std::endl;
 		}
 		if (reference_bb_array.boxes.size() != out_boundingbox_array[i].boxes.size())
 		{
 			error_so_far = true;
 			caseErrorNo += 1;
-			//sError << " invalid bounding box number: " << out_boundingbox_array[i].boxes.size();
-			//sError << " should be " << reference_bb_array.boxes.size() << std::endl;
+			sError << " invalid bounding box number: " << out_boundingbox_array[i].boxes.size();
+			sError << " should be " << reference_bb_array.boxes.size() << std::endl;
 		}
 		if (reference_centroids.points.size() != out_centroids[i].points.size())
 		{
 			error_so_far = true;
 			caseErrorNo += 1;
-			//sError << " invalid centroid number: " << out_centroids[i].points.size();
-			//sError << " should be " << reference_centroids.points.size() << std::endl;
+			sError << " invalid centroid number: " << out_centroids[i].points.size();
+			sError << " should be " << reference_centroids.points.size() << std::endl;
 		}
 		if (caseErrorNo == 0) {
 			// test for content divergence
@@ -205,17 +205,14 @@ void euclidean_clustering::check_next_outputs(int count)
 				float delta = std::fmax(deltaX, std::fmax(deltaY, deltaZ));
 				if (delta > MAX_EPS) {
 					caseErrorNo += 1;
-// 					sError << " deviating point " << j << ": (";
-// 					sError << out_cloud_ptr[i][j].x << " " << out_cloud_ptr[i][j].y << " " << out_cloud_ptr[i][j].z;
-// 					sError << ") should be (" << reference_out_cloud[j].x << " ";
-// 					sError << reference_out_cloud[j].y << " " << reference_out_cloud[j].z << ")" << std::endl;
+					sError << " deviating point " << j << ": (";
+					sError << out_cloud_ptr[i][j].x << " " << out_cloud_ptr[i][j].y << " " << out_cloud_ptr[i][j].z;
+					sError << ") should be (" << reference_out_cloud[j].x << " ";
+					sError << reference_out_cloud[j].y << " " << reference_out_cloud[j].z << ")" << std::endl;
 					if (delta > max_delta) {
 						max_delta = delta;
 					}
 				}
-				//max_delta = std::fmax(std::abs(out_cloud_ptr[i][j].x - reference_out_cloud[j].x), max_delta);
-				//max_delta = std::fmax(std::abs(out_cloud_ptr[i][j].y - reference_out_cloud[j].y), max_delta);
-				//max_delta = std::fmax(std::abs(out_cloud_ptr[i][j].z - reference_out_cloud[j].z), max_delta);
 			}
 			for (int j = 0; j < reference_bb_array.boxes.size(); j++)
 			{
@@ -231,27 +228,27 @@ void euclidean_clustering::check_next_outputs(int count)
 				float delta = 0;
 				if (deltaP > MAX_EPS) {
 					delta = std::fmax(delta, deltaP);
-// 					sError << " deviating bounding box " << j << " position: (";
-// 					sError << out_boundingbox_array[i].boxes[j].position.x << " ";
-// 					sError << out_boundingbox_array[i].boxes[j].position.y << ") should be (";
-// 					sError << reference_bb_array.boxes[j].position.x << " ";
-// 					sError << reference_bb_array.boxes[j].position.y << ")" << std::endl;
+					sError << " deviating bounding box " << j << " position: (";
+					sError << out_boundingbox_array[i].boxes[j].position.x << " ";
+					sError << out_boundingbox_array[i].boxes[j].position.y << ") should be (";
+					sError << reference_bb_array.boxes[j].position.x << " ";
+					sError << reference_bb_array.boxes[j].position.y << ")" << std::endl;
 				}
 				if (deltaS > MAX_EPS) {
 					delta = std::fmax(delta, deltaS);
-// 					sError << " deviating bounding box " << j << " size: (";
-// 					sError << out_boundingbox_array[i].boxes[j].dimensions.x << " ";
-// 					sError << out_boundingbox_array[i].boxes[j].dimensions.y << ") should be (";
-// 					sError << reference_bb_array.boxes[j].dimensions.x << " ";
-// 					sError << reference_bb_array.boxes[j].dimensions.y << ")" << std::endl;
+					sError << " deviating bounding box " << j << " size: (";
+					sError << out_boundingbox_array[i].boxes[j].dimensions.x << " ";
+					sError << out_boundingbox_array[i].boxes[j].dimensions.y << ") should be (";
+					sError << reference_bb_array.boxes[j].dimensions.x << " ";
+					sError << reference_bb_array.boxes[j].dimensions.y << ")" << std::endl;
 				}
 				if (deltaO > MAX_EPS) {
 					delta = std::fmax(delta, deltaO);
-// 					sError << " deviating bound box " << j << " orientation: (";
-// 					sError << out_boundingbox_array[i].boxes[j].orientation.x << " ";
-// 					sError << out_boundingbox_array[i].boxes[j].orientation.y << ") should be (";
-// 					sError << reference_bb_array.boxes[j].orientation.x << " ";
-// 					sError << reference_bb_array.boxes[j].orientation.y << ")" << std::endl;
+					sError << " deviating bound box " << j << " orientation: (";
+					sError << out_boundingbox_array[i].boxes[j].orientation.x << " ";
+					sError << out_boundingbox_array[i].boxes[j].orientation.y << ") should be (";
+					sError << reference_bb_array.boxes[j].orientation.x << " ";
+					sError << reference_bb_array.boxes[j].orientation.y << ")" << std::endl;
 				}
 				if (delta > MAX_EPS) {
 					caseErrorNo += 1;
@@ -271,11 +268,11 @@ void euclidean_clustering::check_next_outputs(int count)
 					if (delta > max_delta) {
 						max_delta = delta;
 					}
-// 					sError << " deviating centroid " << j << " position: (";
-// 					sError << out_centroids[i].points[j].x << " " << out_centroids[i].points[j].y << " ";
-// 					sError << out_centroids[i].points[j].z << ") should be (";
-// 					sError << reference_centroids.points[j].x << " " << reference_centroids.points[j].y << " ";
-// 					sError << reference_centroids.points[j].z << ")" << std::endl;
+					sError << " deviating centroid " << j << " position: (";
+					sError << out_centroids[i].points[j].x << " " << out_centroids[i].points[j].y << " ";
+					sError << out_centroids[i].points[j].z << ") should be (";
+					sError << reference_centroids.points[j].x << " " << reference_centroids.points[j].y << " ";
+					sError << reference_centroids.points[j].z << ")" << std::endl;
 				}
 			}
 		}
