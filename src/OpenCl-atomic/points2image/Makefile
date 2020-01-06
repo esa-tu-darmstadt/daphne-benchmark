@@ -6,17 +6,16 @@
 CXXFLAGS=-O3
 CXXFLAGS+= -std=c++11
 
+
 # opencl library
 OPENCL_INCLUDE_PATH=
 OPENCL_LIBRARY_PATH=
-ifneq ($(OPENCL_INCLUDE_PATH),)
-	CPPFLAGS += -I$(OPENCL_INCLUDE_PATH)
+ifdef OPENCL_INCLUDE_PATH
+	CPPFLAGS+= -I$(OPENCL_INCLUDE_PATH)
 endif
-ifneq ($(OPENCL_LIBRARY_PATH),)
-	LDDFLAGS += -L$(OPENCL_LIBRARY_PATH)
+ifdef OPENCL_LIBRARY_PATH
+	LDDFLAGS+= -L$(OPENCL_LIBRARY_PATH)
 endif
-LDDFLAGS += -lOpenCL
-CPPFLAGS += -I./
 
 # number of work items per work group
 OPENCL_LOCAL_SIZE=512
@@ -26,29 +25,37 @@ CPPFLAGS+= -DNUMWORKITEMS_PER_WORKGROUP=$(OPENCL_LOCAL_SIZE)
 OPENCL_PLATFORM_ID=
 OPENCL_DEVICE_ID=
 OPENCL_DEVICE_TYPE=
-ifneq ($(OPENCL_PLATFORM_ID),)
-	CPPFLAGS += -DEPHOS_PLATFORM_HINT=$(OPENCL_PLATFORM_ID)
+ifdef OPENCL_PLATFORM_ID
+	CPPFLAGS+= -DEPHOS_PLATFORM_HINT=$(OPENCL_PLATFORM_ID)
 endif
-ifneq ($(OPENCL_DEVICE_ID),)
-	CPPFLAGS += -DEPHOS_DEVICE_HINT=$(OPENCL_DEVICE_ID)
+ifdef OPENCL_DEVICE_ID
+	CPPFLAGS+= -DEPHOS_DEVICE_HINT=$(OPENCL_DEVICE_ID)
 endif
-ifneq ($(OPENCL_DEVICE_TYPE),)
-	CPPFLAGS += -DEPHOS_DEVICE_TYPE=$(OPENCL_DEVICE_TYPE)
+ifdef OPENCL_DEVICE_TYPE
+	CPPFLAGS+= -DEPHOS_DEVICE_TYPE=$(OPENCL_DEVICE_TYPE)
 endif
+
+# opencl optimization
+ifdef OPENCL_ZERO_COPY
+	CPPFLAGS+= -DEPHOS_ZERO_COPY=1
+endif
+ifdef OPENCL_PINNED_MEMORY
+	CPPFLAGS+= -DEPHOS_PINNED_MEMORY=1
+endif
+ifdef OPENCL_ATOMICS
+	CPPFLAGS+= -DEPHOS_KERNEL_ATOMICS=1
+endif
+
+CPPFLAGS+= -I../include -I./
+LDDFLAGS += -lOpenCL
 
 all: kernel checkdata
 
-kernel: ../common/main.o kernel.o ocl/host/ocl_tools.o
+kernel: ../common/main.o kernel.o ocl/host/ocl_tools.o framework.o
 	$(CXX) $^ -o $@ $(LDDFLAGS)
 
-../common/main.o: ../common/main.cpp
-	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
-
-kernel.o: kernel.cpp
-	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
-
-ocl/host/ocl_tools.o: ocl/host/ocl_tools.cpp
-	$(CXX) -c $(CLFAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
+%.o: %.cpp
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
 
 ocl/device/ocl_kernel.h:
 	./stringify_ocl_kernels.sh
@@ -62,10 +69,10 @@ ifeq ($(wildcard ../../../data/p2i_output.dat),)
 endif
 
 clean:
-	rm -f kernel kernel.o ../common/main.o Makefile.deps \
+	rm -f kernel kernel.o framework.o ../common/main.o Makefile.deps \
 	ocl/host/ocl_tools.o ocl/device/ocl_kernel_tmp ocl/device/ocl_kernel.h
 
 Makefile.deps:
-	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include -MM -MG \
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -MM -MG \
 	../common/main.cpp kernel.cpp ocl/host/ocl_tools.cpp > Makefile.deps
 

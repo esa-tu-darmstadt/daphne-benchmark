@@ -12,7 +12,10 @@
 #define CL_USE_DEPRECATED_OPENCL_1_2_APIS
 
 #define __CL_ENABLE_EXCEPTIONS
+
 #include <CL/cl.h>
+#include <string>
+#include <vector>
 
 // Struct for passing OpenCL objects
 struct OCL_Struct {

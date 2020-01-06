@@ -7,6 +7,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <vector>
+#include <string>
 
 #include "ocl_header.h"
 
@@ -227,7 +228,7 @@ OCL_Struct OCL_Tools::find_compute_platform(
 	return result;
 }
 cl_program OCL_Tools::build_program(OCL_Struct& ocl_objs, std::string& sources,
-		std::string options, std::vector<std::string>& kernelNames, std::vector<cl_kernel>& kernels) {
+	std::string options, std::vector<std::string>& kernelNames, std::vector<cl_kernel>& kernels) {
 
 	cl_int errorCode = CL_SUCCESS;
 	const char* cSource = sources.c_str();

@@ -3,9 +3,10 @@
  * Embedded Systems & Applications Group 2018
  * License: Apache 2.0 (see attachached File)
  */
-#ifndef DATATYPES_H
-#define DATATYPES_H
+#ifndef EPHOS_DATATYPES_H
+#define EPHOS_DATATYPES_H
 
+#include <cstdint>
 #include <vector>
 
 typedef struct Mat44 {
