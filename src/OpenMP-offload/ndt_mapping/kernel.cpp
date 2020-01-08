@@ -33,9 +33,25 @@
 #include <vector>
 #include <algorithm>
 
-#pragma omp declare reduction(min:PointXYZI:  omp_out.data[0] = omp_out.data[0] < omp_in.data[0] ? omp_out.data[0] : omp_in.data[0],  omp_out.data[1] = omp_out.data[1] < omp_in.data[1] ? omp_out.data[1] : omp_in.data[1], omp_out.data[2] = omp_out.data[2] < omp_in.data[2] ? omp_out.data[2] : omp_in.data[2]) initializer (omp_priv={{FLT_MAX ,FLT_MAX ,FLT_MAX ,0}})
+void minPointXYZI(PointXYZI& out, PointXYZI& in){
+	out.data[0] = in.data[0] > out.data[0] ? out.data[0] : in.data[0];
+	out.data[1] = in.data[1] > out.data[1] ? out.data[1] : in.data[1];
+	out.data[2] = in.data[2] > out.data[2] ? out.data[2] : in.data[2];
+}
 
-#pragma omp declare reduction(max:PointXYZI:  omp_out.data[0] = omp_out.data[0] > omp_in.data[0] ? omp_out.data[0] : omp_in.data[0],  omp_out.data[1] = omp_out.data[1] > omp_in.data[1] ? omp_out.data[1] : omp_in.data[1], omp_out.data[2] = omp_out.data[2] > omp_in.data[2] ? omp_out.data[2] : omp_in.data[2]) initializer (omp_priv= {{FLT_MIN ,FLT_MIN ,FLT_MIN ,0}})
+void maxPointXYZI(PointXYZI& out, PointXYZI& in){
+	out.data[0] = in.data[0] < out.data[0] ? out.data[0] : in.data[0];
+	out.data[1] = in.data[1] < out.data[1] ? out.data[1] : in.data[1];
+	out.data[2] = in.data[2] < out.data[2] ? out.data[2] : in.data[2];
+}
+
+#pragma omp declare reduction(min : PointXYZI : \
+		minPointXYZI(omp_out, omp_in)) \
+		initializer( omp_priv = PointXYZI{FLT_MAX, FLT_MAX, FLT_MAX, 0})
+
+#pragma omp declare reduction(max : PointXYZI : \
+		maxPointXYZI(omp_out, omp_in)) \
+		initializer( omp_priv = PointXYZI{FLT_MIN, FLT_MIN, FLT_MIN, 0})
 
 
 // maximum allowed deviation from reference
