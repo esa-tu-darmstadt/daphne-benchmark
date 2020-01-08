@@ -3,8 +3,6 @@
  * Embedded Systems & Applications Group 2018
  * Author:  Lukas Sommer, Technische Universität Darmstadt,
  * Embedded Systems & Applications Group 2018
- * Author:  Thilo Gabel, Techinsche Universität Darmstadt,
- * Embedded Systems & Applications Group 2019
  * License: Apache 2.0 (see attachached File)
  */
 #include "benchmark.h"
@@ -15,7 +13,6 @@
 #include <limits>
 #include <cmath>
 #include <algorithm>
-#include <cstring>
 #include <omp.h>
 
 // algorithm parameters
@@ -25,12 +22,8 @@ const bool _pose_estimation = true;
 
 // maximum allowed deviation from the reference data
 #define MAX_EPS 0.001
-#define PARALLEL_REGION_SIZE 40
 
 class euclidean_clustering : public kernel {
-private:
-	int targetDeviceId = 0;
-	int hostDeviceId = 0;
 private:
 	// input point cloud
 	PointCloud *in_cloud_ptr = nullptr;
@@ -69,15 +62,6 @@ protected:
 		BoundingboxArray *in_out_boundingbox_array,
 		Centroid *in_out_centroids,
 		double in_max_cluster_distance);
-		
-	void extract(const PointCloud* input_, std::vector<PointIndices> &clusters, double cluster_tolerance_);
-
-	void extractEuclideanClusters (
-		const PointCloud &cloud, 
-		float tolerance, std::vector<PointIndices> &clusters,
-		unsigned int min_pts_per_cluster, 
-		unsigned int max_pts_per_cluster);
-
 	/**
 	 * Reads the number of testcases in the data set.
 	 */
@@ -531,18 +515,19 @@ void initRadiusSearch(const std::vector<Point> &points, bool**  sqr_distances, c
 {
 	int n = points.size();
 	*sqr_distances = (bool*) malloc(n * n * sizeof(bool));
+	bool *dist = *sqr_distances;
+	const Point* p = points.data();
 	float sqr_radius = radius * radius;
-	#pragma omp parallel for default(none) shared(points, sqr_distances, n, sqr_radius) schedule(dynamic)
-	for (int j = 0; j < n; j++) {
+        #pragma omp target teams distribute parallel for simd map(to:p[0:n], n, sqr_radius) map(from:dist[0:n*n])
+	//#pragma omp parallel for default(none) shared(points, sqr_distances, n, sqr_radius) schedule(dynamic)
+	for (int j = 0; j < n; j++){
 		for (int i = 0; i < n; i++){
-			float dx = points[i].x - points[j].x;
-			float dy = points[i].y - points[j].y;
-			float dz = points[i].z - points[j].z;
+			float dx = p[i].x - p[j].x;
+			float dy = p[i].y - p[j].y;
+			float dz = p[i].z - p[j].z;
 			float sqr_dist = dx*dx + dy*dy + dz*dz;
-			(*sqr_distances)[j*n+i] = sqr_dist <= sqr_radius;
+			dist[j*n+i] = sqr_dist <= sqr_radius;
 		}
-		// a point is not near to itself
-		(*sqr_distances)[j*n+j] = false;
 	}
 }
 
@@ -587,175 +572,66 @@ int radiusSearch(
  * min_pts_per_cluster: lower cluster size restriction
  * max_pts_per_cluster: higher cluster size restriction
  */
-void euclidean_clustering::extractEuclideanClusters (
+void extractEuclideanClusters (
 	const PointCloud &cloud, 
 	float tolerance, std::vector<PointIndices> &clusters,
 	unsigned int min_pts_per_cluster, 
 	unsigned int max_pts_per_cluster)
 {
-	// data structures for cluster extraction
+	int nn_start_idx = 0;
+	// Create a bool vector of processed point indices, and initialize it to false
+	bool* processed = (bool*) malloc(sizeof(bool) * cloud.size());
 	int cloud_size = cloud.size();
-	clusters.clear();
-	bool* processedStorage = new bool[cloud_size];
-	int* clusterCandidateStorage = new int[cloud_size];
-	bool* clusterAssignmentStorage = new bool[cloud_size];
-	#pragma omp parallel for default(none) shared(cloud_size, processedStorage)
-	for (int i = 0; i < cloud_size; ++i){
-		processedStorage[i] = false;
+	#pragma omp parallel for default(none) shared(cloud_size, processed)
+	for(int i = 0; i < cloud_size; ++i){
+		processed[i] = false;
 	}
+	std::vector<int> nn_indices;
 	// compute the pairwise distance matrix
-	bool* sqrDistanceStorage = new bool[cloud_size*cloud_size];
-	const Point* points = cloud.data();
-	#pragma omp parallel for default(none) shared(points, sqrDistanceStorage, cloud_size, tolerance)
-	for (int j = 0; j < cloud_size; j++) {
-		// determine pairwise point distances
-		for (int i = 0; i < cloud_size; i++) {
-			float dx = points[i].x - points[j].x;
-			float dy = points[i].y - points[j].y;
-			float dz = points[i].z - points[j].z;
-			float dist = dx*dx + dy*dy + dz*dz;
-			sqrDistanceStorage[j*cloud_size + i] = dist <= tolerance*tolerance;
-		}
-		// make a point far away from itself
-		sqrDistanceStorage[j*cloud_size + j] = false;
-	}
-	bool* sqrDistanceBuffer = (bool*)omp_target_alloc(sizeof(bool)*cloud_size*cloud_size, targetDeviceId);
-	omp_target_memcpy(sqrDistanceBuffer, sqrDistanceStorage, sizeof(bool)*cloud_size*cloud_size, 
-		0, 0, targetDeviceId, hostDeviceId);
-	bool* processedBuffer = (bool*)omp_target_alloc(sizeof(bool)*cloud_size, targetDeviceId);
-	//bool* processedBuffer = processedStorage;
-	omp_target_memcpy(processedBuffer, processedStorage, sizeof(bool)*cloud_size, 
-		0, 0, targetDeviceId, hostDeviceId);
-	//omp_target_memcpy(clusterAssignmentBuffer, clusterAssignmentStorage, sizeof(int)*cloud_size,
-	//	0, 0, targetDeviceId, hostDeviceId);
-	//int* clusterAssignmentBuffer = clusterAssignmentStorage;
-	int* clusterCandidateBuffer = (int*)omp_target_alloc(sizeof(int)*cloud_size, targetDeviceId);
-	//int* clusterCandidateBuffer = new int[cloud_size];
-	float sqrTolerance = tolerance*tolerance;
-	//const Point* points = cloud.data();
-	/*#pragma omp target data \
-	map(to: cloud_size, sqrTolerance) \
-	map(to: points[:cloud_size])
-	{
-		// testing with the small set we had better performance without collapse and explicit simd
-		#pragma omp target teams distribute parallel for \
-		default(none) \
-		firstprivate(cloud_size, sqrTolerance) \
-		shared(sqrDistanceBuffer, points) \
-		is_device_ptr(sqrDistanceBuffer)
-		for (int j = 0; j < cloud_size; j++) {
-			for (int i = 0; i < cloud_size; i++) {
-				float d[3];
-				float* p1 = (float*)&points[i];
-				float* p2 = (float*)&points[j];
-				//#pragma omp simd
-				for (int k = 0; k < 3; k++) {
-					d[k] = (p1[k] - p2[k]);
-				}
-				float dist = d[0]*d[0] + d[1]*d[1] + d[2]*d[2];
-				sqrDistanceBuffer[j*cloud_size + i] = (dist <= sqrTolerance);
-			}
-		}
-		#pragma omp target teams distribute parallel for \
-		default(none) \
-		firstprivate(cloud_size) \
-		shared(processedBuffer, sqrDistanceBuffer) \
-		is_device_ptr(processedBuffer, sqrDistanceBuffer)
-		for (int i = 0; i < cloud_size; i++) {
-			processedBuffer[i] = false;
-			// make a point far away from itself
-			//sqrDistanceBuffer[i*cloud_size + i] = false;
-		}
-	}*/
-		
-	
-	// progress indicators
+	bool *sqr_distances;
+	initRadiusSearch(cloud, &sqr_distances, tolerance);
 	// process all points
-	for (int i = 0; i < cloud_size; ++i)
+	for (int i = 0; i < cloud.size(); ++i)
 	{
 		// discard the iteration for points that have already been looked at
-		if (processedStorage[i]) {
+		if (processed[i])
 			continue;
-		}
 		// begin with a cluster of one element
-		int staticCandidateSize = 0;
-		int nextCandidateSize = 1;
-		int* pNextCandidateSize = &nextCandidateSize;
-		int iNextPivot = 0;
-		processedStorage[i] = true;
-		clusterCandidateStorage[0] = i;
-		while (staticCandidateSize < nextCandidateSize) {
-			// move new candidate members to buffer
-			int deltaCandidateSize = (nextCandidateSize - staticCandidateSize);
-			int candidateStart = staticCandidateSize;
-			staticCandidateSize = nextCandidateSize;
-			
-			omp_target_memcpy(clusterCandidateBuffer, clusterCandidateStorage, sizeof(int)*deltaCandidateSize,
-				sizeof(int)*candidateStart, sizeof(int)*candidateStart, targetDeviceId, hostDeviceId);
-			
-			#pragma omp target \
-			map(to: candidateStart, staticCandidateSize, cloud_size) \
-			map(from: clusterAssignmentStorage[:cloud_size]) \
-			is_device_ptr(processedBuffer, clusterCandidateBuffer, sqrDistanceBuffer)
-			#pragma omp teams distribute parallel for \
-			firstprivate(cloud_size, candidateStart, staticCandidateSize) \
-			shared(processedBuffer, clusterCandidateBuffer, sqrDistanceBuffer, clusterAssignmentStorage)
-			for (int iCloud = 0; iCloud < cloud_size; iCloud++) {
-				if (processedBuffer[iCloud]) {
-					continue;
-				}
-				bool skip = false;
-				for (int iCandidate = candidateStart; iCandidate < staticCandidateSize; iCandidate++) {
-					if (clusterCandidateBuffer[iCandidate] == iCloud) {
-						skip = true;
-					}
-				}
-				
-				bool near = false;
-				if (!skip) {
-					for (int iCandidate = candidateStart; iCandidate < staticCandidateSize; iCandidate++) {
-						if (sqrDistanceBuffer[iCloud*cloud_size + clusterCandidateBuffer[iCandidate]]) {
-							near = true;
-						}
-					}
-				}
-				clusterAssignmentStorage[iCloud] = near;
-				if (near) {
-					processedBuffer[iCloud] = true;
-				}
+		std::vector<int> seed_queue;
+		int sq_idx = 0;
+		seed_queue.push_back (i);
+		processed[i] = true;
+		// grow the candidate cluster
+		while (sq_idx < seed_queue.size())
+		{
+			// add near points to the candidate and mark them as processed
+			int ret = radiusSearch(seed_queue[sq_idx], nn_indices, sqr_distances, processed, cloud.size());
+			if (!ret)
+			{
+				sq_idx++;
+				continue;
 			}
-			for (int iAssign = 0; iAssign < cloud_size; iAssign++) {
-				if (clusterAssignmentStorage[iAssign]) {
-					if (!processedStorage[iAssign]) {
-						clusterCandidateStorage[nextCandidateSize] = iAssign;
-						nextCandidateSize += 1;
-						processedStorage[iAssign] = true;
-					}
-				}
+			for (size_t j = nn_start_idx; j < nn_indices.size (); ++j)
+			{
+				seed_queue.push_back (nn_indices[j]);
+				processed[nn_indices[j]] = true;
 			}
+			sq_idx++;
 		}
-		if (staticCandidateSize >= min_pts_per_cluster && staticCandidateSize <= max_pts_per_cluster) {
-			int clusterNo = clusters.size();
-			clusters.resize(clusterNo + 1);
-			PointIndices& cluster = clusters[clusterNo];
-			cluster.indices.resize(staticCandidateSize);
-			int* clusterData = cluster.indices.data();
-			//omp_target_memcpy(candidateStorage, clusterCandidateBuffer, sizeof(int)*staticCandidateSize,
-			//	0, 0, hostDeviceId, targetDeviceId);
-			//#pragma omp parallel for default(none) shared(processedStorage, candidateStorage, staticCandidateSize)
-			//for (int i = 0; i < staticCandidateSize; i++) {
-			//	clusterData[i] = clusterCandidateStorage[i];
-			//}
-			std::memcpy(clusterData, clusterCandidateStorage, sizeof(int)*staticCandidateSize);
-			std::sort(cluster.indices.begin(), cluster.indices.end());
+
+		// finally add the candidate if it is of satisfactory size
+		if (seed_queue.size () >= min_pts_per_cluster && seed_queue.size () <= max_pts_per_cluster)
+		{
+			PointIndices r;
+			r.indices.resize (seed_queue.size ());
+			for (size_t j = 0; j < seed_queue.size (); ++j)
+			r.indices[j] = seed_queue[j];
+			std::sort (r.indices.begin (), r.indices.end ());
+			clusters.push_back (r);   // We could avoid a copy by working directly in the vector
 		}
 	}
-	omp_target_free(clusterCandidateBuffer, targetDeviceId);
-	omp_target_free(sqrDistanceBuffer, targetDeviceId);
-	omp_target_free(processedBuffer, targetDeviceId);
-	delete clusterCandidateStorage;
-	delete clusterAssignmentStorage;
-	delete processedStorage;
+	free(sqr_distances);
+	free(processed);
 }
 
 /**
@@ -769,7 +645,7 @@ inline bool comparePointClusters (const PointIndices &a, const PointIndices &b)
 /**
  * Computes euclidean clustering and sorts the resulting clusters.
  */
-void euclidean_clustering::extract (const PointCloud *input_, std::vector<PointIndices> &clusters, double cluster_tolerance_)
+void extract (const PointCloud *input_, std::vector<PointIndices> &clusters, double cluster_tolerance_)
 {
 	if (input_->empty())
 	{
@@ -1091,19 +967,6 @@ void euclidean_clustering::init() {
 		std::cerr << e.what() << std::endl;
 		exit(-3);
 	}
-	// select device
-	#ifdef EPHOS_HOST_DEVICE_ID
-		hostDeviceId = EPHOS_HOST_DEVICE_ID;
-	#else
-		hostDeviceId = omp_get_initial_device();
-	#endif
-	#ifdef EPHOS_TARGET_DEVICE_ID
-		targetDeviceId = EPHOS_TARGET_DEVICE_ID;
-	#else
-		targetDeviceId = omp_get_default_device();
-	#endif
-	std::cout << "Selected host device id: " << hostDeviceId << std::endl;
-	std::cout << "Selected target device id: " << targetDeviceId << std::endl;
 	// prepare for the first iteration
 	error_so_far = false;
 	max_delta = 0.0;
@@ -1210,8 +1073,6 @@ void euclidean_clustering::check_next_outputs(int count)
 		// test for size differences
 		if (reference_out_cloud.size() != out_cloud_ptr[i].size())
 		{
-			std::cout << "Deviating size (" << out_cloud_ptr[i].size() << "!=";
-			std::cout <<  reference_out_cloud.size() << ")" << std::endl;
 			error_so_far = true;
 			continue;
 		}
