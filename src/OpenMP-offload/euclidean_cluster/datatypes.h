@@ -43,7 +43,7 @@ typedef struct{
     float angle;
 } RotatedRect;
 
-typedef std::vector<Point> PointCloud;
+typedef Point* PointCloud;
 typedef std::vector<PointRGB> PointCloudRGB;
 
 typedef struct {
