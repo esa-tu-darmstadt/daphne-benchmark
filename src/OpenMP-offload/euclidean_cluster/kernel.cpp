@@ -543,7 +543,7 @@ void parallelRadiusSearch(
 		bool found = false;
 		for(int seed_point_index = start_index; seed_point_index < search_points; ++seed_point_index){
 			if(i == queue[seed_point_index]){
-				found = true
+				found = true;
 			}
 			else {
 				int array_index = queue[seed_point_index] * aligned_length + i;
@@ -622,7 +622,6 @@ extractEuclideanClusters (
 			clusters.push_back (r);   // We could avoid a copy by working directly in the vector
 		}
 	}
-	omp_target_free(seed_queue, 0);
 	omp_target_free(sqr_distances, 0);
 	omp_target_free(nn_indices, 0);
 	omp_target_free(seed_queue, 0);
