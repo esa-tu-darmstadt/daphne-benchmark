@@ -1,14 +1,12 @@
 /**
  * Author:  Florian Stock, Technische Universität Darmstadt,
  * Embedded Systems & Applications Group 2018
- * Author:  Lukas Sommer, Technische Universität Darmstadt,
- * Embedded Systems & Applications Group 2018
  * License: Apache 2.0 (see attachached File)
  */
 #include "benchmark.h"
-#include "datatypes.h"
 #include <iostream>
 #include <fstream>
+#include "datatypes.h"
 #include <vector>
 #include <limits>
 #include <cmath>
@@ -22,9 +20,15 @@ const bool _pose_estimation = true;
 
 // maximum allowed deviation from the reference data
 #define MAX_EPS 0.001
+// number of threads
+#define THREADS 512
 
 class euclidean_clustering : public kernel {
 private:
+	/**
+	 * Reads the number of testcases in the data set.
+	 */
+	int read_number_testcases(std::ifstream& input_file);
 	// input point cloud
 	PointCloud *in_cloud_ptr = nullptr;
 	// colored point cloud
@@ -47,7 +51,6 @@ public:
 	virtual void run(int p = 1);
 	virtual bool check_output();
 protected:
-	
 	void clusterAndColor(const PointCloud in_cloud_ptr,
 		int cloud_size,
 		PointCloudRGB *out_cloud_ptr,
@@ -66,13 +69,9 @@ protected:
 		Centroid *in_out_centroids,
 		double in_max_cluster_distance);
 	/**
-	 * Reads the number of testcases in the data set.
-	 */
-	int read_number_testcases(std::ifstream& input_file);
-	/**
-	 * Reads the next testcase input data structures.
-	 * count: number of testcase datasets to read
-	 * return: the number of testcases datasets actually read
+	 * Reads the next testcases.
+	 * count: number of testcases to read
+	 * return: the number of testcases actually read
 	 */
 	virtual int read_next_testcases(int count);
 	/**
@@ -99,7 +98,6 @@ int euclidean_clustering::read_number_testcases(std::ifstream& input_file)
 static void rotatingCalipers(const Point2D* points, int n, float* out)
 {
 	float minarea = std::numeric_limits<float>::max();
-	float max_dist = 0;
 	char buffer[32] = {};
 	int i, k;
 	
@@ -358,22 +356,12 @@ static int sklansky(Point2D** array, int start, int end, int* stack, int nsign, 
 	return --stacksize;
 }
 
-/**
- * Extension for for point comparison
- */
+// helper function to compare 2 points
 struct CHullCmpPoints
 {
-	/**
-	 * Compares two points.
-	 * Performs a primary test for the x component
-	 * and a secondary test for the y component.
-	 */
-    bool operator()(const Point2D* p1, const Point2D* p2) const
-    { 
-		return p1->x < p2->x || (p1->x == p2->x && p1->y < p2->y);
-	}
+  bool operator()(const Point2D* p1, const Point2D* p2) const
+  { return p1->x < p2->x || (p1->x == p2->x && p1->y < p2->y); }
 };
-
 
 /**
  * Helper function that computes the convex hull.
@@ -511,65 +499,43 @@ float minAreaRectAngle(std::vector<Point2D>& points)
  * An entry of that matrix indicates whether the distance of the two described points 
  * is less or equal to the reference distance.
  * points: points for which we need pairwise distances with size N
+ * number_points: number of elements in the points array (N)
  * sqr_distances: resulting distance matrix of size N*N
  * radius: reference distance
  */
-void initRadiusSearch(const Point* points, int n, bool**  sqr_distances, const double radius)
+void initRadiusSearch(const Point* points, int number_points, bool* sqr_distances, double radius)
 {
+	int n = number_points;
+	// 16 byte aligned memory accesses on 128 Bit memory interface
 	int aligned_length = n + (16-n%16);
-	*sqr_distances = (bool*) omp_target_alloc(n * aligned_length * sizeof(bool), 0);
-	bool *dist = *sqr_distances;
-	const Point* p = points;
+
 	float sqr_radius = radius * radius;
-	#pragma omp target teams distribute parallel for simd is_device_ptr(dist, p)
+	#pragma omp target teams distribute parallel for simd is_device_ptr(sqr_distances, points)
 	for (int j = 0; j < n; j++){
 		for (int i = 0; i < n; i++){
-			float dx = p[i].x - p[j].x;
-			float dy = p[i].y - p[j].y;
-			float dz = p[i].z - p[j].z;
+			float dx = points[i].x - points[j].x;
+			float dy = points[i].y - points[j].y;
+			float dz = points[i].z - points[j].z;
 			float sqr_dist = dx*dx + dy*dy + dz*dz;
-			dist[i*aligned_length+j] = sqr_dist <= sqr_radius;
+			sqr_distances[i*aligned_length+j] = sqr_dist <= sqr_radius;
 		}
 	}
 }
 
-
-
 /**
- * Performs radius search for a single point using a precomputed distance matrix.
- * point_index: reference point
- * indices: indices of near points
- * sqr_distances: distance matrix
- * processed: indicates whether a point has been looked at
- * total_points: number of points in the cloud
- * return: the number of near points
+ * Performs radius search utilizing the precomputed distance matrix.
+ * The result is captured as boolean entries in the indices array.
+ * point_index: points found should be near the point that belongs to this index
+ * start_index: index to start the search from
+ * search_points: number of points to search through
+ * indices: result that indicates whether a point is near
+ * sqr_distances: precomputed distance matrix
+ * cloud_size: number of elements in the cloud
  */
-int radiusSearch(
-	const int point_index, std::vector<int> & indices, const bool* sqr_distances, 
-	bool* processed, int total_points)
-{
-    indices.clear();
-    int smaller_index_neighbour = total_points + 1;
-    int bigger_index_neighbour = total_points + 1;
-	// search through lower indices in the row
-    for (int i = 0; i < point_index; i++){
-        if (sqr_distances[point_index*total_points +i] && !processed[i]){
-                indices.push_back(i);
-        }
-    }
-    // search through higher indices in the row
-    for (int i = point_index+1; i < total_points; i++){
-        if (sqr_distances[point_index*total_points +i] && !processed[i]){
-                indices.push_back(i);
-        }
-    }
-    return indices.size();
-}
-
 void parallelRadiusSearch(
-	const int* queue, int start_index, int search_points, bool* indices,
-	const bool* sqr_distances, int cloud_size
-){
+	const int* queue, int start_index, int search_points, 
+	bool* indices, const bool* sqr_distances, int cloud_size)
+{
 	int aligned_length = cloud_size + (16-cloud_size%16);
         #pragma omp target teams distribute parallel for simd \
 	is_device_ptr(queue, indices, sqr_distances) 
@@ -593,42 +559,40 @@ void parallelRadiusSearch(
  * min_pts_per_cluster: lower cluster size restriction
  * max_pts_per_cluster: higher cluster size restriction
  */
-void extractEuclideanClusters (
-	const PointCloud &cloud,
-        int cloud_size,	
+void
+extractEuclideanClusters (
+	const PointCloud cloud,
+	int cloud_size,
 	float tolerance, std::vector<PointIndices> &clusters,
 	unsigned int min_pts_per_cluster, 
 	unsigned int max_pts_per_cluster)
 {
-	int nn_start_idx = 0;
-	// Create a bool vector of processed point indices, and initialize it to false
-	bool* processed = (bool*) malloc(sizeof(bool) * cloud_size);
-	#pragma omp parallel for default(none) shared(cloud_size, processed)
-	for(int i = 0; i < cloud_size; ++i){
-		processed[i] = false;
-	}
+	// indicates the processed status for each point, initially unprocessed
+	std::vector<bool> processed (cloud_size, false); 
+	// radius search results
 	bool* nn_indices = (bool*) omp_target_alloc(cloud_size * sizeof(bool), 0);
-	// compute the pairwise distance matrix
-	bool *sqr_distances;
-	initRadiusSearch(cloud, cloud_size, &sqr_distances, tolerance);
+	// point indices of the currently grown cluster
 	int* seed_queue = (int*) omp_target_alloc(cloud_size * sizeof(int), 0);
-	// process all points
-	for (int i = 0; i < cloud_size; ++i)
+	// compute the pairwise distance matrix on the GPU
+	bool *sqr_distances = (bool*) omp_target_alloc((cloud_size * (cloud_size + 16) * sizeof(bool)), 0);
+	initRadiusSearch(cloud, cloud_size, sqr_distances, tolerance);
+	// Process all points in the indices vector
+	for (int i = 0; i < static_cast<int> (cloud_size); ++i)
 	{
-		// discard the iteration for points that have already been looked at
+		// skip points that are already part of a cluster or were discarded
 		if (processed[i])
 			continue;
-		// begin with a cluster of one element
+		// start a new cluster candidate with one element
 		int queue_last_element = 0;
 		seed_queue[queue_last_element++] = i;
 		processed[i] = true;
 		int new_elements = 1;
-		// grow the candidate cluster
-		while (new_elements > 0)
+		// grow the cluster candidate until all near points have been found
+		while (new_elements > 0) 
 		{
-			// add near points to the candidate and mark them as processed
 			parallelRadiusSearch(seed_queue, queue_last_element - new_elements, queue_last_element, nn_indices, sqr_distances, cloud_size);
 			new_elements = 0;
+			// add previously unprocessed, near points to the cluster candidate
 			for (size_t j = 0; j < cloud_size; ++j)
 			{
 				if (nn_indices[j] == false)
@@ -637,25 +601,26 @@ void extractEuclideanClusters (
 					continue;
 				seed_queue[queue_last_element++] = j;
 				processed[j] = true;
-				new_elements++;
+				new_elements++; 
 			}
 		}
 
-		// finally add the candidate if it is of satisfactory size
+		// add the cluster candidate as a new cluster if its size fits the requirements
 		if (queue_last_element >= min_pts_per_cluster && queue_last_element <= max_pts_per_cluster)
 		{
 			PointIndices r;
 			r.indices.resize (queue_last_element);
 			for (size_t j = 0; j < queue_last_element; ++j)
-			r.indices[j] = seed_queue[j];
+				r.indices[j] = seed_queue[j];
+			// make sure the cluster elements are sorted
 			std::sort (r.indices.begin (), r.indices.end ());
 			clusters.push_back (r);   // We could avoid a copy by working directly in the vector
 		}
 	}
+	omp_target_free(seed_queue, 0);
 	omp_target_free(sqr_distances, 0);
 	omp_target_free(nn_indices, 0);
 	omp_target_free(seed_queue, 0);
-	free(processed);
 }
 
 /**
@@ -669,33 +634,31 @@ inline bool comparePointClusters (const PointIndices &a, const PointIndices &b)
 /**
  * Computes euclidean clustering and sorts the resulting clusters.
  */
-void extract (const PointCloud input_, int cloud_size, std::vector<PointIndices> &clusters, double cluster_tolerance_)
+void extract (
+	const PointCloud input_, int cloud_size, std::vector<PointIndices> &clusters, double cluster_tolerance_)
 {
 	if (cloud_size == 0)
 	{
 		clusters.clear ();
 		return;
 	}
-	// Send the input dataset to the spatial locator
-	extractEuclideanClusters (input_, cloud_size, static_cast<float> (cluster_tolerance_), clusters,
-		_cluster_size_min, _cluster_size_max );
-	// Sort the clusters based on their size (largest one first)
+	extractEuclideanClusters (input_, cloud_size, static_cast<float> (cluster_tolerance_), clusters, _cluster_size_min, _cluster_size_max );
+	// sort from largest to smallest
 	std::sort (clusters.rbegin (), clusters.rend (), comparePointClusters);
 }
+
 
 /**
  * Performs clustering and coloring on a point cloud
  */
-void euclidean_clustering::clusterAndColor(
-	const PointCloud in_cloud_ptr,
-	int cloud_size,
-	PointCloudRGB *out_cloud_ptr,
-	BoundingboxArray* in_out_boundingbox_array,
-	Centroid* in_out_centroids,
-	double in_max_cluster_distance=0.5)
+void euclidean_clustering::clusterAndColor(const PointCloud in_cloud_ptr,
+					   int cloud_size,
+					   PointCloudRGB *out_cloud_ptr,
+					   BoundingboxArray* in_out_boundingbox_array,
+					   Centroid* in_out_centroids,
+					   double in_max_cluster_distance=0.5)
 {
 	std::vector<PointIndices> cluster_indices;
-	
 	// perform expensive radius search
 	extract (in_cloud_ptr, cloud_size, cluster_indices, in_max_cluster_distance);
 
@@ -703,7 +666,7 @@ void euclidean_clustering::clusterAndColor(
 	int j = 0;
 	unsigned int k = 0;
 	for (auto it = cluster_indices.begin(); it != cluster_indices.end(); ++it)
-	{
+		{
 		PointCloudRGB *current_cluster = new PointCloudRGB;//coord + color cluster
 		//assign color to each cluster
 		PointDouble centroid = {0.0, 0.0, 0.0};
@@ -728,7 +691,7 @@ void euclidean_clustering::clusterAndColor(
 		centroid.x /= it->indices.size();
 		centroid.y /= it->indices.size();
 		centroid.z /= it->indices.size();
-
+		
 		// minimum and maximum extends
 		float min_x=std::numeric_limits<float>::max();float max_x=-std::numeric_limits<float>::max();
 		float min_y=std::numeric_limits<float>::max();float max_y=-std::numeric_limits<float>::max();
@@ -742,11 +705,11 @@ void euclidean_clustering::clusterAndColor(
 			if((*current_cluster)[i].y>max_y)  max_y = (*current_cluster)[i].y;
 			if((*current_cluster)[i].z>max_z)  max_z = (*current_cluster)[i].z;
 		}
+
+		// create bounding box from cluster extends
 		float l = max_x - min_x;
 		float w = max_y - min_y;
 		float h = max_z - min_z;
-		
-		// create bounding box from cluster extends
 		Boundingbox bounding_box;
 		bounding_box.position.x = min_x + l/2;
 		bounding_box.position.y = min_y + w/2;
@@ -754,24 +717,24 @@ void euclidean_clustering::clusterAndColor(
 		bounding_box.dimensions.x = ((l<0)?-1*l:l);
 		bounding_box.dimensions.y = ((w<0)?-1*w:w);
 		bounding_box.dimensions.z = ((h<0)?-1*h:h);
-
 		double rz = 0;
 		// estimate pose
 		if (_pose_estimation) 
-		{
+				{
 			std::vector<Point2D> inner_points;
 			for (unsigned int i=0; i<current_cluster->size(); i++)
-			{
+						{
 				Point2D ip;
 				ip.x = ((*current_cluster)[i].x + fabs(min_x))*8;
 				ip.y = ((*current_cluster)[i].y + fabs(min_y))*8;
 				inner_points.push_back(ip);
-			}
+						}
+
 			if (inner_points.size() > 0)
-			{
+						{
 				rz = minAreaRectAngle(inner_points) * PI / 180.0;
-			}
-		}
+						}
+				}
 
 		// quaternion for rotation stored in bounding box
 		double halfYaw = rz * 0.5;  
@@ -792,7 +755,9 @@ void euclidean_clustering::clusterAndColor(
 		out_cloud_ptr->insert(out_cloud_ptr->end(), current_cluster->begin(), current_cluster->end());
 		j++; k++;
 	}
+
 }
+
 
 /**
  * Segments the cloud into categories representing distance ranges from the origin
@@ -804,7 +769,7 @@ void euclidean_clustering::clusterAndColor(
  * in_max_cluster_distance: distance threshold
  */
 void euclidean_clustering::segmentByDistance(
-	const PointCloud in_cloud_ptr,
+	PointCloud in_cloud_ptr,
 	int cloud_size,
 	PointCloudRGB *out_cloud_ptr,
 	BoundingboxArray *in_out_boundingbox_array,
@@ -823,28 +788,28 @@ void euclidean_clustering::segmentByDistance(
 		current_point.z = (in_cloud_ptr)[i].z;
 		float origin_distance = sqrt( pow(current_point.x,2) + pow(current_point.y,2) );
 		if (origin_distance < 15 ) {
-			segment_index[i] = 0; segment_size[0]++;
+			segment_index[i] = 0; segment_size[0]++; 
 		}
 		else if(origin_distance < 30) {
 			segment_index[i] = 1; segment_size[1]++;
-		}
+		} 
 		else if(origin_distance < 45) {
-			segment_index[i] = 2; segment_size[2]++;
+			segment_index[i] = 2; segment_size[2]++; 
 		}
 		else if(origin_distance < 60) {
 			segment_index[i] = 3; segment_size[3]++;
 		}
 		else {
-			segment_index[i] = 4; segment_size[4]++;
+			segment_index[i] = 4; segment_size[4]++; 
 		}
 	}
 	// now resort the point cloud array and get rid of the segment_index array
-	int current_segment_pos[5] = {
+	int current_segment_pos[5] = { 
 		0,
-		segment_size[0],
-		segment_size[0]+segment_size[1],
+		segment_size[0], 
+		segment_size[0]+segment_size[1], 
 		segment_size[0]+segment_size[1]+segment_size[2],
-		segment_size[0]+segment_size[1]+segment_size[2]+segment_size[3]
+		segment_size[0]+segment_size[1]+segment_size[2]+segment_size[3] 
 	};
 	//	cloud_segments_array[4] = in_cloud_ptr + current_segment_pos[4];
 	for (int segment = 0; segment < 5; segment++) // find points belonging into each segment
@@ -856,7 +821,7 @@ void euclidean_clustering::segmentByDistance(
 			{
 				Point swap_tmp = in_cloud_ptr[current_segment_pos[segment]];
 				in_cloud_ptr[current_segment_pos[segment]] = in_cloud_ptr[i];
-				in_cloud_ptr[i] = swap_tmp;
+				in_cloud_ptr[i] = swap_tmp;		   
 				segment_index[i] = segment_index[current_segment_pos[segment]];
 				segment_index[current_segment_pos[segment]] = segment;
 				current_segment_pos[segment]++;
@@ -871,11 +836,14 @@ void euclidean_clustering::segmentByDistance(
 	}
 }
 
+/**
+ * Reads the next point cloud.
+ */
 void parsePointCloud(std::ifstream& input_file, PointCloud *cloud, int *cloud_size)
 {
 	input_file.read((char*)(cloud_size), sizeof(int));
+	*cloud = (PointCloud) omp_target_alloc((*cloud_size) * sizeof(Point), 0);
 
-	*cloud = (PointCloud) omp_target_alloc(sizeof(Point) * (*cloud_size), 0);
 	try {
 		for (int i = 0; i < *cloud_size; i++)
 		{
@@ -961,6 +929,7 @@ void parseCentroids(std::ifstream& input_file, Centroid *centroids)
 	}
 }
 
+
 int euclidean_clustering::read_next_testcases(int count)
 {
 	int i;
@@ -990,8 +959,9 @@ int euclidean_clustering::read_next_testcases(int count)
 		}
 	}
 
-	return i;	
+	return i;
 }
+
 
 void euclidean_clustering::init() {
 	std::cout << "init\n";
@@ -1029,25 +999,30 @@ void euclidean_clustering::init() {
 }
 
 void euclidean_clustering::run(int p) {
-  pause_func();
-  
-  while (read_testcases < testcases)
-    {
-      int count = read_next_testcases(p);
-      unpause_func();
-      for (int i = 0; i < count; i++)
-	  {
-	      // actual kernel invocation
-	      segmentByDistance(in_cloud_ptr[i],
-			        cloud_size[i],
-				&out_cloud_ptr[i],
-				&out_boundingbox_array[i],
-				&out_centroids[i]);
-	  }
-      pause_func();
-      check_next_outputs(count);
-    }
+	// prepare reading the first testcases
+	pause_func();
+	
+	while (read_testcases < testcases)
+	{
+		// read the next input data
+		int count = read_next_testcases(p);
+		// execute the algorithm
+		unpause_func();
+		for (int i = 0; i < count; i++)
+		{
+			// actual kernel invocation
+			segmentByDistance(in_cloud_ptr[i],
+					cloud_size[i],
+					&out_cloud_ptr[i],
+					&out_boundingbox_array[i],
+					&out_centroids[i]);
+		}
+		// pause the timer, then read and compare with the reference data
+		pause_func();
+		check_next_outputs(count);
+	}
 }
+
 
 /**
  * Helper function for point comparison
