@@ -563,6 +563,22 @@ int radiusSearch(
     return indices.size();
 }
 
+void parallelRadiusSearch(
+	const int* queue, int start_index, int search_points, bool* indices,
+	const bool* sqr_distances, int cloud_size
+){
+	for(int i=0; i < cloud_size; ++i){
+		bool found = false;
+		for(int seed_point_index = start_index; seed_point_index < search_points; ++seed_point_index){
+			int array_index = queue[seed_point_index] * cloud_size + i;
+			if( (i == queue[seed_point_index]) || sqr_distances[array_index] ){
+				found = true;
+			}
+		}
+		indices[i] = found;
+	}
+}
+
 /**
  * Finds all clusters in the given point cloud that are conformant to the given parameters.
  * cloud: point cloud to cluster
@@ -585,10 +601,11 @@ void extractEuclideanClusters (
 	for(int i = 0; i < cloud_size; ++i){
 		processed[i] = false;
 	}
-	std::vector<int> nn_indices;
+	bool* nn_indices = (bool*) omp_target_alloc(cloud_size * sizeof(bool), 0);
 	// compute the pairwise distance matrix
 	bool *sqr_distances;
 	initRadiusSearch(cloud, &sqr_distances, tolerance);
+	int* seed_queue = (int*) omp_target_alloc(cloud_size * sizeof(int), 0);
 	// process all points
 	for (int i = 0; i < cloud.size(); ++i)
 	{
@@ -596,40 +613,41 @@ void extractEuclideanClusters (
 		if (processed[i])
 			continue;
 		// begin with a cluster of one element
-		std::vector<int> seed_queue;
-		int sq_idx = 0;
-		seed_queue.push_back (i);
+		int queue_last_element = 0;
+		seed_queue[queue_last_element++] = i;
 		processed[i] = true;
+		int new_elements = 1;
 		// grow the candidate cluster
-		while (sq_idx < seed_queue.size())
+		while (new_elements > 0)
 		{
 			// add near points to the candidate and mark them as processed
-			int ret = radiusSearch(seed_queue[sq_idx], nn_indices, sqr_distances, processed, cloud.size());
-			if (!ret)
+			parallelRadiusSearch(seed_queue, queue_last_element - new_elements, queue_last_element, nn_indices, sqr_distances, cloud_size);
+			for (size_t j = 0; j < cloud_size; ++j)
 			{
-				sq_idx++;
-				continue;
+				if (nn_indices[j] == false)
+					continue;
+				if (processed[j])
+					continue;
+				seed_queue[queue_last_element++] = j;
+				processed[j] = true;
+				new_elements++;
 			}
-			for (size_t j = nn_start_idx; j < nn_indices.size (); ++j)
-			{
-				seed_queue.push_back (nn_indices[j]);
-				processed[nn_indices[j]] = true;
-			}
-			sq_idx++;
 		}
 
 		// finally add the candidate if it is of satisfactory size
-		if (seed_queue.size () >= min_pts_per_cluster && seed_queue.size () <= max_pts_per_cluster)
+		if (queue_last_element >= min_pts_per_cluster && queue_last_element <= max_pts_per_cluster)
 		{
 			PointIndices r;
-			r.indices.resize (seed_queue.size ());
-			for (size_t j = 0; j < seed_queue.size (); ++j)
+			r.indices.resize (queue_last_element);
+			for (size_t j = 0; j < queue_last_element; ++j)
 			r.indices[j] = seed_queue[j];
 			std::sort (r.indices.begin (), r.indices.end ());
 			clusters.push_back (r);   // We could avoid a copy by working directly in the vector
 		}
 	}
 	omp_target_free(sqr_distances, 0);
+	omp_target_free(nn_indices, 0);
+	omp_target_free(seed_queue, 0)
 	free(processed);
 }
 
