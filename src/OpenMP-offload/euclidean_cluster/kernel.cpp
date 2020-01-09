@@ -514,12 +514,11 @@ float minAreaRectAngle(std::vector<Point2D>& points)
 void initRadiusSearch(const std::vector<Point> &points, bool**  sqr_distances, const double radius)
 {
 	int n = points.size();
-	*sqr_distances = (bool*) malloc(n * n * sizeof(bool));
+	*sqr_distances = (bool*) omp_target_alloc(n * n * sizeof(bool), 0);
 	bool *dist = *sqr_distances;
 	const Point* p = points.data();
 	float sqr_radius = radius * radius;
-        #pragma omp target teams distribute parallel for simd map(to:p[0:n], n, sqr_radius) map(from:dist[0:n*n])
-	//#pragma omp parallel for default(none) shared(points, sqr_distances, n, sqr_radius) schedule(dynamic)
+	#pragma omp target teams distribute parallel for simd map(to:p[0:n], n, sqr_radius) is_device_ptr(dist)
 	for (int j = 0; j < n; j++){
 		for (int i = 0; i < n; i++){
 			float dx = p[i].x - p[j].x;
@@ -630,7 +629,7 @@ void extractEuclideanClusters (
 			clusters.push_back (r);   // We could avoid a copy by working directly in the vector
 		}
 	}
-	free(sqr_distances);
+	omp_target_free(sqr_distances, 0);
 	free(processed);
 }
 
