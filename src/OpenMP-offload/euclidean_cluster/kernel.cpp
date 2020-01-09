@@ -514,18 +514,19 @@ float minAreaRectAngle(std::vector<Point2D>& points)
 void initRadiusSearch(const std::vector<Point> &points, bool**  sqr_distances, const double radius)
 {
 	int n = points.size();
-	*sqr_distances = (bool*) omp_target_alloc(n * n * sizeof(bool), 0);
+	int aligned_length = n + (16-n%16);
+	*sqr_distances = (bool*) omp_target_alloc(n * aligned_length * sizeof(bool), 0);
 	bool *dist = *sqr_distances;
 	const Point* p = points.data();
 	float sqr_radius = radius * radius;
-	#pragma omp target teams distribute parallel for simd map(to:p[0:n], n, sqr_radius) is_device_ptr(dist)
+	#pragma omp target teams distribute parallel for simd map(to:p[0:n]) is_device_ptr(dist)
 	for (int j = 0; j < n; j++){
 		for (int i = 0; i < n; i++){
 			float dx = p[i].x - p[j].x;
 			float dy = p[i].y - p[j].y;
 			float dz = p[i].z - p[j].z;
 			float sqr_dist = dx*dx + dy*dy + dz*dz;
-			dist[j*n+i] = sqr_dist <= sqr_radius;
+			dist[i*aligned_length+j] = sqr_dist <= sqr_radius;
 		}
 	}
 }
@@ -567,13 +568,13 @@ void parallelRadiusSearch(
 	const int* queue, int start_index, int search_points, bool* indices,
 	const bool* sqr_distances, int cloud_size
 ){
+	int aligned_length = cloud_size + (16-cloud_size%16);
         #pragma omp target teams distribute parallel for simd \
-	is_device_ptr(queue, indices, sqr_distances) \
-	map(to: start_index, search_points, cloud_size)
+	is_device_ptr(queue, indices, sqr_distances) 
 	for(int i=0; i < cloud_size; ++i){
 		bool found = false;
 		for(int seed_point_index = start_index; seed_point_index < search_points; ++seed_point_index){
-			int array_index = queue[seed_point_index] * cloud_size + i;
+			int array_index = queue[seed_point_index] * aligned_length + i;
 			if( (i == queue[seed_point_index]) || sqr_distances[array_index] ){
 				found = true;
 			}
