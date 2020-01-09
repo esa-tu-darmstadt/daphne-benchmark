@@ -567,6 +567,9 @@ void parallelRadiusSearch(
 	const int* queue, int start_index, int search_points, bool* indices,
 	const bool* sqr_distances, int cloud_size
 ){
+        #pragma omp target teams distribute parallel for simd \
+	is_device_ptr(queue, indices, sqr_distances) \
+	map(to: start_index, search_points, cloud_size)
 	for(int i=0; i < cloud_size; ++i){
 		bool found = false;
 		for(int seed_point_index = start_index; seed_point_index < search_points; ++seed_point_index){
@@ -622,6 +625,7 @@ void extractEuclideanClusters (
 		{
 			// add near points to the candidate and mark them as processed
 			parallelRadiusSearch(seed_queue, queue_last_element - new_elements, queue_last_element, nn_indices, sqr_distances, cloud_size);
+			new_elements = 0;
 			for (size_t j = 0; j < cloud_size; ++j)
 			{
 				if (nn_indices[j] == false)
@@ -647,7 +651,7 @@ void extractEuclideanClusters (
 	}
 	omp_target_free(sqr_distances, 0);
 	omp_target_free(nn_indices, 0);
-	omp_target_free(seed_queue, 0)
+	omp_target_free(seed_queue, 0);
 	free(processed);
 }
 
