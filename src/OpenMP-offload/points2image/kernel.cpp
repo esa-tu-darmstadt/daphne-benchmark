@@ -94,7 +94,7 @@ void  parsePointCloud(std::ifstream& input_file, PointCloud2* pointcloud2) {
 		input_file.read((char*)&(pointcloud2->width), sizeof(int32_t));
 		input_file.read((char*)&(pointcloud2->point_step), sizeof(uint32_t));
 		pointcloud2->data = 
-		    omp_target_alloc(pointcloud2->height * pointcloud2->width * pointcloud2->point_step * sizeof(float), 0);
+		    (float*) omp_target_alloc(pointcloud2->height * pointcloud2->width * pointcloud2->point_step * sizeof(float), 0);
 		input_file.read((char*)pointcloud2->data, pointcloud2->height * pointcloud2->width * pointcloud2->point_step);
 	}  catch (std::ifstream::failure) {
 		throw std::ios_base::failure("Error reading the next point cloud.");
@@ -183,7 +183,7 @@ int points2image::read_next_testcases(int count)
 	// and allocate new for the currently required data sizes
 	if (pointcloud2)
 		for (int m = 0; m < count; ++m)
-			delete [] pointcloud2[m].data;
+			omp_target_free(pointcloud2[m].data, 0);
 	delete [] pointcloud2;
 	pointcloud2 = new PointCloud2[count];
 	delete [] cameraExtrinsicMat;
@@ -333,8 +333,8 @@ PointsImage pointcloud2_to_image(
 	// various data sizes in bytes
 	int sizeMat = pointcloud2.width * pointcloud2.height;
 	int sizeMaxCp = pointcloud2.height * pointcloud2.width * pointcloud2.point_step;
-	double* distanceArr = omp_target_alloc(sizeMat * sizeof(double), 0);
-	Point2d* imagePointArr = omp_target_alloc(sizeMat * sizeof(Point2d), 0);
+	double* distanceArr = (double*) omp_target_alloc(sizeMat * sizeof(double), 0);
+	Point2d* imagePointArr = (Point2d*) omp_target_alloc(sizeMat * sizeof(Point2d), 0);
 	int cloudHeight = pointcloud2.height;
 	int cloudWidth = pointcloud2.width;
 	int cloudStepSize = pointcloud2.point_step;
