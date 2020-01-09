@@ -542,9 +542,14 @@ void parallelRadiusSearch(
 	for(int i=0; i < cloud_size; ++i){
 		bool found = false;
 		for(int seed_point_index = start_index; seed_point_index < search_points; ++seed_point_index){
-			int array_index = queue[seed_point_index] * aligned_length + i;
-			if( (i == queue[seed_point_index]) || sqr_distances[array_index] ){
-				found = true;
+			if(i == queue[seed_point_index]){
+				found = true
+			}
+			else {
+				int array_index = queue[seed_point_index] * aligned_length + i;
+				if(sqr_distances[array_index]){
+					found = true;
+				}
 			}
 		}
 		indices[i] = found;
