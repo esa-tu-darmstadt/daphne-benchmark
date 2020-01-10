@@ -149,6 +149,7 @@ int voxelDimension[3];
 PointXYZI minVoxel;
 PointXYZI maxVoxel;
 const float resolution_ = 1.0;
+#pragma omp declare target link(voxelDimension, minVoxel, resolution)
 
 int ndt_mapping::read_number_testcases(std::ifstream& input_file)
 {
@@ -263,31 +264,20 @@ int ndt_mapping::read_next_testcases(int count)
 }
 
 
-inline int ndt_mapping::linearizeAddr(const int x, const int y, const int z)
+#pragma omp declare target
+int ndt_mapping::linearizeAddr(const int x, const int y, const int z)
 {
 	return  (x + voxelDimension[0] * (y + voxelDimension[1] * z));
 }
 
-int linearizeAddr(const int x, const int y, const int z)
-{
-	return  (x + voxelDimension[0] * (y + voxelDimension[1] * z));
-}
-
-int linearizeCoord(const float x, const float y, const float z)
+int ndt_mapping::linearizeCoord(const float x, const float y, const float z)
 {
 	int idx_x = (x - minVoxel.data[0]) / resolution_;
 	int idx_y = (y - minVoxel.data[1]) / resolution_;
 	int idx_z = (z - minVoxel.data[2]) / resolution_;
 	return linearizeAddr(idx_x, idx_y, idx_z);
 }
-
-inline int ndt_mapping::linearizeCoord(const float x, const float y, const float z)
-{
-	int idx_x = (x - minVoxel.data[0]) / resolution_;
-	int idx_y = (y - minVoxel.data[1]) / resolution_;
-	int idx_z = (z - minVoxel.data[2]) / resolution_;
-	return linearizeAddr(idx_x, idx_y, idx_z);
-}
+#pragma omp end declare target
 
 int ndt_mapping::voxelRadiusSearch(VoxelGrid &grid, const PointXYZI& point, double radius,
 	std::vector<Voxel> & indices,
@@ -1319,6 +1309,7 @@ void ndt_mapping::computeTransformation(PointCloud &output, const Matrix4f &gues
 	trans_probability_ = score / static_cast<double> (input_->size ());
 }
 
+#pragma omp declare target
 /**
  * Helper function for simple matrix inversion using the determinant
  */
@@ -1346,6 +1337,7 @@ void invertMatrix(Mat33 &m)
 		for (int col = 0; col < 3; col++)
 			m.data[row][col] = temp.data[row][col] * invDet;
 }
+#pragma omp end declare target
 
 /**
  * Scatters the point cloud onto the voxel grid. Updates cell properties.
@@ -1355,6 +1347,9 @@ void invertMatrix(Mat33 &m)
  */
 void initComputeStep1(PointCloudArray target_, Voxel *target_cells_, int size)
 {
+	#pragma omp target teams distribute parallel for \
+		is_device_ptr(target_, target_cells_) \
+		map(to: voxelDimension, resolution, minVoxel)
 	for(int id=0; id < size; ++id){
 		int voxelIndex = linearizeCoord( (target_)[id].data[0], (target_)[id].data[1], (target_)[id].data[2]);
 		// sum of points
@@ -1384,6 +1379,8 @@ void initComputeStep1(PointCloudArray target_, Voxel *target_cells_, int size)
  */
 void initComputeStep2(Voxel *target_cells_, int size)
 {
+	#pragma omp target teams distribute parallel for \
+		is_device_ptr(target_cells_)
 	for(int id = 0; id < size; ++id){
 		// average the sum of points
 		Vec3 pointSum = {target_cells_[id].mean[0], target_cells_[id].mean[1], target_cells_[id].mean[2]};
