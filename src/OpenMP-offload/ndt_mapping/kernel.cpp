@@ -149,7 +149,7 @@ int voxelDimension[3];
 PointXYZI minVoxel;
 PointXYZI maxVoxel;
 const float resolution_ = 1.0;
-#pragma omp declare target link(voxelDimension, minVoxel, resolution_)
+//#pragma omp declare target link(voxelDimension, minVoxel, resolution_)
 
 int ndt_mapping::read_number_testcases(std::ifstream& input_file)
 {
@@ -265,17 +265,18 @@ int ndt_mapping::read_next_testcases(int count)
 
 
 #pragma omp declare target
-int ndt_mapping::linearizeAddr(const int x, const int y, const int z)
+int ndt_mapping::linearizeAddr(const int x, const int y, const int z, int voxelDim0, int voxelDim1)
 {
-	return  (x + voxelDimension[0] * (y + voxelDimension[1] * z));
+	return  (x + voxelDim0 * (y + voxelDim1 * z));
 }
 
-int ndt_mapping::linearizeCoord(const float x, const float y, const float z)
+int ndt_mapping::linearizeCoord(const float x, const float y, const float z, int voxelDim0, int voxelDim1, 
+	float min0, float min1, float min2, float resolution)
 {
-	int idx_x = (x - minVoxel.data[0]) / resolution_;
-	int idx_y = (y - minVoxel.data[1]) / resolution_;
-	int idx_z = (z - minVoxel.data[2]) / resolution_;
-	return linearizeAddr(idx_x, idx_y, idx_z);
+	int idx_x = (x - min0) / resolution;
+	int idx_y = (y - min1) / resolution;
+	int idx_z = (z - min2) / resolution;
+	return linearizeAddr(idx_x, idx_y, idx_z, voxelDim0, voxelDim1);
 }
 #pragma omp end declare target
 
@@ -1360,11 +1361,17 @@ void invertMatrix(Mat33 &m)
  */
 void initComputeStep1(PointCloudArray target_, Voxel *target_cells_, int size)
 {
+	int voxelDim0 = voxelDimension[0];
+	int voxelDim1 = voxelDimension[1];
+	float min0 = minVoxel.data[0];
+	float min1 = minVoxel.data[1];
+	float min2 = minVoxel.data[2];
+	float resolution = _resolution;
 	#pragma omp target teams distribute parallel for \
-		is_device_ptr(target_, target_cells_) \
-		map(to: voxelDimension, resolution_, minVoxel)
+		is_device_ptr(target_, target_cells_)
 	for(int id=0; id < size; ++id){
-		int voxelIndex = linearizeCoord( (target_)[id].data[0], (target_)[id].data[1], (target_)[id].data[2]);
+		int voxelIndex = linearizeCoord( (target_)[id].data[0], (target_)[id].data[1], (target_)[id].data[2],
+		voxelDim0, voxelDim1, min0, min1, min2, resolution);
 		// sum of points
 		// number of points remembered for later normalization
 		#pragma omp atomic update
