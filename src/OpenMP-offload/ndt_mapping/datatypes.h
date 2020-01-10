@@ -4,10 +4,11 @@
  * License: Apache 2.0 (see attachached File)
  */
 #ifndef DATATYPES_H
-#define DATATXPES_H
+#define DATATYPES_H
 
 #include <vector>
 
+// 3d euclidean point with intensity
 typedef struct PointXYZI {
     float data[4];
 } PointXYZI;
@@ -47,6 +48,7 @@ typedef struct Point4d {
 
 typedef std::vector<PointXYZI> PointCloudSource;
 typedef PointCloudSource PointCloud;
+typedef PointXYZI *PointCloudArray;
 
 typedef struct CallbackResult {
     bool converged;
@@ -54,25 +56,21 @@ typedef struct CallbackResult {
     double fitness_score;
 } CallbackResult;
 
-/*typedef struct Voxel {
+typedef struct Voxel {
     Mat33 invCovariance;
     Vec3 mean;
     int numberPoints;
     int voxel_x;
     int voxel_y;
     int voxel_z;
-} Voxel;*/
-typedef struct Voxel {
-	Mat33 invCovariance;
-	Vec3 mean;
-	int point;
 } Voxel;
 
-typedef std::vector<Voxel> VoxelGrid;
+
+typedef Voxel* VoxelGrid;
 
 Matrix4f Matrix4f_Identity = {
-	{{1.0, 0.0, 0.0, 0.0}, 
-	 {0.0, 1.0, 0.0, 0.0}, 
+	{{1.0, 0.0, 0.0, 0.0},
+	 {0.0, 1.0, 0.0, 0.0},
 	 {0.0, 0.0, 1.0, 0.0},
 	 {0.0, 0.0, 0.0, 1.0}}
 };
