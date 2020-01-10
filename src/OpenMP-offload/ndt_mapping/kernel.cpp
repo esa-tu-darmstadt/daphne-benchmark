@@ -96,11 +96,13 @@ protected:
 	/**
 	 * Reduces a multi dimensional voxel grid index to one dimension.
 	 */
-	inline int linearizeAddr(const int x, const int y, const int z);
+	inline int linearizeAddr(const int x, const int y, const int z, int voxelDim0, int voxelDim1);
 	/**
 	 * Reduces a coordinate to a voxel grid index.
 	 */
-	inline int linearizeCoord(const float x, const float y, const float z);
+	inline int linearizeCoord(const float x, const float y, const float z, int voxelDim0, int voxelDim1, 
+		float min0, float min1, float min2, float resolution);
+
 	double updateDerivatives (Vec6 &score_gradient,
 						Mat66 &hessian,
 						Vec3 &x_trans, Mat33 &c_inv,
