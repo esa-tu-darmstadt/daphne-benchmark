@@ -282,17 +282,18 @@ int ndt_mapping::linearizeCoord(const float x, const float y, const float z, int
 }
 #pragma omp end declare target
 
-int linearizeAddr(const int x, const int y, const int z)
+int linearizeAddr(const int x, const int y, const int z, int voxelDim0, int voxelDim1)
 {
-	return  (x + voxelDimension[0] * (y + voxelDimension[1] * z));
+	return  (x + voxelDim0 * (y + voxelDim1 * z));
 }
 
-int linearizeCoord(const float x, const float y, const float z)
+int linearizeCoord(const float x, const float y, const float z, int voxelDim0, int voxelDim1, 
+	float min0, float min1, float min2, float resolution)
 {
-	int idx_x = (x - minVoxel.data[0]) / resolution_;
-	int idx_y = (y - minVoxel.data[1]) / resolution_;
-	int idx_z = (z - minVoxel.data[2]) / resolution_;
-	return linearizeAddr(idx_x, idx_y, idx_z);
+	int idx_x = (x - min0) / resolution;
+	int idx_y = (y - min1) / resolution;
+	int idx_z = (z - min2) / resolution;
+	return linearizeAddr(idx_x, idx_y, idx_z, voxelDim0, voxelDim1);
 }
 
 int ndt_mapping::voxelRadiusSearch(VoxelGrid &grid, const PointXYZI& point, double radius,
@@ -320,7 +321,8 @@ int ndt_mapping::voxelRadiusSearch(VoxelGrid &grid, const PointXYZI& point, doub
 					continue;
 				}
 				// determine the distance to the voxel mean
-				int idx =  linearizeCoord(x, y, z);
+				int idx =  linearizeCoord(x, y, z, voxelDimension[0], voxelDimension[1], minVoxel.data[0], minVoxel.data[1],
+						minVoxel.data[2], resolution_);
 				Vec3 &c =  grid[idx].mean;
 				float dx = c[0] - point.data[0];
 				float dy = c[1] - point.data[1];
@@ -1368,7 +1370,7 @@ void initComputeStep1(PointCloudArray target_, Voxel *target_cells_, int size)
 	float min0 = minVoxel.data[0];
 	float min1 = minVoxel.data[1];
 	float min2 = minVoxel.data[2];
-	float resolution = _resolution;
+	float resolution = resolution_;
 	#pragma omp target teams distribute parallel for \
 		is_device_ptr(target_, target_cells_)
 	for(int id=0; id < size; ++id){
