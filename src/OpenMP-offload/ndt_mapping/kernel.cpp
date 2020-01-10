@@ -27,6 +27,7 @@
 #include <limits>
 #include <cstring>
 #include <chrono>
+#include <omp.h>
 
 // maximum allowed deviation from the reference
 #define MAX_TRANSLATION_EPS 0.001
@@ -188,7 +189,7 @@ void  parseFilteredScan(std::ifstream& input_file, PointCloud* pointcloud) {
 void  parseMaps(std::ifstream& input_file, PointCloudArray *pointcloud, int *size) {
 	try {
 		input_file.read((char*)size, sizeof(int));
-		*pointcloud = omp_target_alloc(*size * sizeof(PointXYZI), 0);
+		*pointcloud = (PointCloudArray) omp_target_alloc(*size * sizeof(PointXYZI), 0);
 		for (int i = 0; i < (*size); i++)
 		{
 			PointXYZI p;
@@ -1365,7 +1366,7 @@ void initComputeStep1(PointCloudArray target_, Voxel *target_cells_, int size)
 		#pragma omp atomic update
 		target_cells_[voxelIndex].mean[2] += (double) target_[id].data[2];
 		#pragma omp atomic update
-		target_cells_[voxelIndex].numberPoints += 1
+		target_cells_[voxelIndex].numberPoints += 1;
 		// sum up x * xT for single pass covariance calculation
 		for (int row = 0; row < 3; row ++){
 			for (int col = 0; col < 3; col ++){
@@ -1383,7 +1384,7 @@ void initComputeStep1(PointCloudArray target_, Voxel *target_cells_, int size)
  */
 void initComputeStep2(Voxel *target_cells_, int size)
 {
-	for(int id = 0; i < size; ++id){
+	for(int id = 0; id < size; ++id){
 		// average the sum of points
 		Vec3 pointSum = {target_cells_[id].mean[0], target_cells_[id].mean[1], target_cells_[id].mean[2]};
 		target_cells_[id].mean[0] /= target_cells_[id].numberPoints;
