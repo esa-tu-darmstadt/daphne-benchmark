@@ -46,7 +46,10 @@ void points2image::init() {
 		std::cerr << e.what() << std::endl;
 		exit(-3);
 	}
-	
+#ifdef EPHOS_TESTCASE_LIMIT
+	testcases = std::min(testcases, (uint32_t)EPHOS_TESTCASE_LIMIT);
+#endif
+	std::cout << "Executing for " << testcases << " test cases" << std::endl;
 	// prepare the first iteration
 	error_so_far = false;
 	max_delta = 0.0;
@@ -59,7 +62,6 @@ void points2image::init() {
 
 	std::cout << "done\n" << std::endl;
 }
-
 void points2image::run(int p) {
 	// do not measure setup time
 	pause_func();
@@ -109,13 +111,8 @@ void points2image::run(int p) {
 		// Set kernel parameters & launch NDRange kernel
 		for (int i = 0; i < count; i++)
 		{
-			// Prepare inputs buffers
-			size_t pointNo = pointcloud2[i].height * pointcloud2[i].width * pointcloud2[i].point_step;
-			size_t cloudSize = pointNo * sizeof(float);
-			cl_mem cloudBuffer = clCreateBuffer(OCL_objs.context, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, cloudSize, NULL, &err);
-			// write cloud input to buffer
-			err = clEnqueueWriteBuffer(OCL_objs.cmdqueue, cloudBuffer, CL_FALSE, 0, cloudSize, pointcloud2[i].data, 0, nullptr, nullptr);
-			// Prepare outputs buffers
+
+			// Prepare outputs data structures
 			size_t imagePixelNo = imageSize[i].height*imageSize[i].width;
 			// Allocate space in host to store results comming from GPU
 			// These will be freed in read_next_testcases()
@@ -127,119 +124,113 @@ void points2image::run(int p) {
 			std::memset(results[i].min_height, 0, sizeof(float)*imagePixelNo);
 			results[i].max_height = new float[imagePixelNo];
 			std::memset(results[i].max_height, 0, sizeof(float)*imagePixelNo);
-			// Creating zero-copy buffers for pids data
-			cl_mem pixelIdBuffer = clCreateBuffer(OCL_objs.context, CL_MEM_WRITE_ONLY, pointcloud2[i].width * sizeof(int),   nullptr, &err);
-			cl_mem depthBuffer = clCreateBuffer(OCL_objs.context, CL_MEM_WRITE_ONLY, pointcloud2[i].width * sizeof(float), nullptr, &err);
-			cl_mem intensityBuffer = clCreateBuffer(OCL_objs.context, CL_MEM_WRITE_ONLY, pointcloud2[i].width * sizeof(float), nullptr, &err);
+			results[i].max_y        = -1;
+			results[i].min_y        = imageSize[i].height;
+			results[i].image_height = imageSize[i].height;
+			results[i].image_width  = imageSize[i].width;
+			// prepare inputs buffers
+			size_t pointNo = pointcloud2[i].height*pointcloud2[i].width;
+			size_t cloudSize = pointNo*pointcloud2[i].point_step*sizeof(float);
+			cl_mem cloudBuffer = clCreateBuffer(OCL_objs.context, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, cloudSize, NULL, &err);
+			// write cloud input to buffer
+			err = clEnqueueWriteBuffer(OCL_objs.cmdqueue, cloudBuffer, CL_FALSE, 0, cloudSize, pointcloud2[i].data, 0, nullptr, nullptr);
+			// prepare output buffers
+			cl_mem arrivingPixelBuffer = clCreateBuffer(OCL_objs.context, CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY, pointNo*sizeof(PixelData), nullptr, &err);
 			cl_mem counterBuffer = clCreateBuffer(OCL_objs.context, CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, sizeof(int), nullptr, &err);
-			// Set kernel parameters
-			err = clSetKernelArg (points2imageKernel, 0, sizeof(int),       &pointcloud2[i].height);
-			err = clSetKernelArg (points2imageKernel, 1, sizeof(int),       &pointcloud2[i].width);
-			err = clSetKernelArg (points2imageKernel, 2, sizeof(int),       &pointcloud2[i].point_step);
-			err = clSetKernelArg (points2imageKernel, 3, sizeof(cl_mem),    &cloudBuffer);
-			// prepare matrices
-			Mat44 tmpCameraExtrinsic;
-			Mat33 tmpCameraMat;
-			Vec5  tmpDistCoeff;
-
-			for (uint p=0; p<4; p++){
-				for (uint q=0; q<4; q++) {
-					tmpCameraExtrinsic.data[p][q] = cameraExtrinsicMat[i].data[p][q];
+			// transformation info for kernel
+			double (*c)[4] = &cameraExtrinsicMat[i].data[0];
+			TransformInfo transformInfo {
+				{ 0.0, 0.0, 0.0, // initial rotation
+				  0.0, 0.0, 0.0,
+				  0.0, 0.0, 0.0 },
+				{ 0.0, 0.0, 0.0 }, // initial translation
+				{ cameraMat[i].data[0][0], cameraMat[i].data[1][1] }, // camera scale
+				{ cameraMat[i].data[0][2] + 0.5, cameraMat[i].data[1][2] + 0.5}, // camera offset
+				{ distCoeff[i].data[0], // distortion coefficients
+				  distCoeff[i].data[1],
+				  distCoeff[i].data[2],
+				  distCoeff[i].data[3],
+				  distCoeff[i].data[4] },
+				{ imageSize[i].width, imageSize[i].height }, // image size
+				pointcloud2[i].width*pointcloud2[i].height, // cloud point number
+				(int)(pointcloud2[i].point_step/sizeof(float)) // cloud point step
+			};
+			// calculate initial rotation and translation
+			for (int row = 0; row < 3; row++) {
+				for (int col = 0; col < 3; col++) {
+					transformInfo.initRotation[row][col] = c[col][row];
+					transformInfo.initTranslation[row] -= transformInfo.initRotation[row][col]*c[col][3];
 				}
 			}
-			for (uint p=0; p<3; p++){
-				for (uint q=0; q<3; q++) {
-					tmpCameraMat.data[p][q] = cameraMat[i].data[p][q];
-				}
-			}
-			for (uint p=0; p<5; p++){
-				tmpDistCoeff.data[p] = distCoeff[i].data[p];
-			}
-
-			err = clSetKernelArg (points2imageKernel, 4,  sizeof(Mat44),  &tmpCameraExtrinsic);
-			err = clSetKernelArg (points2imageKernel, 5,  sizeof(Mat33),  &tmpCameraMat);
-			err = clSetKernelArg (points2imageKernel, 6,  sizeof(Vec5),   &tmpDistCoeff);
-
-			err = clSetKernelArg (points2imageKernel, 7,  sizeof(ImageSize), &imageSize[i]);
-			err = clSetKernelArg (points2imageKernel, 8,  sizeof(cl_mem), &pixelIdBuffer);
-			err = clSetKernelArg (points2imageKernel, 9, sizeof(cl_mem), &depthBuffer);
-			err = clSetKernelArg (points2imageKernel, 10, sizeof(cl_mem), &intensityBuffer);
-			err = clSetKernelArg (points2imageKernel, 11, sizeof(cl_mem), &counterBuffer);
-			err = clSetKernelArg(points2imageKernel, 12, sizeof(int), nullptr);
-			err = clSetKernelArg(points2imageKernel, 13, sizeof(int), nullptr);
+			// set kernel parameters
+			err = clSetKernelArg (points2imageKernel, 0, sizeof(TransformInfo),       &transformInfo);
+			err = clSetKernelArg (points2imageKernel, 1, sizeof(cl_mem),    &cloudBuffer);
+			err = clSetKernelArg(points2imageKernel, 2, sizeof(cl_mem), &arrivingPixelBuffer);
+			err = clSetKernelArg (points2imageKernel, 3, sizeof(cl_mem), &counterBuffer);
+			err = clSetKernelArg(points2imageKernel, 4, sizeof(int), nullptr);
+			err = clSetKernelArg(points2imageKernel, 5, sizeof(int), nullptr);
 			// initializing arriving point number
 			int zero = 0;
 			err = clEnqueueWriteBuffer(OCL_objs.cmdqueue, counterBuffer, CL_FALSE,
 				0, sizeof(int), &zero, 0, nullptr, nullptr);
-			// Launch kernel on device
+			// launch kernel on device
 			size_t localRange = NUMWORKITEMS_PER_WORKGROUP;
-			size_t globalRange = (pointcloud2[i].width/localRange + 1)*localRange;
+			size_t globalRange = (pointNo/localRange + 1)*localRange;
 			err = clEnqueueNDRangeKernel(OCL_objs.cmdqueue, points2imageKernel, 1,
 				nullptr,  &globalRange, &localRange, 0, nullptr, nullptr);
 
-			int arrivingPointNo;
+#ifdef EPHOS_KERNEL_ATOMICS
+			int arrivingPixelNo;
+			// read arriving pixel number from buffer
 			err = clEnqueueReadBuffer(OCL_objs.cmdqueue, counterBuffer, CL_TRUE,
-				0, sizeof(int), &arrivingPointNo, 0, nullptr, nullptr);
-			// move results to host memory
-			int* pixelIds = (int*) clEnqueueMapBuffer(OCL_objs.cmdqueue, pixelIdBuffer, 
-				CL_TRUE, CL_MAP_READ, 0, sizeof(int)*arrivingPointNo, 0, 0, nullptr, &err);
-			float* pointDepth = (float*) clEnqueueMapBuffer(OCL_objs.cmdqueue, depthBuffer,
-				CL_TRUE, CL_MAP_READ, 0, sizeof(float)*arrivingPointNo, 0, 0, nullptr, &err);
-			float* pointIntensity = (float*) clEnqueueMapBuffer(OCL_objs.cmdqueue, intensityBuffer,
-				CL_TRUE, CL_MAP_READ, 0, sizeof(float)*arrivingPointNo, 0, 0, nullptr, &err);
-			const int h          = imageSize[i].height;
-			const int pc2_height = pointcloud2[i].height;
-			const int pc2_width  = pointcloud2[i].width;
-			const int pc2_pstep  = pointcloud2[i].point_step;
-			results[i].max_y        = -1;
-			results[i].min_y        = h;
-			results[i].image_height = imageSize[i].height;
-			results[i].image_width  = imageSize[i].width;
-			uintptr_t cp = (uintptr_t)pointcloud2[i].data;
-			// transfer the transformation results into the image
-			for (unsigned int x = 0; x < arrivingPointNo; x++) {
-				int pid = pixelIds[x];
-				float tmpDepth = pointDepth[x] * 100;
-				float tmpDistance = results[i].distance[pid];
+				0, sizeof(int), &arrivingPixelNo, 0, nullptr, nullptr);
+#else // !EPHOS_KERNEL_ATOMICS
+			int arrivingPixelNo = pointNo;
+#endif // !EPHOS_KERNEL_ATOMICS
+			// process arriving pixels
+			PixelData* arrivingPixelStorage = (PixelData*)clEnqueueMapBuffer(OCL_objs.cmdqueue,
+				arrivingPixelBuffer, CL_TRUE, CL_MAP_READ, 0, sizeof(PixelData)*arrivingPixelNo, 0, 0, nullptr, &err);
 
-				bool cond1 = (tmpDistance == 0.0f);
-				bool cond2 = (tmpDistance >= tmpDepth);
-				if( cond1 || cond2 ) {
-					bool cond3 = (tmpDistance == tmpDepth);
-					bool cond4 = (results[i].intensity[pid] <  pointIntensity[x]);
-					bool cond5 = (tmpDistance >  tmpDepth);
-					bool cond6 = (tmpDistance == 0);
+			for (int j = 0; j < arrivingPixelNo; j++) {
+				if (arrivingPixelStorage[j].position[0] > -1) {
+					int iPixel = arrivingPixelStorage[j].position[1]*imageSize[i].width + arrivingPixelStorage[j].position[0];
+					float currentDepth = results[i].distance[iPixel];
+					float nextDepth = arrivingPixelStorage[j].depth*100.0f;
 
-					if ((cond3 && cond4) || cond5 || cond6) {
-						results[i].intensity[pid] = pointIntensity[x];
-					}
-					results[i].distance[pid]  = float(tmpDepth);
-					int pixelY = pid/imageSize[i].width;
-					if (results[i].max_y < pixelY) {
-						results[i].max_y = pixelY;
-					}
-					if (results[i].min_y > pixelY) {
-						results[i].min_y = pixelY;
+					if ((currentDepth == 0.0f) || (nextDepth <= currentDepth)) {
+						float currentIntensity = results[i].intensity[iPixel];
+						float nextIntensity = arrivingPixelStorage[j].intensity;
+						// update intensity
+						if ((currentDepth == nextDepth && nextIntensity > currentIntensity) ||
+							(nextDepth < currentDepth) ||
+							(currentDepth == 0)) {
+
+							results[i].intensity[iPixel] = nextIntensity;
+						}
+						// update depth
+						results[i].distance[iPixel] = nextDepth;
+						// update height
+						results[i].min_height[iPixel] = -1.25f;
+						results[i].max_height[iPixel] = 0.0f;
+						// update extends
+						if (arrivingPixelStorage[j].position[1] > results[i].max_y) {
+							results[i].max_y = arrivingPixelStorage[j].position[1];
+						}
+						if (arrivingPixelStorage[j].position[1] < results[i].min_y) {
+							results[i].min_y = arrivingPixelStorage[j].position[1];
+						}
 					}
 				}
-				results[i].min_height[pid] = -1.25f;
-				results[i].max_height[pid] = 0.0f;
 			}
-			// cleanup
-			clEnqueueUnmapMemObject(OCL_objs.cmdqueue, pixelIdBuffer, pixelIds, 0, nullptr, nullptr);
-			clEnqueueUnmapMemObject(OCL_objs.cmdqueue, depthBuffer, pointDepth, 0, nullptr, nullptr);
-			clEnqueueUnmapMemObject(OCL_objs.cmdqueue, intensityBuffer, pointIntensity, 0, nullptr, nullptr);
-
+			// case cleanup
+			clReleaseMemObject(arrivingPixelBuffer);
 			clReleaseMemObject(cloudBuffer);
-			clReleaseMemObject(pixelIdBuffer);
-			clReleaseMemObject(depthBuffer);
-			clReleaseMemObject(intensityBuffer);
 			clReleaseMemObject(counterBuffer);
 		}
 		pause_func();
 		check_next_outputs(count);
 	}
-	// cleanup
+	// benchmark cleanup
 	err = clReleaseKernel(points2imageKernel);
 	err = clReleaseProgram(points2image_program);
 	err = clReleaseCommandQueue(OCL_objs.cmdqueue);

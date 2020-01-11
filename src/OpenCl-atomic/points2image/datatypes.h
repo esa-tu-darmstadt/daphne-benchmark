@@ -53,5 +53,24 @@ typedef struct PointsImage {
   int32_t image_width;
 } PointsImage;
 
+typedef struct TransformInfo {
+	//double cameraExtrinsics[4][4];
+	double initRotation[3][3];
+	double initTranslation[3];
+	double imageScale[2];
+	double imageOffset[2];
+	double distCoeff[5];
+	int imageSize[2];
+	int cloudPointNo;
+	int cloudPointStep;
+} TransformInfo;
+
+typedef struct PixelData {
+	int position[2];
+	float depth;
+	float intensity;
+} PixelData;
+
+
 #endif
 
