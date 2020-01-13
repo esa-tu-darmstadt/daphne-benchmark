@@ -87,3 +87,12 @@ The test-data (input and reference output data) is available in four different s
 * Minimal (~12MB): https://hessenbox.tu-darmstadt.de/getlink/fiEzcNF864HPfrEt1oXrnq9L/daphne-data-minimal
 
 To use the data, just unpack the contained archive. Each archive contains input- and output data for all three benchmarks.
+
+## Publications about/using DAPHNE ##
+
+* Sommer, L., Stock, F., Solis-Vasquez, L., and Koch, A. (2019). **Work-in-Progress: DAPHNE - An Automotive Benchmark Suite
+for Parallel Programming Models on Embedded Heterogeneous Platforms.** *In Proceedings of the International Conference on Embedded Software, EMSOFT ’19.*
+
+* Sommer, L., Stock, F., Solis-Vasquez, L., and Koch, A. (2019). **EPHoS: Evaluation of Programming - Models for Heterogeneous Systems.** *FAT-Schriftenreihe 317. Forschungsvereinigung Automobiltechik.*
+
+* Sommer, L., Stock, F., Solis-Vasquez, L., and Koch, A. (2019). **Using Parallel Programming Models for Automotive Workloads on Heterogeneous Systems - a Case Study.** *In Proceedings of the 28th Euromicro International Conference on Parallel, Distributed and Network-based Processing, PDP '20.*
