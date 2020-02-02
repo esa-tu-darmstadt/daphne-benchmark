@@ -17,6 +17,7 @@
 
 #include "benchmark.h"
 #include "datatypes.h"
+#include "ocl/host/ocl_header.h"
 
 // maximum allowed deviation from the reference results
 #define MAX_EPS 0.001
@@ -67,19 +68,33 @@ private:
 	ImageSize* imageSize = nullptr;
 	// Algorithm results for the current iteration
 	PointsImage* results = nullptr;
+	// opencl members
+	OCL_Struct computeEnv;
+	cl_program computeProgram;
+	cl_kernel transformKernel;
+	cl_mem pointcloudBuffer;
+	cl_mem counterBuffer;
+	cl_mem pixelBuffer;
+#ifdef EPHOS_PINNED_MEMORY
+	cl_mem pixelHostBuffer;
+	PixelData* pixelStorage;
+	cl_mem pointcloudHostBuffer;
+	float* pointcloudStorage;
+#endif
+
+	int maxCloudElementNo = 0;
+
 public:
-	/*
-	 * Initializes the kernel. Must be called before run().
-	 */
+	points2image();
+	~points2image();
+public:
+
 	virtual void init();
-	/**
-	 * Performs the kernel operations on all input and output data.
-	 * p: number of testcases to process in one step
-	 */
+
 	virtual void run(int p = 1);
-	/**
-	 * Finally checks whether all input data has been processed successfully.
-	 */
+
+	virtual void quit();
+
 	virtual bool check_output();
 
 protected:
@@ -98,31 +113,53 @@ protected:
 	 * Reads the number of testcases in the data set.
 	 */
 	int read_number_testcases(std::ifstream& input_file);
-};
-/**
- * Parses the next point cloud from the input stream.
- */
-void  parsePointCloud(std::ifstream& input_file, PointCloud2* pointcloud2);
-/**
- * Parses the next camera extrinsic matrix.
- */
-void  parseCameraExtrinsicMat(std::ifstream& input_file, Mat44* cameraExtrinsicMat);
-/**
- * Parses the next camera matrix.
- */
-void parseCameraMat(std::ifstream& input_file, Mat33* cameraMat);
-/**
- * Parses the next distance coefficients.
- */
-void  parseDistCoeff(std::ifstream& input_file, Vec5* distCoeff);
-/**
- * Parses the next image sizes.
- */
-void  parseImageSize(std::ifstream& input_file, ImageSize* imageSize);
-/**
- * Parses the next reference image.
- */
-void parsePointsImage(std::ifstream& output_file, PointsImage* goldenResult);
+private:
+	/**
+	 * Transforms the given point cloud and produces the result as a two dimensional image.
+	 * cloud: input point cloud
+	 * cameraExtrinsicMat: perspective projection matrix
+	 * distCoeff: distortion coefficients
+	 * cameraMat: internal camera matrix
+	 * imageSize: output image dimensions
+	 * return: output image
+	 */
+	PointsImage cloud2Image(
+		PointCloud2& cloud,
+		Mat44& cameraExtrinsicMat,
+		Mat33& cameraMat,
+		Vec5& distCoeff,
+		ImageSize& imageSize);
+	/**
+	 * Manages the buffers for the transformation of a given point cloud.
+	 * cloud: input point cloud
+	 */
+	void prepare_compute_buffers(PointCloud2& cloud);
+	/**
+	 * Parses the next point cloud from the input stream.
+	 */
+	void  parsePointCloud(std::ifstream& input_file, PointCloud2* pointcloud2);
+	/**
+	 * Parses the next camera extrinsic matrix.
+	 */
+	void  parseCameraExtrinsicMat(std::ifstream& input_file, Mat44* cameraExtrinsicMat);
+	/**
+	 * Parses the next camera matrix.
+	 */
+	void parseCameraMat(std::ifstream& input_file, Mat33* cameraMat);
+	/**
+	 * Parses the next distance coefficients.
+	 */
+	void  parseDistCoeff(std::ifstream& input_file, Vec5* distCoeff);
+	/**
+	 * Parses the next image sizes.
+	 */
+	void  parseImageSize(std::ifstream& input_file, ImageSize* imageSize);
+	/**
+	 * Parses the next reference image.
+	 */
+	void parsePointsImage(std::ifstream& output_file, PointsImage* goldenResult);
+
+	};
 
 
 

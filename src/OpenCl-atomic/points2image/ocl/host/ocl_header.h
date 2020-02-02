@@ -23,6 +23,7 @@ struct OCL_Struct {
 	cl_context       context;
 	cl_command_queue cmdqueue;
 };
+
 class OCL_Tools {
 public:
 	/**

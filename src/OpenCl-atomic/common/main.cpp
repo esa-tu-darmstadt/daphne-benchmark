@@ -82,6 +82,7 @@ int main(int argc, char **argv) {
 	end = timer.now();
     	elapsed += end-start;
     }
+    myKernel.quit();
     std::cout <<  "elapsed time: "<< elapsed.count() << " seconds, average time per testcase (#"
 	      << myKernel.testcases << "): " << elapsed.count() / (double) myKernel.testcases
 	      << " seconds" << std::endl;
