@@ -30,7 +30,7 @@
   They can also be compiled separately in their respective subfolder with:
   $ make
 
-  From there optional arguments can be supplied:
+  Optional arguments can be supplied from there:
   * OPENCL_PLATFORM_ID - to select a specific platform
     - can be a platform index e.g. 1 or a identifiying string e.g. AMD
   * OPENCL_DEVICE_ID - to select a specific device by index or name
@@ -42,8 +42,20 @@
     - folder that contains CL/cl.h
   * OPENCL_LIBRARY_PATH - if the OpenCL library is not available at the default locations
     - folder that contains libOpenCL.so or similar
-  * OPENCL_LOCAL_SIZE - to select a specific work group size
+  * OPENCL_WORK_GROUP_SIZE - to select a specific work group size
     - number of work items in a work group, e.g. 512
+  * TESTCASE_LIMIT - to limit the number of processed testcases
+    - can be set between 1 and 2500 to only process a subset of testcases
+  * ENABLE_OPENCL_ZERO_COPY - enable zero copy buffer operation
+    - can decrease runtime on systems where GPU and CPU share address spaces
+  * ENABLE_OPENCL_PINNED_MEMORY - enable pinned memory
+    - can decrease runtime by improving memory bandwidth
+  * DISABLE_OPENCL_ATOMICS - disable atomic function usage in kernels
+    - compatibility switch for accelerators that do not support atomic operations
+  * DISABLE_OPENCL_LOCAL_ATOMICS - potential optimization
+    - set to 1 to disable this optimization
+  * OPENCL_TRANSFORMS_PER_WORK_ITEM - increases work load per work item while the number of work items decreases
+    - set to 2 or more to enable this optimization
 
   For example if we wanted to select our Nvidia RTX series graphics card we could type:
   $ make OPENCL_DEVICE_ID=RTX

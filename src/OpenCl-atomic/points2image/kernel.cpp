@@ -283,12 +283,6 @@ PointsImage points2image::cloud2Image(
 	err = clEnqueueReadBuffer(computeEnv.cmdqueue, pixelBuffer, CL_TRUE,
 		0, sizeof(PixelData)*arrivingPixelNo, pixelStorage, 0, nullptr, nullptr);
 #endif
-	if (err != CL_SUCCESS) {
-		std::cout << "err" << std::endl;
-	}
-	if (pixelStorage == nullptr) {
-		std::cout << "nostorage" << std::endl;
-	}
 	// process arriving pixels
 	for (int j = 0; j < arrivingPixelNo; j++) {
 		if (pixelStorage[j].position[0] > -1) {
@@ -359,19 +353,23 @@ void points2image::prepare_compute_buffers(PointCloud2& pointcloud) {
 			counterBuffer = clCreateBuffer(computeEnv.context, flags, sizeof(int), nullptr, &err);
 		}
 		{ // allocate new buffers
-			//cl_mem_flags flags = CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY;
-			cl_mem_flags flags = CL_MEM_READ_WRITE;
+			cl_mem_flags flags = CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY;
 #ifdef EPHOS_ZERO_COPY
 			flags |= CL_MEM_ALLOC_HOST_PTR;
 #endif // EPHOS_ZERO_COPY
 			pointcloudBuffer = clCreateBuffer(computeEnv.context, flags, cloudSize, nullptr, &err);
+			flags = CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY;
+#ifdef EPHOS_ZERO_COPY
+			flags |= CL_MEM_ALLOC_HOST_PTR;
+#endif // EPHOS_ZERO_COPY
 			pixelBuffer = clCreateBuffer(computeEnv.context, flags, pixelSize, nullptr, &err);
 		}
 #ifdef EPHOS_PINNED_MEMORY
 		{ // let opencl allocate host memory
 			//cl_mem_flags flags = CL_MEM_HOST_WRITE_ONLY | CL_MEM_ALLOC_HOST_PTR;
-			cl_mem_flags flags = CL_MEM_ALLOC_HOST_PTR;
+			cl_mem_flags flags = CL_MEM_ALLOC_HOST_PTR | CL_MEM_HOST_WRITE_ONLY;
 			pointcloudHostBuffer = clCreateBuffer(computeEnv.context, flags, cloudSize, nullptr, &err);
+			flags = CL_MEM_ALLOC_HOST_PTR | CL_MEM_HOST_READ_ONLY;
 			pixelHostBuffer = clCreateBuffer(computeEnv.context, flags, pixelSize, nullptr, &err);
 			pointcloudStorage = (float*)clEnqueueMapBuffer(computeEnv.cmdqueue, pointcloudHostBuffer,
 				CL_TRUE, CL_MAP_WRITE, 0, cloudSize, 0, nullptr, nullptr, &err);
@@ -380,9 +378,6 @@ void points2image::prepare_compute_buffers(PointCloud2& pointcloud) {
 		}
 #endif // EPHOS_PINNED_MEMORY
 		maxCloudElementNo = pointNo;
-		if (err != CL_SUCCESS) {
-			std::cout << "err" << std::endl;
-		}
 	}
 #ifdef EPHOS_PINNED_MEMORY
 	pointcloud.data = pointcloudStorage;
