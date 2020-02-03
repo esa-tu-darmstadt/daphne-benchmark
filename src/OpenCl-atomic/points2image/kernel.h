@@ -70,15 +70,15 @@ private:
 	PointsImage* results = nullptr;
 	// opencl members
 	OCL_Struct computeEnv;
-	cl_program computeProgram;
-	cl_kernel transformKernel;
-	cl_mem pointcloudBuffer;
-	cl_mem counterBuffer;
-	cl_mem pixelBuffer;
+	cl::Program computeProgram;
+	cl::Kernel transformKernel;
+	cl::Buffer pointcloudBuffer;
+	cl::Buffer counterBuffer;
+	cl::Buffer pixelBuffer;
 #ifdef EPHOS_PINNED_MEMORY
-	cl_mem pixelHostBuffer;
+	cl::Buffer pixelHostBuffer;
 	PixelData* pixelStorage;
-	cl_mem pointcloudHostBuffer;
+	cl::Buffer pointcloudHostBuffer;
 	float* pointcloudStorage;
 #endif
 

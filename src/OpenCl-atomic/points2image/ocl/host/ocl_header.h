@@ -8,23 +8,26 @@
 #ifndef OCL_EPHOS_H
 #define OCL_EPHOS_H
 
-#define CL_TARGET_OPENCL_VERSION 120
 #define CL_USE_DEPRECATED_OPENCL_1_2_APIS
+#define CL_TARGET_OPENCL_VERSION 120
+#define CL_HPP_MINIMUM_OPENCL_VERSION 110
+#define CL_HPP_ENABLE_EXCEPTIONS
 
 #define __CL_ENABLE_EXCEPTIONS
+#define CL_HPP_ENABLE_PROGRAM_CONSTRUCTION_FROM_ARRAY_COMPATIBILITY
 
-#include <CL/cl.h>
+#include <CL/cl.hpp>
 #include <string>
 #include <vector>
 
 // Struct for passing OpenCL objects
 struct OCL_Struct {
-	cl_device_id     device;
-	cl_context       context;
-	cl_command_queue cmdqueue;
+	cl::Device device;
+	cl::Context context;
+	cl::CommandQueue cmdqueue;
 };
 
-class OCL_Tools {
+class ComputeTools {
 public:
 	/**
 	 * Searches through the available OpenCL platforms to find one that suits the given arguments.
@@ -43,11 +46,11 @@ public:
 	 * sources: program source code
 	 * options: program build arguments
 	 * kernelNames: kernels to extract
-	 * kernels: empty list of extracted kernels
+	 * kernels: output kernel list
 	 * return: the program build from source
 	 */
-	static cl_program build_program(OCL_Struct& ocl_objs, std::string& sources,
-		std::string options, std::vector<std::string>& kernelNames, std::vector<cl_kernel>& kernels);
+	static cl::Program build_program(OCL_Struct& ocl_objs, std::string& sources,
+		std::string options, std::vector<std::string>& kernelNames, std::vector<cl::Kernel>& kernels);
 };
 #endif
 
