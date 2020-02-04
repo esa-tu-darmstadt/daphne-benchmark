@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := all
-.PHONY: all clean ocl/device/ocl_kernel.h checkdata
+.PHONY: all clean checkdata kernel/kernel.cpp
 
 CXXFLAGS=-O3
 CXXFLAGS+= -std=c++11
@@ -59,21 +59,22 @@ ifdef TESTCASE_LIMIT
 	CPPFLAGS+= -DEPHOS_TESTCASE_LIMIT=$(TESTCASE_LIMIT)
 endif
 
-CPPFLAGS+= -I../include -I./
+CPPFLAGS+= -I./ -I../
 LDDFLAGS += -lOpenCL
 
 -include Makefile.deps
 
-all: kernel checkdata
+all: points2image checkdata
 
-kernel: ../common/main.o kernel.o ocl/host/ocl_tools.o framework.o
+points2image: ../common/main.o ../common/compute_tools.o kernel/kernel.o points2image.o framework.o
 	$(CXX) $^ -o $@ $(LDDFLAGS)
 
 %.o: %.cpp
 	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
 
-ocl/device/ocl_kernel.h:
-	./stringify_ocl_kernels.sh
+kernel/kernel.cpp:
+	@echo "kernel.h"
+	cd kernel && ./stringify_kernels.sh
 
 checkdata:
 ifeq ($(wildcard ../../../data/p2i_input.dat),)
@@ -84,10 +85,10 @@ ifeq ($(wildcard ../../../data/p2i_output.dat),)
 endif
 
 clean:
-	rm -f kernel kernel.o framework.o ../common/main.o Makefile.deps \
-	ocl/host/ocl_tools.o ocl/device/ocl_kernel_tmp ocl/device/ocl_kernel.h
+	rm -f points2image points2image.o framework.o kernel/kernel.cpp kernel/kernel.o \
+	../common/main.o ../common/compute_tools.o Makefile.deps
 
 Makefile.deps:
 	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -MM -MG \
-	../common/main.cpp kernel.cpp ocl/host/ocl_tools.cpp > Makefile.deps
+	../common/main.cpp ../common/compute_tools.cpp points2image.cpp framework.cpp > Makefile.deps
 

@@ -5,8 +5,8 @@
  * Embedded Systems & Applications Group 2019
  * License: Apache 2.0 (see attachached File)
  */
-#ifndef OCL_EPHOS_H
-#define OCL_EPHOS_H
+#ifndef EPHOS_COMPUTE_TOOLS_H
+#define EPHOS_COMPUTE_TOOLS_H
 
 #define CL_USE_DEPRECATED_OPENCL_1_2_APIS
 #define CL_TARGET_OPENCL_VERSION 120
@@ -21,11 +21,12 @@
 #include <vector>
 
 // Struct for passing OpenCL objects
-struct OCL_Struct {
+typedef struct ComputeEnv {
+	cl::Platform platform;
 	cl::Device device;
 	cl::Context context;
 	cl::CommandQueue cmdqueue;
-};
+} ComputeEnv;
 
 class ComputeTools {
 public:
@@ -37,20 +38,20 @@ public:
 	 * extensions: a chosen device must support at least one extension from each given extension set
 	 * return: platform objects
 	 */
-	static OCL_Struct find_compute_platform(
+	static ComputeEnv find_compute_platform(
 		std::string platformHint, std::string deviceHint, std::string deviceType,
 		std::vector<std::vector<std::string>> extensions);
 	/**
 	 * Builds an OpenCL program and extracts the requested kernels.
-	 * ocl_objs: platform oobjects
+	 * computeEnv: platform oobjects
 	 * sources: program source code
 	 * options: program build arguments
 	 * kernelNames: kernels to extract
 	 * kernels: output kernel list
 	 * return: the program build from source
 	 */
-	static cl::Program build_program(OCL_Struct& ocl_objs, std::string& sources,
+	static cl::Program build_program(ComputeEnv& computeEnv, std::string& sources,
 		std::string options, std::vector<std::string>& kernelNames, std::vector<cl::Kernel>& kernels);
 };
-#endif
+#endif // EPHOS_COMPUTE_TOOLS_H
 

@@ -15,11 +15,9 @@
 #include <cstring>
 #include <string>
 
-#include "kernel.h"
-#include "benchmark.h"
+#include "points2image.h"
 #include "datatypes.h"
-#include "ocl/device/ocl_kernel.h"
-#include "ocl/host/ocl_header.h"
+#include "common/compute_tools.h"
 
 points2image::points2image() :
 	error_so_far(false),
@@ -83,6 +81,7 @@ void points2image::init() {
 	} catch (std::logic_error& e) {
 	    std::cerr << "OpenCL setup failed. " << e.what() << std::endl;
 	}
+	std::cout << "OpenCL platform: " << computeEnv.platform.getInfo<CL_PLATFORM_NAME>() << std::endl;
 	std::cout << "OpenCL device: " << computeEnv.device.getInfo<CL_DEVICE_NAME>() << std::endl;
 	// compile opencl program and create the transformation kernel
 	std::vector<cl::Kernel> kernels;
@@ -105,7 +104,7 @@ void points2image::init() {
 			" -DEPHOS_KERNEL_TRANSFORMS_PER_ITEM=" STRINGIZE(EPHOS_KERNEL_TRANSFORMS_PER_ITEM)
 #endif
 			;
-		std::string sSource(points2image_ocl_krnl);
+		std::string sSource(points2image_kernel_source_code);
 		computeProgram = ComputeTools::build_program(computeEnv, sSource, sOptions,
 			kernelNames, kernels);
 	} catch (std::logic_error& e) {
@@ -114,7 +113,6 @@ void points2image::init() {
 	}
 	transformKernel = kernels[0];
 
-	std::cout << "Executing for " << testcases << " test cases" << std::endl;
 	// prepare the first iteration
 	error_so_far = false;
 	max_delta = 0.0;
@@ -125,7 +123,7 @@ void points2image::init() {
 	imageSize = nullptr;
 	results = nullptr;
 	maxCloudElementNo = 0;
-	std::cout << "done\n" << std::endl;
+	std::cout << "done" << std::endl;
 }
 
 void points2image::quit() {
@@ -447,26 +445,6 @@ void points2image::prepare_compute_buffers(PointCloud2& pointcloud) {
 	// required in every step because it is freed again
 	pointcloud.data = new float[pointNo*pointcloud.point_step];
 #endif // !EPHOS_PINNED_MEMORY
-}
-
-void points2image::run(int p) {
-	// do not measure setup time
-	pause_func();
-	// process all testcases
-	while (read_testcases < testcases)
-	{
-		// read the testcase data, then start the computation
-		int count = read_next_testcases(p);
-		unpause_func();
-		// Set kernel parameters & launch NDRange kernel
-		for (int i = 0; i < count; i++)
-		{
-			results[i] = cloud2Image(pointcloud2[i], cameraExtrinsicMat[i], cameraMat[i],
-				distCoeff[i], imageSize[i]);
-		}
-		pause_func();
-		check_next_outputs(count);
-	}
 }
 
 

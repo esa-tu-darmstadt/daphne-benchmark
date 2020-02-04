@@ -15,9 +15,10 @@
 #include <fstream>
 #include <string>
 
-#include "benchmark.h"
+
 #include "datatypes.h"
-#include "ocl/host/ocl_header.h"
+#include "common/benchmark.h"
+#include "common/compute_tools.h"
 
 // maximum allowed deviation from the reference results
 #define MAX_EPS 0.001
@@ -45,8 +46,9 @@
 #define EPHOS_DEVICE_TYPE_S ""
 #endif
 
+extern const char* points2image_kernel_source_code; // defined through kernel stringification
 
-class points2image : public kernel {
+class points2image : public benchmark {
 private:
 	// the number of testcases read
 	int read_testcases = 0;
@@ -69,7 +71,7 @@ private:
 	// Algorithm results for the current iteration
 	PointsImage* results = nullptr;
 	// opencl members
-	OCL_Struct computeEnv;
+	ComputeEnv computeEnv;
 	cl::Program computeProgram;
 	cl::Kernel transformKernel;
 	cl::Buffer pointcloudBuffer;
@@ -160,7 +162,5 @@ private:
 	void parsePointsImage(std::ifstream& output_file, PointsImage* goldenResult);
 
 	};
-
-
 
 #endif //EPHOS_KERNEL_H

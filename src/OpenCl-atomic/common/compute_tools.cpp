@@ -9,13 +9,13 @@
 #include <vector>
 #include <string>
 
-#include "ocl_header.h"
+#include "compute_tools.h"
 
-OCL_Struct ComputeTools::find_compute_platform(
+ComputeEnv ComputeTools::find_compute_platform(
 	std::string platformHint, std::string deviceHint, std::string deviceType,
 	std::vector<std::vector<std::string>> extensions) {
 
-	OCL_Struct result;
+	ComputeEnv result;
 
 	// query all platforms
 	std::vector<cl::Platform> availablePlatforms;
@@ -189,15 +189,15 @@ OCL_Struct ComputeTools::find_compute_platform(
 	return result;
 }
 
-cl::Program ComputeTools::build_program(OCL_Struct& ocl_objs, std::string& sources,
+cl::Program ComputeTools::build_program(ComputeEnv& computeEnv, std::string& sources,
 	std::string options, std::vector<std::string>& kernelNames, std::vector<cl::Kernel>& kernels) {
 	cl::Program::Sources sourcesCL;
 	sourcesCL.push_back(std::make_pair(sources.c_str(), sources.size()));
-	cl::Program program(ocl_objs.context, sources);
+	cl::Program program(computeEnv.context, sources);
 	try {
 		program.build(options.c_str());
 	} catch (cl::Error& e) {
-		std::string log = program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(ocl_objs.device);
+		std::string log = program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(computeEnv.device);
 		std::ostringstream sError;
 		sError << "Failed to build program with flags: ";
 		sError << options;

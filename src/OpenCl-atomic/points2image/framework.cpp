@@ -15,9 +15,9 @@
 #include <cstring>
 #include <string>
 
-#include "kernel.h"
-#include "benchmark.h"
+#include "points2image.h"
 #include "datatypes.h"
+#include "common/benchmark.h"
 
 void  points2image::parsePointCloud(std::ifstream& input_file, PointCloud2* pointcloud2) {
 	try {
@@ -252,6 +252,30 @@ void points2image::check_next_outputs(int count)
 	delete[] imageSize;
 	imageSize = nullptr;
 }
+
+void points2image::run(int p) {
+	std::cout << "executing for " << testcases << " test cases" << std::endl;
+	// do not measure setup time
+	start_timer();
+	pause_timer();
+	// process all testcases
+	while (read_testcases < testcases)
+	{
+		// read the testcase data, then start the computation
+		int count = read_next_testcases(p);
+		resume_timer();
+		// Set kernel parameters & launch NDRange kernel
+		for (int i = 0; i < count; i++)
+		{
+			results[i] = cloud2Image(pointcloud2[i], cameraExtrinsicMat[i], cameraMat[i],
+				distCoeff[i], imageSize[i]);
+		}
+		pause_timer();
+		check_next_outputs(count);
+	}
+	stop_timer();
+}
+
 bool points2image::check_output() {
 	std::cout << "checking output \n";
 	std::cout << "max delta: " << max_delta << "\n";
@@ -263,4 +287,4 @@ bool points2image::check_output() {
 }
 // set the external kernel instance used in main()
 points2image a;
-kernel& myKernel = a;
+benchmark& myKernel = a;
