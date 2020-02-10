@@ -58,6 +58,10 @@ CPPFLAGS+= -DEPHOS_KERNEL_WORK_GROUP_SIZE=$(OPENCL_WORK_GROUP_SIZE)
 ifdef TESTCASE_LIMIT
 	CPPFLAGS+= -DEPHOS_TESTCASE_LIMIT=$(TESTCASE_LIMIT)
 endif
+# whether to use a sparse reference image representation for improved read speeds
+ifdef TESTCASE_SPARSE
+	CPPFLAGS+= -DEPHOS_TESTCASE_SPARSE=1
+endif
 
 CPPFLAGS+= -I./ -I../
 LDDFLAGS += -lOpenCL
@@ -66,14 +70,13 @@ LDDFLAGS += -lOpenCL
 
 all: points2image checkdata
 
-points2image: ../common/main.o ../common/compute_tools.o kernel/kernel.o points2image.o framework.o
+points2image: ../common/main.o ../common/compute_tools.o points2image.o framework.o
 	$(CXX) $^ -o $@ $(LDDFLAGS)
 
 %.o: %.cpp
 	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
 
-kernel/kernel.cpp:
-	@echo "kernel.h"
+kernel/kernel.h:
 	cd kernel && ./stringify_kernels.sh
 
 checkdata:
@@ -85,7 +88,7 @@ ifeq ($(wildcard ../../../data/p2i_output.dat),)
 endif
 
 clean:
-	rm -f points2image points2image.o framework.o kernel/kernel.cpp kernel/kernel.o \
+	rm -f points2image points2image.o framework.o kernel/kernel.h \
 	../common/main.o ../common/compute_tools.o Makefile.deps
 
 Makefile.deps:

@@ -7,9 +7,10 @@
  * Embedded Systems & Applications Group 2019
  * License: Apache 2.0 (see attachached File)
  */
-#ifndef EPHOS_KERNEL_H
-#define EPHOS_KERNEL_H
+#ifndef EPHOS_POINTS2IMAGE_H
+#define EPHOS_POINTS2IMAGE_H
 
+#include <vector>
 #include <cmath>
 #include <iostream>
 #include <fstream>
@@ -46,30 +47,29 @@
 #define EPHOS_DEVICE_TYPE_S ""
 #endif
 
-extern const char* points2image_kernel_source_code; // defined through kernel stringification
-
 class points2image : public benchmark {
 private:
 	// the number of testcases read
 	int read_testcases = 0;
 	// testcase and reference data streams
 	std::ifstream input_file, output_file;
+	std::ofstream datagen_file;
 	// whether critical deviation from the reference data has been detected
 	bool error_so_far = false;
 	// deviation from the reference data
 	double max_delta = 0.0;
 	// the point clouds to process in one iteration
-	PointCloud2* pointcloud2 = nullptr;
+	std::vector<PointCloud> pointcloud;
 	// the associated camera extrinsic matrices
-	Mat44* cameraExtrinsicMat = nullptr;
+	std::vector<Mat44> cameraExtrinsicMat;
 	// the associated camera intrinsic matrices
-	Mat33* cameraMat = nullptr;
+	std::vector<Mat33> cameraMat;
 	// distance coefficients for the current iteration
-	Vec5* distCoeff = nullptr;
+	std::vector<Vec5> distCoeff;
 	// image sizes for the current iteration
-	ImageSize* imageSize = nullptr;
+	std::vector<ImageSize> imageSize;
 	// Algorithm results for the current iteration
-	PointsImage* results = nullptr;
+	std::vector<PointsImage> results;
 	// opencl members
 	ComputeEnv computeEnv;
 	cl::Program computeProgram;
@@ -126,7 +126,7 @@ private:
 	 * return: output image
 	 */
 	PointsImage cloud2Image(
-		PointCloud2& cloud,
+		PointCloud& cloud,
 		Mat44& cameraExtrinsicMat,
 		Mat33& cameraMat,
 		Vec5& distCoeff,
@@ -135,31 +135,35 @@ private:
 	 * Manages the buffers for the transformation of a given point cloud.
 	 * cloud: input point cloud
 	 */
-	void prepare_compute_buffers(PointCloud2& cloud);
+	void prepare_compute_buffers(PointCloud& cloud);
 	/**
 	 * Parses the next point cloud from the input stream.
 	 */
-	void  parsePointCloud(std::ifstream& input_file, PointCloud2* pointcloud2);
+	void  parsePointCloud(std::ifstream& input_file, PointCloud& pointcloud);
 	/**
 	 * Parses the next camera extrinsic matrix.
 	 */
-	void  parseCameraExtrinsicMat(std::ifstream& input_file, Mat44* cameraExtrinsicMat);
+	void  parseCameraExtrinsicMat(std::ifstream& input_file, Mat44& cameraExtrinsicMat);
 	/**
 	 * Parses the next camera matrix.
 	 */
-	void parseCameraMat(std::ifstream& input_file, Mat33* cameraMat);
+	void parseCameraMat(std::ifstream& input_file, Mat33& cameraMat);
 	/**
 	 * Parses the next distance coefficients.
 	 */
-	void  parseDistCoeff(std::ifstream& input_file, Vec5* distCoeff);
+	void  parseDistCoeff(std::ifstream& input_file, Vec5& distCoeff);
 	/**
 	 * Parses the next image sizes.
 	 */
-	void  parseImageSize(std::ifstream& input_file, ImageSize* imageSize);
+	void  parseImageSize(std::ifstream& input_file, ImageSize& imageSize);
 	/**
 	 * Parses the next reference image.
 	 */
-	void parsePointsImage(std::ifstream& output_file, PointsImage* goldenResult);
+	void parsePointsImage(std::ifstream& output_file, PointsImage& image);
+	/**
+	 * Outputs a sparse image representation to the given stream.
+	 */
+	void writeSparsePointsImage(std::ofstream& output_file, PointsImage& image);
 
 	};
 

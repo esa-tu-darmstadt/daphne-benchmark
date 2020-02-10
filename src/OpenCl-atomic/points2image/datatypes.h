@@ -33,12 +33,12 @@ typedef struct ImageSize {
   int32_t width, height;
 } ImageSize;
 
-typedef struct PointCloud2 {
+typedef struct PointCloud {
   int32_t height;
   int32_t width;
   int32_t point_step;
   float* data;
-} PointCloud2;
+} PointCloud;
 
 
 typedef struct PointsImage {
@@ -71,6 +71,12 @@ typedef struct PixelData {
 	float intensity;
 } PixelData;
 
+typedef struct FullPixelData {
+	int position[2];
+	float depth;
+	float intensity;
+	float min_height;
+	float max_height;
+} FullPixelData;
 
-#endif
-
+#endif // EPHOS_DATATYPES_H

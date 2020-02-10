@@ -18,16 +18,18 @@
 #include "points2image.h"
 #include "datatypes.h"
 #include "common/compute_tools.h"
+#include "kernel/kernel.h"
 
 points2image::points2image() :
+
 	error_so_far(false),
 	max_delta(0.0),
-	pointcloud2(nullptr),
-	cameraExtrinsicMat(nullptr),
-	cameraMat(nullptr),
-	distCoeff(nullptr),
-	imageSize(nullptr),
-	results(nullptr),
+	pointcloud(),
+	cameraExtrinsicMat(),
+	cameraMat(),
+	distCoeff(),
+	imageSize(),
+	results(),
 	computeEnv(),
 	computeProgram(),
 	transformKernel(),
@@ -59,10 +61,16 @@ void points2image::init() {
 	}
 	try {
 		output_file.open("../../../data/p2i_output.dat", std::ios::binary);
-	} catch (std::ofstream::failure) {
+	} catch (std::ifstream::failure) {
 		std::cerr << "Error opening the output data file" << std::endl;
 		exit(-2);
 	}
+// 	try {
+// 		datagen_file.open("../../../data/p2i_output.dat.gen", std::ios::binary);
+// 	} catch (std::ofstream::failure) {
+// 		std::cerr << "Error opening datagen file" << std::endl;
+// 		exit(-2);
+// 	}
 	try {
 	// consume the total number of testcases
 		testcases = read_number_testcases(input_file);
@@ -81,13 +89,13 @@ void points2image::init() {
 	} catch (std::logic_error& e) {
 	    std::cerr << "OpenCL setup failed. " << e.what() << std::endl;
 	}
-	std::cout << "OpenCL platform: " << computeEnv.platform.getInfo<CL_PLATFORM_NAME>() << std::endl;
+	//std::cout << "OpenCL platform: " << computeEnv.platform.getInfo<CL_PLATFORM_NAME>() << std::endl;
 	std::cout << "OpenCL device: " << computeEnv.device.getInfo<CL_DEVICE_NAME>() << std::endl;
 	// compile opencl program and create the transformation kernel
 	std::vector<cl::Kernel> kernels;
 	try {
 		std::vector<std::string> kernelNames({
-			"pointcloud2_to_image"
+			"pointcloud2image"
 		});
 		std::string sOptions =
 #ifdef EPHOS_KERNEL_ATOMICS
@@ -116,12 +124,13 @@ void points2image::init() {
 	// prepare the first iteration
 	error_so_far = false;
 	max_delta = 0.0;
-	pointcloud2 = nullptr;
+
+	/*pointcloud = nullptr;
 	cameraExtrinsicMat = nullptr;
 	cameraMat = nullptr;
 	distCoeff = nullptr;
 	imageSize = nullptr;
-	results = nullptr;
+	results = nullptr;*/
 	maxCloudElementNo = 0;
 	std::cout << "done" << std::endl;
 }
@@ -134,8 +143,14 @@ void points2image::quit() {
 	}
 	try {
 		output_file.close();
+
 	} catch (std::ofstream::failure& e) {
 	}
+	try {
+		datagen_file.close();
+	} catch (std::ofstream::failure& e) {
+	}
+
 
 	if (maxCloudElementNo > 0) {
 		// buffer cleanup
@@ -178,7 +193,7 @@ void points2image::quit() {
 }
 
 PointsImage points2image::cloud2Image(
-	PointCloud2& pointcloud,
+	PointCloud& pointcloud,
 	Mat44& cameraExtrinsicMat,
 	Mat33& cameraMat,
 	Vec5& distCoeff,
@@ -186,7 +201,6 @@ PointsImage points2image::cloud2Image(
 
 	// Prepare outputs data structures
 	size_t imagePixelNo = imageSize.height*imageSize.width;
-	float* dummy = new float[imagePixelNo];
 	PointsImage result = {
 		new float[imagePixelNo], // intensity, will be free in read_next_testcases()
 		new float[imagePixelNo], // distance
@@ -361,13 +375,15 @@ PointsImage points2image::cloud2Image(
 	}
 #ifdef EPHOS_ZERO_COPY
 	computeEnv.cmdqueue.enqueueUnmapMemObject(pixelBuffer, pixelStorage);
+#elif !defined(EPHOS_PINNED_MEMORY)
+	delete[] pixelStorage;
 #endif
 	return result;
 }
 
 
 
-void points2image::prepare_compute_buffers(PointCloud2& pointcloud) {
+void points2image::prepare_compute_buffers(PointCloud& pointcloud) {
 	int pointNo = pointcloud.height*pointcloud.width;
 	size_t cloudSize = pointNo*pointcloud.point_step*sizeof(float);
 	size_t pixelSize = pointNo*sizeof(PixelData);
