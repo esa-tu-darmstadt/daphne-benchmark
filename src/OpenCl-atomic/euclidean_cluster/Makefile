@@ -12,7 +12,7 @@ OPENCL_LIBRARY_PATH=
 ifneq ($(OPENCL_INCLUDE_PATH),)
 	CPPFLAGS+= -I$(OPENCL_INCLUDE_PATH)
 endif
-CPPFLAGS+= -I./
+CPPFLAGS+= -I./ -I../
 ifneq ($(OPENCL_LIBRARY_PATH),)
 	LDDFLAGS+= -L$(OPENCL_LIBRARY_PATH)
 endif
@@ -39,22 +39,25 @@ ifneq ($(OPENCL_DEVICE_TYPE),)
 	CPPFLAGS+= -DEPHOS_DEVICE_TYPE=$(OPENCL_DEVICE_TYPE)
 endif
 
-all: kernel checkdata
+all: euclidean_clustering checkdata
 
 ocl/device/ocl_kernel.h:
 	./stringify_ocl_kernels.sh
 
-kernel: ../common/main.o kernel.o ocl/host/ocl_tools.o
+euclidean_clustering: euclidean_clustering.o framework.o ../common/main.o ../common/compute_tools.o
 	$(CXX) $^ -o $@ $(LDDFLAGS)
 
-../common/main.o: ../common/main.cpp
-	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
+%.o: %.cpp
+	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -o $@ $<
 
-kernel.o: kernel.cpp
-	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
+#../common/main.o: ../common/main.cpp
+#	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
 
-ocl/host/ocl_tools.o: ocl/host/ocl_tools.cpp
-	$(CXX) -c $(CLFAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
+#kernel.o: kernel.cpp
+#	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
+
+#ocl/host/ocl_tools.o: ocl/host/ocl_tools.cpp
+#	$(CXX) -c $(CLFAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
 
 checkdata:
 ifeq ($(wildcard ../../../data/ec_input.dat),)
@@ -65,10 +68,11 @@ ifeq ($(wildcard ../../../data/ec_output.dat),)
 endif
 
 clean:
-	rm -f Makefile.deps kernel kernel.o ../common/main.o ocl/host/ocl_tools.o ocl/device/ocl_kernel_tmp ocl/device/ocl_kernel.h
+	rm -f Makefile.deps euclidean_clustering euclidean_clustering.o framework.o \
+	../common/main.o ../common/compute_tools.o ocl/host/ocl_tools.o ocl/device/ocl_kernel_tmp ocl/device/ocl_kernel.h
 
 Makefile.deps:
 	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include -MM -MG \
-	../common/main.cpp kernel.cpp ocl/host/ocl_tools.cpp > Makefile.deps
+	../common/main.cpp euclidean_clustering.cpp framework.cpp ocl/host/ocl_tools.cpp > Makefile.deps
 
 

@@ -1,3 +1,4 @@
+
 /**
  * Author:  Florian Stock, Technische Universität Darmstadt,
  * Embedded Systems & Applications Group 2018
@@ -16,133 +17,14 @@
 #include <algorithm>
 #include <cstring>
 
-#include "benchmark.h"
+#include "common/benchmark.h"
 #include "datatypes.h"
-#include "ocl/host/ocl_ephos.h"
+#include "euclidean_clustering.h"
+#include "common/compute_tools.h"
 #include "ocl/device/ocl_kernel.h"
 
-#define STRINGIZE2(s) #s
-#define STRINGIZE(s) STRINGIZE2(s)
 
-// opencl platform hints
-#if defined(EPHOS_PLATFORM_HINT)
-#define EPHOS_PLATFORM_HINT_S STRINGIZE(EPHOS_PLATFORM_HINT)
-#else 
-#define EPHOS_PLATFORM_HINT_S ""
-#endif
-
-#if defined(EPHOS_DEVICE_HINT)
-#define EPHOS_DEVICE_HINT_S STRINGIZE(EPHOS_DEVICE_HINT)
-#else
-#define EPHOS_DEVICE_HINT_S ""
-#endif
-
-#if defined(EPHOS_DEVICE_TYPE)
-#define EPHOS_DEVICE_TYPE_S STRINGIZE(EPHOS_DEVICE_TYPE)
-#else
-#define EPHOS_DEVICE_TYPE_S ""
-#endif
-
-#define NUMWORKITEMS_PER_WORKGROUP_STRING STRINGIZE(NUMWORKITEMS_PER_WORKGROUP) 
-
-// algorithm parameters
-const int _cluster_size_min = 20;
-const int _cluster_size_max = 100000;
-const bool _pose_estimation = true;
-
-// maximum allowed deviation from the reference data
-#define MAX_EPS 0.001
-
-class euclidean_clustering : public kernel {
-private:
-	// input point cloud
-	PointCloud *in_cloud_ptr = nullptr;
-	// colored point cloud
-	PointCloudRGB *out_cloud_ptr = nullptr;
-	// bounding boxes of the input cloud
-	BoundingboxArray *out_boundingbox_array = nullptr;
-	// detected centroids
-	Centroid *out_centroids = nullptr;
-	// the number of testcases that have been read
-	int read_testcases = 0;
-	// testcase and reference data streams
-	std::ifstream input_file, output_file;
-	// indicates an size related error
-	bool error_so_far = false;
-	// the measured maximum deviation from the reference data
-	double max_delta = 0.0;
-	// current number of point cloud elements
-	int *cloud_size = nullptr;
-public:
-	virtual void init();
-	virtual void run(int p = 1);
-	virtual bool check_output();
-protected:
-	void clusterAndColor(
-		OCL_Struct* OCL_objs,
-		const PointCloud in_cloud_ptr,
-		int cloud_size,
-		PointCloudRGB *out_cloud_ptr,
-		BoundingboxArray *in_out_boundingbox_array,
-		Centroid *in_out_centroids,
-		#if defined (DOUBLE_FP)
-		double in_max_cluster_distance
-		#else
-		float in_max_cluster_distance
-		#endif
-	);
-	/**
-	 * Cluster the point cloud according to the pairwise point distances.
-	 * Clustering of the same input data is performed multiple times with different thresholds
-	 * so that points farther away in the cloud also get assigned to a cluster.
-	 */
-	void segmentByDistance(
-		OCL_Struct* OCL_objs,
-		/*const PointCloud *in_cloud_ptr,*/
-		const PointCloud in_cloud_ptr,
-		int cloud_size,
-		PointCloudRGB *out_cloud_ptr,
-		BoundingboxArray *in_out_boundingbox_array,
-		Centroid *in_out_centroids,
-		#if defined (DOUBLE_FP)
-		double in_max_cluster_distance
-		#else
-		float in_max_cluster_distance
-		#endif
-	);
-	/**
-	 * Reads the number of testcases in the data set.
-	 */
-	int read_number_testcases(std::ifstream& input_file);
-	/**
-	 * Reads the next testcase input data structures.
-	 * count: number of testcase datasets to read
-	 * return: the number of testcases datasets actually read
-	 */
-	virtual int read_next_testcases(int count);
-	/**
-	 * Reads and compares algorithm outputs with the reference result.
-	 * count: the number of outputs to compare
-	 */
-	virtual void check_next_outputs(int count);
-};
-
-int euclidean_clustering::read_number_testcases(std::ifstream& input_file)
-{
-	int32_t number;
-	try {
-		input_file.read((char*)&(number), sizeof(int32_t));
-	} catch (std::ifstream::failure) {
-		throw std::ios_base::failure("Error reading the number of testcases");
-	}
-	return number;
-}
-
-
-/**
- * Helper function for calculating the enclosing rectangle with minimum area.
- */
-static void rotatingCalipers( const Point2D* points, int n, float* out )
+void euclidean_clustering::rotatingCalipers( const Point2D* points, int n, float* out )
 {
 	float minarea = std::numeric_limits<float>::max();
 	float max_dist = 0;
@@ -277,7 +159,7 @@ static void rotatingCalipers( const Point2D* points, int n, float* out )
 				base_b = lead_x;
 				break;
 			default:
-				throw std::logic_error("Error in rotatingCalipers(): main_element should be 0, 1, 2 or 3");
+				throw std::logic_error("main_element should be 0, 1, 2 or 3");
 			}
 		}
 		// change base point of main edge
@@ -344,10 +226,7 @@ static void rotatingCalipers( const Point2D* points, int n, float* out )
 	out[5] = B2 * buf[4];
 }
 
-/**
- * Helper function for convex hull calculation
- */
-static int sklansky(Point2D** array, int start, int end, int* stack, int nsign, int sign2)
+int euclidean_clustering::sklansky(Point2D** array, int start, int end, int* stack, int nsign, int sign2)
 {
 	int incr = end > start ? 1 : -1;
 	// prepare first triangle
@@ -416,26 +295,15 @@ static int sklansky(Point2D** array, int start, int end, int* stack, int nsign, 
 	return --stacksize;
 }
 
-/**
- * Extension for for point comparison
- */
-struct CHullCmpPoints
-{
-	/**
-	 * Compares two points.
-	 * Performs a primary test for the x component
-	 * and a secondary test for the y component.
-	 */
-	bool operator()(const Point2D* p1, const Point2D* p2) const
-	{ 
-		return p1->x < p2->x || (p1->x == p2->x && p1->y < p2->y);
-	}
-};
 
 /**
- * Helper function that computes the convex hull.
+ * Helper function for point comparison
  */
-void convexHull(
+bool comparePoint2D(const Point2D* p1, const Point2D* p2) {
+	return p1->x < p2->x || (p1->x == p2->x && p1->y < p2->y);
+}
+
+void euclidean_clustering::convexHull(
 	std::vector<Point2D> _points, std::vector<Point2D>&  _hull, bool clockwise, bool returnPoints )
 {
 	int i, total = _points.size(), nout = 0;
@@ -460,7 +328,7 @@ void convexHull(
 		pointer[i] = &data0[i];
 
 	// sort the point set by x-coordinate, find min and max y
-	std::sort(pointerf, pointerf + total, CHullCmpPoints());
+	std::sort(pointerf, pointerf + total, comparePoint2D);
 	for( i = 1; i < total; i++ )
 		{
 			float y = pointerf[i]->y;
@@ -534,11 +402,7 @@ void convexHull(
 		_hull.push_back(data0[hullbuf[i]]);
 }
 
-/**
- * Computes the rotation angle of the rectangle with minimum area.
- * return: the rotation angle in degrees
- */
-float minAreaRectAngle(std::vector<Point2D>& points)
+float euclidean_clustering::minAreaRectAngle(std::vector<Point2D>& points)
 {
 	float angle = 0.0f;
 	std::vector<Point2D> hull;
@@ -569,68 +433,57 @@ float minAreaRectAngle(std::vector<Point2D>& points)
 	return (float)(angle*180.0/PI);
 }
 
-/**
- * Finds all clusters in the given point cloud that are conformant to the given parameters.
- * cloud: point cloud to cluster
- * cloudSize: number of cloud elements
- * tolerance: search radius around a single point
- * clusters: list of resulting clusters
- * min_pts_per_cluster: lower cluster size restriction
- * max_pts_per_cluster: higher cluster size restriction
- * OCL_objs: OpenCL resources
- */
-void extractEuclideanClusters (
+void euclidean_clustering::extractEuclideanClusters (
 	const PointCloud cloud,
 	int cloudSize,
 	float tolerance,
 	std::vector<PointIndices> &clusters,
 	unsigned int min_pts_per_cluster, 
-	unsigned int max_pts_per_cluster,
-	OCL_Struct* OCL_objs)
+	unsigned int max_pts_per_cluster)
 {
 	cl_int err;
 	
 	// create buffers
-	cl::Buffer seedQueueBuffer (OCL_objs->context, CL_MEM_READ_ONLY, sizeof(int)*cloudSize);
+	cl::Buffer seedQueueBuffer (computeEnv.context, CL_MEM_READ_ONLY, sizeof(int)*cloudSize);
 	
 	// move point cloud to device
-	cl::Buffer cloudBuffer (OCL_objs->context, CL_MEM_READ_ONLY, sizeof(Point)*cloudSize);
-	Point* cloudStorage = (Point *) OCL_objs->cmdqueue.enqueueMapBuffer(cloudBuffer, CL_TRUE, CL_MAP_WRITE_INVALIDATE_REGION, 0, sizeof(Point)*cloudSize);
+	cl::Buffer cloudBuffer (computeEnv.context, CL_MEM_READ_ONLY, sizeof(Point)*cloudSize);
+	Point* cloudStorage = (Point *) computeEnv.cmdqueue.enqueueMapBuffer(cloudBuffer, CL_TRUE, CL_MAP_WRITE_INVALIDATE_REGION, 0, sizeof(Point)*cloudSize);
 	std::memcpy(cloudStorage, cloud, sizeof(Point)*cloudSize);
-	OCL_objs->cmdqueue.enqueueUnmapMemObject(cloudBuffer, cloudStorage);
-	//OCL_objs->cmdqueue.enqueueWriteBuffer(cloudBuffer, CL_FALSE,
+	computeEnv.cmdqueue.enqueueUnmapMemObject(cloudBuffer, cloudStorage);
+	//computeEnv.cmdqueue.enqueueWriteBuffer(cloudBuffer, CL_FALSE,
 	//	0, sizeof(Point)*cloudSize, cloud);
 	
 	// create and initialize the distance matrix buffer
-	cl::Buffer distanceBuffer (OCL_objs->context, CL_MEM_READ_WRITE, sizeof(bool)*cloudSize*cloudSize);
+	cl::Buffer distanceBuffer (computeEnv.context, CL_MEM_READ_WRITE, sizeof(bool)*cloudSize*cloudSize);
 
 	cl::NDRange offsetRange(0);
 	cl::NDRange localSizeRange (NUMWORKITEMS_PER_WORKGROUP);
 	cl::NDRange globalSizeRange((cloudSize/NUMWORKITEMS_PER_WORKGROUP + 1) * NUMWORKITEMS_PER_WORKGROUP);
 	// call the initialization kernel
-	OCL_objs->kernel_initRS.setArg(0, cloudBuffer);
-	OCL_objs->kernel_initRS.setArg(1, distanceBuffer);
-	OCL_objs->kernel_initRS.setArg(2, cloudSize);
+	distanceMatrixKernel.setArg(0, cloudBuffer);
+	distanceMatrixKernel.setArg(1, distanceBuffer);
+	distanceMatrixKernel.setArg(2, cloudSize);
 	#if defined (DOUBLE_FP)
-	OCL_objs->kernel_initRS.setArg(3, (double)(tolerance*tolerance));
+	distanceMatrixKernel.setArg(3, (double)(tolerance*tolerance));
 	#else
-	OCL_objs->kernel_initRS.setArg(3, (tolerance*tolerance));
+	distanceMatrixKernel.setArg(3, (tolerance*tolerance));
 	#endif
-	OCL_objs->cmdqueue.enqueueNDRangeKernel(
-		OCL_objs->kernel_initRS, offsetRange, globalSizeRange, localSizeRange);
+	computeEnv.cmdqueue.enqueueNDRangeKernel(
+		distanceMatrixKernel, offsetRange, globalSizeRange, localSizeRange);
 	// raidus search progress indicators
 	bool* processed = new bool[cloudSize];
 	std::memset(processed, 0, sizeof(bool)*cloudSize);
-	cl::Buffer seedQueueLengthBuffer(OCL_objs->context, CL_MEM_READ_WRITE, sizeof(int));
-	cl::Buffer processedBuffer(OCL_objs->context, CL_MEM_READ_WRITE, sizeof(bool)*cloudSize);
+	cl::Buffer seedQueueLengthBuffer(computeEnv.context, CL_MEM_READ_WRITE, sizeof(int));
+	cl::Buffer processedBuffer(computeEnv.context, CL_MEM_READ_WRITE, sizeof(bool)*cloudSize);
 
-	OCL_objs->cmdqueue.enqueueWriteBuffer(processedBuffer, CL_FALSE,
+	computeEnv.cmdqueue.enqueueWriteBuffer(processedBuffer, CL_FALSE,
 		0, sizeof(bool)*cloudSize, processed);
 
-	OCL_objs->kernel_parallelRS.setArg(0, seedQueueBuffer);
-	OCL_objs->kernel_parallelRS.setArg(1, distanceBuffer);
-	OCL_objs->kernel_parallelRS.setArg(2, processedBuffer);
-	OCL_objs->kernel_parallelRS.setArg(3, seedQueueLengthBuffer);
+	buildClusterKernel.setArg(0, seedQueueBuffer);
+	buildClusterKernel.setArg(1, distanceBuffer);
+	buildClusterKernel.setArg(2, processedBuffer);
+	buildClusterKernel.setArg(3, seedQueueLengthBuffer);
 	// Process all points in the indices vector
 	for (int i = 0; i < cloudSize; ++i)
 	{
@@ -642,26 +495,26 @@ void extractEuclideanClusters (
 		int staticCandidateNo = 0;
 		int nextCandidateNo = 1;
 		bool proc = true;
-		OCL_objs->cmdqueue.enqueueWriteBuffer(seedQueueBuffer, CL_FALSE,
+		computeEnv.cmdqueue.enqueueWriteBuffer(seedQueueBuffer, CL_FALSE,
 			0, sizeof(int), &i);
-		OCL_objs->cmdqueue.enqueueWriteBuffer(processedBuffer, CL_FALSE,
+		computeEnv.cmdqueue.enqueueWriteBuffer(processedBuffer, CL_FALSE,
 			sizeof(bool)*i, sizeof(bool), &proc);
-		OCL_objs->cmdqueue.enqueueWriteBuffer(seedQueueLengthBuffer, CL_FALSE,
+		computeEnv.cmdqueue.enqueueWriteBuffer(seedQueueLengthBuffer, CL_FALSE,
 			0, sizeof(int), &nextCandidateNo);
 		// grow the candidate until convergence
 		while (nextCandidateNo > staticCandidateNo)
 		{
 			// call the radius search kernel
-			OCL_objs->kernel_parallelRS.setArg(4, staticCandidateNo);
-			OCL_objs->kernel_parallelRS.setArg(5, nextCandidateNo);
-			OCL_objs->kernel_parallelRS.setArg(6, cloudSize);
-			OCL_objs->cmdqueue.enqueueNDRangeKernel(OCL_objs->kernel_parallelRS, 
+			buildClusterKernel.setArg(4, staticCandidateNo);
+			buildClusterKernel.setArg(5, nextCandidateNo);
+			buildClusterKernel.setArg(6, cloudSize);
+			computeEnv.cmdqueue.enqueueNDRangeKernel(buildClusterKernel,
 				offsetRange,
 				globalSizeRange,
 				localSizeRange);
 			// update counters
 			staticCandidateNo = nextCandidateNo;
-			OCL_objs->cmdqueue.enqueueReadBuffer(seedQueueLengthBuffer, CL_TRUE,
+			computeEnv.cmdqueue.enqueueReadBuffer(seedQueueLengthBuffer, CL_TRUE,
 				0, sizeof(int), &nextCandidateNo);
 		}
 		staticCandidateNo = nextCandidateNo;
@@ -673,7 +526,7 @@ void extractEuclideanClusters (
 			clusters.resize(iCluster + 1);
 			PointIndices& cluster = clusters[iCluster];
 			cluster.indices.resize(nextCandidateNo);
-			OCL_objs->cmdqueue.enqueueReadBuffer(seedQueueBuffer, CL_TRUE,
+			computeEnv.cmdqueue.enqueueReadBuffer(seedQueueBuffer, CL_TRUE,
 				0, sizeof(int)*nextCandidateNo, cluster.indices.data());
 			std::sort(cluster.indices.begin(), cluster.indices.end());
 			for (int j = 1; j < nextCandidateNo; j++) {
@@ -681,12 +534,12 @@ void extractEuclideanClusters (
 			}
 		} else if (nextCandidateNo > 1) {
 			// mark all except the starting element as processsed
-			int* candidateStorage = (int *) OCL_objs->cmdqueue.enqueueMapBuffer(seedQueueBuffer, CL_TRUE, CL_MAP_READ,
+			int* candidateStorage = (int *) computeEnv.cmdqueue.enqueueMapBuffer(seedQueueBuffer, CL_TRUE, CL_MAP_READ,
 				sizeof(int), sizeof(int)*(nextCandidateNo - 1));
 			for (int j = 0; j < nextCandidateNo - 1; j++) {
 				processed[candidateStorage[j]] = true;
 			}
-			OCL_objs->cmdqueue.enqueueUnmapMemObject(seedQueueBuffer, candidateStorage);
+			computeEnv.cmdqueue.enqueueUnmapMemObject(seedQueueBuffer, candidateStorage);
 		}
 	}
 	delete processed;
@@ -703,7 +556,7 @@ inline bool comparePointClusters (const PointIndices &a, const PointIndices &b)
 /**
  * Computes euclidean clustering and sorts the resulting clusters.
  */
-void extract (
+void euclidean_clustering::extract(
 	const PointCloud input_,
 	int cloudSize,
 	std::vector<PointIndices> &clusters, 
@@ -712,7 +565,7 @@ void extract (
 	#else
 	float cluster_tolerance_
 	#endif
-	, OCL_Struct* OCL_objs)
+	)
 {
 	if (cloudSize == 0)
 	{
@@ -721,13 +574,12 @@ void extract (
 	}
 	extractEuclideanClusters (
 		input_, cloudSize, static_cast<float>(cluster_tolerance_),
-		clusters, _cluster_size_min, _cluster_size_max  ,OCL_objs);
+		clusters, _cluster_size_min, _cluster_size_max);
 	// sort by number of elements
 	std::sort (clusters.rbegin (), clusters.rend (), comparePointClusters);
 }
 
 void euclidean_clustering::clusterAndColor(
-	OCL_Struct* OCL_objs,
 	const PointCloud in_cloud_ptr,
 	int cloudSize,
 	PointCloudRGB *out_cloud_ptr,
@@ -744,8 +596,7 @@ void euclidean_clustering::clusterAndColor(
 	extract (in_cloud_ptr, 
 		cloudSize,
 		cluster_indices,
-		in_max_cluster_distance,
-		OCL_objs);
+		in_max_cluster_distance);
 
 	// assign colors
 	int j = 0;
@@ -852,30 +703,12 @@ void euclidean_clustering::clusterAndColor(
 
 }
 
-/**
- * Segments the cloud into categories representing distance ranges from the origin
- * and performs clustering and coloring on the individual categories.
- * OCL_objs: OpenCL resources
- * in_cloud_ptr: point cloud
- * cloudSize: number of points in cloud
- * out_cloud_ptr: resulting point cloud
- * out_boundingbox_array: resulting bounding boxes
- * in_out_centroids: resulting cluster centroids
- * in_max_cluster_distance: distance threshold
- */
 void euclidean_clustering::segmentByDistance(
-	OCL_Struct* OCL_objs,
 	const PointCloud in_cloud_ptr,
 	int cloudSize,
 	PointCloudRGB *out_cloud_ptr,
 	BoundingboxArray *in_out_boundingbox_array,
-	Centroid *in_out_centroids,
-	#if defined (DOUBLE_FP)
-	double in_max_cluster_distance=0.5
-	#else
-	float in_max_cluster_distance=0.5
-	#endif
-	)
+	Centroid *in_out_centroids)
 {
 	PointCloud   cloud_segments_array[5];
 	int segment_size[5] = {0, 0, 0, 0, 0};
@@ -940,7 +773,6 @@ void euclidean_clustering::segmentByDistance(
 	for(unsigned int i=0; i<5; i++)
 	{
 		clusterAndColor(
-			OCL_objs,
 			cloud_segments_array[i], 
 			segment_size[i], 
 			out_cloud_ptr,
@@ -950,153 +782,8 @@ void euclidean_clustering::segmentByDistance(
 	}
 }
 
-void parsePointCloud(std::ifstream& input_file, PointCloud *cloud, int *cloudSize)
-{
-	input_file.read((char*)(cloudSize), sizeof(int));
-	*cloud = (Point*) malloc(sizeof(Point) * (*cloudSize));
-	try {
-	for (int i = 0; i < *cloudSize; i++)
-		{
-		input_file.read((char*)&(*cloud)[i].x, sizeof(float));
-		input_file.read((char*)&(*cloud)[i].y, sizeof(float));
-		input_file.read((char*)&(*cloud)[i].z, sizeof(float));
-		}
-	} catch (std::ifstream::failure e) {
-		throw std::ios_base::failure("Error reading point cloud");
-	}
-}
-/**
- * Reads the next reference cloud result.
- */
-void parseOutCloud(std::ifstream& input_file, PointCloudRGB *cloud)
-{
-    int size = 0;
-    PointRGB p;
-    try {
-	input_file.read((char*)&(size), sizeof(int));
-
-	for (int i = 0; i < size; i++)
-	    {
-		input_file.read((char*)&p.x, sizeof(float));
-		input_file.read((char*)&p.y, sizeof(float));
-		input_file.read((char*)&p.z, sizeof(float));
-		input_file.read((char*)&p.r, sizeof(uint8_t));
-		input_file.read((char*)&p.g, sizeof(uint8_t));
-		input_file.read((char*)&p.b, sizeof(uint8_t));				    
-		cloud->push_back(p);
-	    }
-    }  catch (std::ifstream::failure) {
-		throw std::ios_base::failure("Error reading reference cloud");
-    } 
-}
 
 
-void parseBoundingboxArray(std::ifstream& input_file, BoundingboxArray *bb_array)
-{
-	int size = 0;
-	Boundingbox bba;
-	#if defined (DOUBLE_FP)
-	#else
-	double temp;
-	#endif
-	try {
-		input_file.read((char*)&(size), sizeof(int));
-		for (int i = 0; i < size; i++)
-		{
-			#if defined (DOUBLE_FP)
-			input_file.read((char*)&bba.position.x, sizeof(double));
-			input_file.read((char*)&bba.position.y, sizeof(double));
-			input_file.read((char*)&bba.orientation.x, sizeof(double));
-			input_file.read((char*)&bba.orientation.y, sizeof(double));
-			input_file.read((char*)&bba.orientation.z, sizeof(double));
-			input_file.read((char*)&bba.orientation.w, sizeof(double));
-			input_file.read((char*)&bba.dimensions.x, sizeof(double));
-			input_file.read((char*)&bba.dimensions.y, sizeof(double));
-			#else
-			input_file.read((char*)&temp, sizeof(double));
-			bba.position.x=temp;
-			input_file.read((char*)&temp, sizeof(double));
-			bba.position.y=temp;
-			input_file.read((char*)&temp, sizeof(double));
-			bba.orientation.x=temp;
-			input_file.read((char*)&temp, sizeof(double));
-			bba.orientation.y=temp;
-			input_file.read((char*)&temp, sizeof(double));
-			bba.orientation.z=temp;
-			input_file.read((char*)&temp, sizeof(double));
-			bba.orientation.w=temp;
-			input_file.read((char*)&temp, sizeof(double));
-			bba.dimensions.x=temp;
-			input_file.read((char*)&temp, sizeof(double));
-			bba.dimensions.y=temp;
-			#endif
-			bb_array->boxes.push_back(bba);
-		}
-	}  catch (std::ifstream::failure e) {
-		throw std::ios_base::failure("Error reading reference bounding boxes");
-	}
-}
-
-/*
- * Reads the next reference centroids.
- */
-void parseCentroids(std::ifstream& input_file, Centroid *centroids)
-{
-	int size = 0;
-	PointDouble p;
-	#if defined (DOUBLE_FP)
-	#else
-	double temp;
-	#endif
-	try {
-	input_file.read((char*)&(size), sizeof(int));
-		for (int i = 0; i < size; i++)
-		{
-			#if defined (DOUBLE_FP)
-			input_file.read((char*)&p.x, sizeof(double));
-			input_file.read((char*)&p.y, sizeof(double));
-			input_file.read((char*)&p.z, sizeof(double));
-			#else
-			input_file.read((char*)&temp, sizeof(double));
-			p.x = temp;
-			input_file.read((char*)&temp, sizeof(double));
-			p.y = temp;
-			input_file.read((char*)&temp, sizeof(double));
-			p.z = temp;
-			#endif
-			centroids->points.push_back(p);
-		}
-    } catch (std::ifstream::failure e) {
-		throw std::ios_base::failure("Error reading reference centroids");
-    }
-}
-
-int euclidean_clustering::read_next_testcases(int count)
-{
-	// free memory of the last iteration and allocate new one
-	int i;
-	delete [] in_cloud_ptr;
-	delete [] cloud_size;
-	delete [] out_cloud_ptr;
-	delete [] out_boundingbox_array;
-	delete [] out_centroids;
-	in_cloud_ptr = new PointCloud[count];
-	cloud_size = new int [count];
-	out_cloud_ptr = new PointCloudRGB[count];
-	out_boundingbox_array = new BoundingboxArray[count];
-	out_centroids = new Centroid[count];
-	// read the respective point clouds
-	for (i = 0; (i < count) && (read_testcases < testcases); i++,read_testcases++)
-	{
-		try {
-			parsePointCloud(input_file, &in_cloud_ptr[i], &cloud_size[i]);
-		} catch (std::ios_base::failure& e) {
-			std::cerr << e.what() << std::endl;
-			exit(-3);
-		}
-	}
-	return i;
-}
 
 
 void euclidean_clustering::init() {
@@ -1123,34 +810,22 @@ void euclidean_clustering::init() {
 		std::cerr << e.what() << std::endl;
 		exit(-3);
 	}
-	// prepare for the first iteration
-	error_so_far = false;
-	max_delta = 0.0;
-	in_cloud_ptr = nullptr;
-	out_cloud_ptr = nullptr;
-	out_boundingbox_array = nullptr;
-	out_centroids = nullptr;
-
-	std::cout << "done\n" << std::endl;
-}
-
-void euclidean_clustering::run(int p) {
-	// do not measure the time required for initialization
-	pause_func();
-	OCL_Struct OCL_objs;
+#ifdef TESTCASE_LIMIT
+	if (TESTCASE_LIMIT < testcases) {
+		testcases = TESTCASE_LIMIT;
+	}
+#endif // TESTCASE_LIMIT
 	try {
 		std::vector<std::vector<std::string>> requiredExtensions = { {"cl_khr_fp64", "cl_amd_fp64"} };
-		OCL_objs = OCL_Tools::find_compute_platform(EPHOS_PLATFORM_HINT_S, EPHOS_DEVICE_HINT_S,
+		computeEnv = ComputeTools::find_compute_platform(EPHOS_PLATFORM_HINT_S, EPHOS_DEVICE_HINT_S,
 			EPHOS_DEVICE_TYPE_S, requiredExtensions);
-		std::cout << "EPHoS OpenCL device: " << OCL_objs.device.getInfo<CL_DEVICE_NAME>() << std::endl;
+		std::cout << "OpenCL device: " << computeEnv.device.getInfo<CL_DEVICE_NAME>() << std::endl;
 	} catch (std::logic_error& e) {
 		std::cerr << e.what() << std::endl;
 		exit(EXIT_FAILURE);
 	}
 	// build program from stringified source code
 	std::string sourceCode = initRadiusSearch_ocl_krnl;
-	cl::Program::Sources sourcesCL = cl::Program::Sources();
-	sourcesCL.push_back(std::make_pair(sourceCode.c_str(), sourceCode.size()));
 	std::vector<cl::Kernel> kernels;
 	try {
 		std::ostringstream sBuildOptions;
@@ -1163,171 +838,34 @@ void euclidean_clustering::run(int p) {
 			"initRadiusSearch",
 			"parallelRadiusSearch"
 		};
-		cl::Program program = OCL_Tools::build_program(OCL_objs, sourcesCL, sBuildOptions.str(),
+		cl::Program program = ComputeTools::build_program(computeEnv, sourceCode, sBuildOptions.str(),
 			kernelNames, kernels);
 	} catch (std::logic_error& e) {
 		std::cerr << e.what() << std::endl;
 		exit(EXIT_FAILURE);
 	}
-	OCL_objs.kernel_initRS = kernels[0];
-	OCL_objs.kernel_parallelRS = kernels[1];
-	while (read_testcases < testcases)
-	{
-		// read the next input data
-		int count = read_next_testcases(p);
-		unpause_func();
-		for (int i = 0; i < count; i++)
-		{
-			// actual kernel invocation
-			segmentByDistance(
-				&OCL_objs,
-				in_cloud_ptr[i],
-				cloud_size[i],
-				&out_cloud_ptr[i],
-				&out_boundingbox_array[i],
-				&out_centroids[i]
-			);
-		}
-		// pause the timer, then read and compare with the reference data
-		pause_func();
-		check_next_outputs(count);
+	distanceMatrixKernel = kernels[0];
+	buildClusterKernel = kernels[1];
+	// prepare for the first iteration
+	error_so_far = false;
+	max_delta = 0.0;
+	in_cloud_ptr = nullptr;
+	out_cloud_ptr = nullptr;
+	out_boundingbox_array = nullptr;
+	out_centroids = nullptr;
+
+	std::cout << "done" << std::endl;
+}
+void euclidean_clustering::quit() {
+	// free compute resources
+
+	// close data streams
+	try {
+		input_file.close();
+	} catch (std::ifstream::failure& e) {
+	}
+	try {
+		output_file.close();
+	} catch (std::ifstream::failure& e) {
 	}
 }
-
-/**
- * Helper function for point comparison
- */
-inline bool compareRGBPoints (const PointRGB &a, const PointRGB &b)
-{
-    if (a.x != b.x)
-		return (a.x < b.x);
-    else
-	if (a.y != b.y)
-	    return (a.y < b.y);
-	else
-	    return (a.z < b.z);
-}
-
-/**
- * Helper function for point comparison
- */
-inline bool comparePoints (const PointDouble &a, const PointDouble &b)
-{
-	if (a.x != b.x)
-		return (a.x < b.x);
-	else
-	if (a.y != b.y)
-		return (a.y < b.y);
-	else
-		return (a.z < b.z);
-}
-
-
-/**
- * Helper function for bounding box comparison
- */
-inline bool compareBBs (const Boundingbox &a, const Boundingbox &b)
-{
-	if (a.position.x != b.position.x)
-		return (a.position.x < b.position.x);
-	else
-	if (a.position.y != b.position.y)
-		return (a.position.y < b.position.y);
-	else
-		if (a.dimensions.x != b.dimensions.x)
-			return (a.dimensions.x < b.dimensions.x);
-		else
-			return (a.dimensions.y < b.dimensions.y);
-}
-
-void euclidean_clustering::check_next_outputs(int count)
-{
-	PointCloudRGB reference_out_cloud;
-	BoundingboxArray reference_bb_array;
-	Centroid reference_centroids;
-	
-	for (int i = 0; i < count; i++)
-	{
-		// read the reference result
-		try {
-			parseOutCloud(output_file, &reference_out_cloud);
-			parseBoundingboxArray(output_file, &reference_bb_array);
-			parseCentroids(output_file, &reference_centroids);
-		} catch (std::ios_base::failure& e) {
-			std::cerr << e.what() << std::endl;
-			exit(-3);
-		}
-
-		// as the result is still right when points/boxes/centroids are in different order,
-		// we sort the result and reference to normalize it and we can compare it
-		std::sort(reference_out_cloud.begin(), reference_out_cloud.end(), compareRGBPoints);
-		std::sort(out_cloud_ptr[i].begin(), out_cloud_ptr[i].end(), compareRGBPoints);
-		std::sort(reference_bb_array.boxes.begin(), reference_bb_array.boxes.end(), compareBBs);
-		std::sort(out_boundingbox_array[i].boxes.begin(), out_boundingbox_array[i].boxes.end(), compareBBs);
-		std::sort(reference_centroids.points.begin(), reference_centroids.points.end(), comparePoints);
-		std::sort(out_centroids[i].points.begin(), out_centroids[i].points.end(), comparePoints);
-		// test for size differences
-		if (reference_out_cloud.size() != out_cloud_ptr[i].size())
-		{
-			error_so_far = true;
-			continue;
-		}
-		if (reference_bb_array.boxes.size() != out_boundingbox_array[i].boxes.size())
-		{
-			error_so_far = true;
-			continue;
-		}
-		if (reference_centroids.points.size() != out_centroids[i].points.size())
-		{
-			error_so_far = true;
-			continue;
-		}
-		// test for content divergence
-		for (int j = 0; j < reference_out_cloud.size(); j++)
-		{
-			max_delta = std::fmax(std::abs(out_cloud_ptr[i][j].x - reference_out_cloud[j].x), max_delta);
-			max_delta = std::fmax(std::abs(out_cloud_ptr[i][j].y - reference_out_cloud[j].y), max_delta);
-			max_delta = std::fmax(std::abs(out_cloud_ptr[i][j].z - reference_out_cloud[j].z), max_delta);
-		}
-		for (int j = 0; j < reference_bb_array.boxes.size(); j++)
-		{
-			max_delta = std::fmax(std::abs(out_boundingbox_array[i].boxes[j].position.x - reference_bb_array.boxes[j].position.x), max_delta);		    
-			max_delta = std::fmax(std::abs(out_boundingbox_array[i].boxes[j].position.y - reference_bb_array.boxes[j].position.y), max_delta);
-			max_delta = std::fmax(std::abs(out_boundingbox_array[i].boxes[j].dimensions.x - reference_bb_array.boxes[j].dimensions.x), max_delta);		    
-			max_delta = std::fmax(std::abs(out_boundingbox_array[i].boxes[j].dimensions.y - reference_bb_array.boxes[j].dimensions.y), max_delta); 
-			max_delta = std::fmax(std::abs(out_boundingbox_array[i].boxes[j].orientation.x - reference_bb_array.boxes[j].orientation.x), max_delta);
-			max_delta = std::fmax(std::abs(out_boundingbox_array[i].boxes[j].orientation.y - reference_bb_array.boxes[j].orientation.y), max_delta);			
-		}
-		for (int j = 0; j < reference_centroids.points.size(); j++)
-		{
-			max_delta = std::fmax(std::abs(out_centroids[i].points[j].x - reference_centroids.points[j].x), max_delta);
-			max_delta = std::fmax(std::abs(out_centroids[i].points[j].y - reference_centroids.points[j].y), max_delta);
-			max_delta = std::fmax(std::abs(out_centroids[i].points[j].z - reference_centroids.points[j].z), max_delta);
-		}
-		// finishing steps for the next iteration
-		reference_bb_array.boxes.clear();
-		reference_out_cloud.clear();
-		reference_centroids.points.clear();
-	}
-}
-
-bool euclidean_clustering::check_output() 
-{
-	std::cout << "checking output \n";
-
-	// acts as complement to init()
-	input_file.close();
-	output_file.close();
-	std::cout << "max delta: " << max_delta << "\n";
-	if ((max_delta > MAX_EPS) || error_so_far)
-	{
-		return false;
-	} else 
-	{
-		return true;
-	}
-}
-
-// set kernel used by main()
-euclidean_clustering a = euclidean_clustering();
-kernel& myKernel = a;

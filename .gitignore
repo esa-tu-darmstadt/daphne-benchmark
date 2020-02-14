@@ -1,7 +1,8 @@
+data/*
 *.dat
 *.o
 **/Makefile.deps
-**/kernel
-**/stringify.h
-**/ocl_kernel_tmp
-**/ocl_kernel.h
+**/kernel.h
+**/points2image
+**/euclidean_clustering
+**/ndt_mapping
