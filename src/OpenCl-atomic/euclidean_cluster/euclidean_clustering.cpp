@@ -580,11 +580,11 @@ void euclidean_clustering::extract(
 }
 
 void euclidean_clustering::clusterAndColor(
-	const PointCloud in_cloud_ptr,
+	const PointCloud plainPointCloud,
 	int cloudSize,
-	PointCloudRGB *out_cloud_ptr,
-	BoundingboxArray* in_out_boundingbox_array,
-	Centroid* in_out_centroids,
+	ColorPointCloud *colorPointCloud,
+	BoundingboxArray* in_clusterBoundingBoxes,
+	Centroid* in_clusterCentroids,
 	#if defined (DOUBLE_FP)
 	double in_max_cluster_distance=0.5
 	#else
@@ -593,7 +593,7 @@ void euclidean_clustering::clusterAndColor(
 	)
 {
 	std::vector<PointIndices> cluster_indices;
-	extract (in_cloud_ptr, 
+	extract (plainPointCloud,
 		cloudSize,
 		cluster_indices,
 		in_max_cluster_distance);
@@ -603,22 +603,22 @@ void euclidean_clustering::clusterAndColor(
 	unsigned int k = 0;
 	for (auto it = cluster_indices.begin(); it != cluster_indices.end(); ++it)
 	{
-		PointCloudRGB *current_cluster = new PointCloudRGB;//coord + color cluster
+		ColorPointCloud *current_cluster = new ColorPointCloud;//coord + color cluster
 		// assign color to each cluster
 		PointDouble centroid = {0.0, 0.0, 0.0};
 		for (auto pit = it->indices.begin(); pit != it->indices.end(); ++pit)
 		{
 			// fill new colored cluster point by point
 			PointRGB p;
-			p.x = (in_cloud_ptr)[*pit].x;
-			p.y = (in_cloud_ptr)[*pit].y;
-			p.z = (in_cloud_ptr)[*pit].z;
+			p.x = (plainPointCloud)[*pit].x;
+			p.y = (plainPointCloud)[*pit].y;
+			p.z = (plainPointCloud)[*pit].z;
 			p.r = 10;
 			p.g = 20;
 			p.b = 30;
-			centroid.x += (in_cloud_ptr)[*pit].x;
-			centroid.y += (in_cloud_ptr)[*pit].y;
-			centroid.z += (in_cloud_ptr)[*pit].z;
+			centroid.x += (plainPointCloud)[*pit].x;
+			centroid.y += (plainPointCloud)[*pit].y;
+			centroid.z += (plainPointCloud)[*pit].z;
 
 			current_cluster->push_back(p);
 		}
@@ -694,21 +694,21 @@ void euclidean_clustering::clusterAndColor(
 			bounding_box.dimensions.x < 15 && bounding_box.dimensions.y >0 && bounding_box.dimensions.y < 15 &&
 			max_z > -1.5 && min_z > -1.5 && min_z < 1.0 )
 		{
-			in_out_boundingbox_array->boxes.push_back(bounding_box);
-			in_out_centroids->points.push_back(centroid);
+			in_clusterBoundingBoxes->boxes.push_back(bounding_box);
+			in_clusterCentroids->points.push_back(centroid);
 		}
-		out_cloud_ptr->insert(out_cloud_ptr->end(), current_cluster->begin(), current_cluster->end());
+		colorPointCloud->insert(colorPointCloud->end(), current_cluster->begin(), current_cluster->end());
 		j++; k++;
 	}
 
 }
 
 void euclidean_clustering::segmentByDistance(
-	const PointCloud in_cloud_ptr,
+	const PointCloud plainPointCloud,
 	int cloudSize,
-	PointCloudRGB *out_cloud_ptr,
-	BoundingboxArray *in_out_boundingbox_array,
-	Centroid *in_out_centroids)
+	ColorPointCloud *colorPointCloud,
+	BoundingboxArray *in_clusterBoundingBoxes,
+	Centroid *in_clusterCentroids)
 {
 	PointCloud   cloud_segments_array[5];
 	int segment_size[5] = {0, 0, 0, 0, 0};
@@ -721,9 +721,9 @@ void euclidean_clustering::segmentByDistance(
 	for (unsigned int i=0; i< cloudSize; i++)
 	{
 		Point current_point;
-		current_point.x = (in_cloud_ptr)[i].x; /*(*in_cloud_ptr)[i].x;*/
-		current_point.y = (in_cloud_ptr)[i].y; /*(*in_cloud_ptr)[i].y;*/
-		current_point.z = (in_cloud_ptr)[i].z; /*(*in_cloud_ptr)[i].z;*/
+		current_point.x = (plainPointCloud)[i].x; /*(*plainPointCloud)[i].x;*/
+		current_point.y = (plainPointCloud)[i].y; /*(*plainPointCloud)[i].y;*/
+		current_point.z = (plainPointCloud)[i].z; /*(*plainPointCloud)[i].z;*/
 		
 		// categorize by distance from origin
 		float origin_distance = sqrt( pow(current_point.x,2) + pow(current_point.y,2) );
@@ -753,14 +753,14 @@ void euclidean_clustering::segmentByDistance(
 	};
 	for (int segment = 0; segment < 5; segment++) // find points belonging into each segment
 	{
-		cloud_segments_array[segment] = in_cloud_ptr + current_segment_pos[segment];
+		cloud_segments_array[segment] = plainPointCloud + current_segment_pos[segment];
 		for (int i = current_segment_pos[segment]; i < cloudSize; i++) // all in the segment before are already sorted in
 		{
 			if (segment_index[i] == segment)
 			{
-				Point swap_tmp = in_cloud_ptr[current_segment_pos[segment]];
-				in_cloud_ptr[current_segment_pos[segment]] = in_cloud_ptr[i];
-				in_cloud_ptr[i] = swap_tmp;		   
+				Point swap_tmp = plainPointCloud[current_segment_pos[segment]];
+				plainPointCloud[current_segment_pos[segment]] = plainPointCloud[i];
+				plainPointCloud[i] = swap_tmp;
 				segment_index[i] = segment_index[current_segment_pos[segment]];
 				segment_index[current_segment_pos[segment]] = segment;
 				current_segment_pos[segment]++;
@@ -775,9 +775,9 @@ void euclidean_clustering::segmentByDistance(
 		clusterAndColor(
 			cloud_segments_array[i], 
 			segment_size[i], 
-			out_cloud_ptr,
-			in_out_boundingbox_array,
-			in_out_centroids,
+			colorPointCloud,
+			in_clusterBoundingBoxes,
+			in_clusterCentroids,
 			thresholds[i]);
 	}
 }
@@ -849,10 +849,11 @@ void euclidean_clustering::init() {
 	// prepare for the first iteration
 	error_so_far = false;
 	max_delta = 0.0;
-	in_cloud_ptr = nullptr;
-	out_cloud_ptr = nullptr;
-	out_boundingbox_array = nullptr;
-	out_centroids = nullptr;
+	plainPointCloud = nullptr;
+	colorPointCloud = nullptr;
+	clusterBoundingBoxes = nullptr;
+	//clusterBoundingBoxes.clear();
+	clusterCentroids = nullptr;
 
 	std::cout << "done" << std::endl;
 }

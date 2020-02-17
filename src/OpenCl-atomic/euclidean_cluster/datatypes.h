@@ -51,7 +51,7 @@ typedef struct{
 } RotatedRect;
 
 typedef Point* PointCloud;
-typedef std::vector<PointRGB> PointCloudRGB;
+typedef std::vector<PointRGB> ColorPointCloud;
 
 typedef struct {
     std::vector<PointDouble> points;

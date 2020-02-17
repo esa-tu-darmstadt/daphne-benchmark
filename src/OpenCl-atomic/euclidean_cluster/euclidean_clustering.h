@@ -55,13 +55,15 @@ const bool _pose_estimation = true;
 class euclidean_clustering : public benchmark {
 private:
 	// input point cloud
-	PointCloud *in_cloud_ptr = nullptr;
+	PointCloud *plainPointCloud = nullptr;
 	// colored point cloud
-	PointCloudRGB *out_cloud_ptr = nullptr;
+	ColorPointCloud *colorPointCloud = nullptr;
 	// bounding boxes of the input cloud
-	BoundingboxArray *out_boundingbox_array = nullptr;
+	BoundingboxArray* clusterBoundingBoxes = nullptr;
 	// detected centroids
-	Centroid *out_centroids = nullptr;
+	Centroid *clusterCentroids = nullptr;
+	// number of elements in the point clouds
+	std::vector<int> plainCloudSize;
 	// the number of testcases that have been read
 	int read_testcases = 0;
 	// testcase and reference data streams
@@ -70,8 +72,6 @@ private:
 	bool error_so_far = false;
 	// the measured maximum deviation from the reference data
 	double max_delta = 0.0;
-	// current number of point cloud elements
-	int *cloud_size = nullptr;
 	// compute resources
 	ComputeEnv computeEnv;
 	cl::Kernel distanceMatrixKernel;
@@ -131,11 +131,11 @@ protected:
 
 
 	void clusterAndColor(
-		const PointCloud in_cloud_ptr,
-		int cloud_size,
-		PointCloudRGB *out_cloud_ptr,
-		BoundingboxArray *in_out_boundingbox_array,
-		Centroid *in_out_centroids,
+		const PointCloud plainPointCloud,
+		int plainCloudSize,
+		ColorPointCloud *colorPointCloud,
+		BoundingboxArray *in_clusterBoundingBoxes,
+		Centroid *in_clusterCentroids,
 		#if defined (DOUBLE_FP)
 		double in_max_cluster_distance
 		#else
@@ -145,19 +145,19 @@ protected:
 	/**
 	* Segments the cloud into categories representing distance ranges from the origin
 	* and performs clustering and coloring on the individual categories.
-	* in_cloud_ptr: point cloud
+	* plainPointCloud: point cloud
 	* cloudSize: number of points in cloud
-	* out_cloud_ptr: resulting point cloud
-	* out_boundingbox_array: resulting bounding boxes
-	* in_out_centroids: resulting cluster centroids
+	* colorPointCloud: resulting point cloud
+	* clusterBoundingBoxes: resulting bounding boxes
+	* in_clusterCentroids: resulting cluster centroids
 	* in_max_cluster_distance: distance threshold
 	*/
 	void segmentByDistance(
-		const PointCloud in_cloud_ptr,
-		int cloud_size,
-		PointCloudRGB *out_cloud_ptr,
-		BoundingboxArray *in_out_boundingbox_array,
-		Centroid *in_out_centroids);
+		const PointCloud plainPointCloud,
+		int plainCloudSize,
+		ColorPointCloud *colorPointCloud,
+		BoundingboxArray *in_clusterBoundingBoxes,
+		Centroid *in_clusterCentroids);
 	/**
 	 * Reads the number of testcases in the data set.
 	 */
@@ -171,7 +171,7 @@ protected:
 
 	void parsePointCloud(std::ifstream& input_file, PointCloud *cloud, int *cloudSize);
 
-	void parseOutCloud(std::ifstream& input_file, PointCloudRGB *cloud);
+	void parseOutCloud(std::ifstream& input_file, ColorPointCloud *cloud);
 
 	void parseBoundingboxArray(std::ifstream& input_file, BoundingboxArray *bb_array);
 
