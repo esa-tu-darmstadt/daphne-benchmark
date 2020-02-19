@@ -20,29 +20,29 @@
 #include "datatypes.h"
 #include "common/compute_tools.h"
 
-#define STRINGIZE2(s) #s
-#define STRINGIZE(s) STRINGIZE2(s)
+#define STRINGIFY2(s) #s
+#define STRINGIFY(s) STRINGIFY2(s)
 
 // opencl platform hints
 #if defined(EPHOS_PLATFORM_HINT)
-#define EPHOS_PLATFORM_HINT_S STRINGIZE(EPHOS_PLATFORM_HINT)
+#define EPHOS_PLATFORM_HINT_S STRINGIFY(EPHOS_PLATFORM_HINT)
 #else
 #define EPHOS_PLATFORM_HINT_S ""
 #endif
 
 #if defined(EPHOS_DEVICE_HINT)
-#define EPHOS_DEVICE_HINT_S STRINGIZE(EPHOS_DEVICE_HINT)
+#define EPHOS_DEVICE_HINT_S STRINGIFY(EPHOS_DEVICE_HINT)
 #else
 #define EPHOS_DEVICE_HINT_S ""
 #endif
 
 #if defined(EPHOS_DEVICE_TYPE)
-#define EPHOS_DEVICE_TYPE_S STRINGIZE(EPHOS_DEVICE_TYPE)
+#define EPHOS_DEVICE_TYPE_S STRINGIFY(EPHOS_DEVICE_TYPE)
 #else
 #define EPHOS_DEVICE_TYPE_S ""
 #endif
 
-#define NUMWORKITEMS_PER_WORKGROUP_STRING STRINGIZE(NUMWORKITEMS_PER_WORKGROUP)
+#define NUMWORKITEMS_PER_WORKGROUP_STRING STRINGIFY(NUMWORKITEMS_PER_WORKGROUP)
 
 // algorithm parameters
 const int _cluster_size_min = 20;
@@ -51,6 +51,8 @@ const bool _pose_estimation = true;
 
 // maximum allowed deviation from the reference data
 #define MAX_EPS 0.001
+
+extern const char* radius_search_ocl_kernel_soure;
 
 class euclidean_clustering : public benchmark {
 private:
@@ -122,11 +124,7 @@ protected:
 		const PointCloud input_,
 		int cloudSize,
 		std::vector<PointIndices> &clusters,
-		#if defined (DOUBLE_FP)
 		double cluster_tolerance_
-		#else
-		float cluster_tolerance_
-		#endif
 		);
 
 
@@ -136,11 +134,7 @@ protected:
 		ColorPointCloud *colorPointCloud,
 		BoundingboxArray *in_clusterBoundingBoxes,
 		Centroid *in_clusterCentroids,
-		#if defined (DOUBLE_FP)
 		double in_max_cluster_distance
-		#else
-		float in_max_cluster_distance
-		#endif
 	);
 	/**
 	* Segments the cloud into categories representing distance ranges from the origin

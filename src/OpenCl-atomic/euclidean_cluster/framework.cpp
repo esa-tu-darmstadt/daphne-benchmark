@@ -23,7 +23,8 @@
 void euclidean_clustering::parsePointCloud(std::ifstream& input_file, PointCloud *cloud, int *cloudSize)
 {
 	input_file.read((char*)(cloudSize), sizeof(int));
-	*cloud = (Point*) malloc(sizeof(Point) * (*cloudSize));
+	//*cloud = (Point*) malloc(sizeof(Point) * (*cloudSize));
+	*cloud = new Point[*cloudSize];
 	try {
 	for (int i = 0; i < *cloudSize; i++)
 		{
@@ -65,15 +66,10 @@ void euclidean_clustering::parseBoundingboxArray(std::ifstream& input_file, Boun
 {
 	int size = 0;
 	Boundingbox bba;
-	#if defined (DOUBLE_FP)
-	#else
-	double temp;
-	#endif
 	try {
 		input_file.read((char*)&(size), sizeof(int));
 		for (int i = 0; i < size; i++)
 		{
-			#if defined (DOUBLE_FP)
 			input_file.read((char*)&bba.position.x, sizeof(double));
 			input_file.read((char*)&bba.position.y, sizeof(double));
 			input_file.read((char*)&bba.orientation.x, sizeof(double));
@@ -82,24 +78,6 @@ void euclidean_clustering::parseBoundingboxArray(std::ifstream& input_file, Boun
 			input_file.read((char*)&bba.orientation.w, sizeof(double));
 			input_file.read((char*)&bba.dimensions.x, sizeof(double));
 			input_file.read((char*)&bba.dimensions.y, sizeof(double));
-			#else
-			input_file.read((char*)&temp, sizeof(double));
-			bba.position.x=temp;
-			input_file.read((char*)&temp, sizeof(double));
-			bba.position.y=temp;
-			input_file.read((char*)&temp, sizeof(double));
-			bba.orientation.x=temp;
-			input_file.read((char*)&temp, sizeof(double));
-			bba.orientation.y=temp;
-			input_file.read((char*)&temp, sizeof(double));
-			bba.orientation.z=temp;
-			input_file.read((char*)&temp, sizeof(double));
-			bba.orientation.w=temp;
-			input_file.read((char*)&temp, sizeof(double));
-			bba.dimensions.x=temp;
-			input_file.read((char*)&temp, sizeof(double));
-			bba.dimensions.y=temp;
-			#endif
 			bb_array->boxes.push_back(bba);
 		}
 	}  catch (std::ifstream::failure e) {
@@ -114,26 +92,13 @@ void euclidean_clustering::parseCentroids(std::ifstream& input_file, Centroid *c
 {
 	int size = 0;
 	PointDouble p;
-	#if defined (DOUBLE_FP)
-	#else
-	double temp;
-	#endif
 	try {
 	input_file.read((char*)&(size), sizeof(int));
 		for (int i = 0; i < size; i++)
 		{
-			#if defined (DOUBLE_FP)
 			input_file.read((char*)&p.x, sizeof(double));
 			input_file.read((char*)&p.y, sizeof(double));
 			input_file.read((char*)&p.z, sizeof(double));
-			#else
-			input_file.read((char*)&temp, sizeof(double));
-			p.x = temp;
-			input_file.read((char*)&temp, sizeof(double));
-			p.y = temp;
-			input_file.read((char*)&temp, sizeof(double));
-			p.z = temp;
-			#endif
 			centroids->points.push_back(p);
 		}
     } catch (std::ifstream::failure e) {
@@ -155,19 +120,11 @@ int euclidean_clustering::read_next_testcases(int count)
 {
 	// free memory of the last iteration and allocate new one
 	int i;
-	delete [] plainPointCloud;
-	//delete [] plainCloudSize;
-	delete [] colorPointCloud;
-	delete [] clusterBoundingBoxes;
-	delete [] clusterCentroids;
 	plainPointCloud = new PointCloud[count];
 	//plainCloudSize = new int [count];
-
 	colorPointCloud = new ColorPointCloud[count];
 	clusterBoundingBoxes = new BoundingboxArray[count];
-
 	clusterCentroids = new Centroid[count];
-
 	plainCloudSize.resize(count);
 	//clusterBoundingBoxes.resize(count);
 
@@ -233,17 +190,17 @@ inline bool compareBBs (const Boundingbox &a, const Boundingbox &b)
 
 void euclidean_clustering::check_next_outputs(int count)
 {
-	ColorPointCloud reference_out_cloud;
-	BoundingboxArray reference_bb_array;
-	Centroid reference_centroids;
+	ColorPointCloud refPointCloud;
+	BoundingboxArray refBoundingBoxes;
+	Centroid refClusterCentroids;
 
 	for (int i = 0; i < count; i++)
 	{
 		// read the reference result
 		try {
-			parseOutCloud(output_file, &reference_out_cloud);
-			parseBoundingboxArray(output_file, &reference_bb_array);
-			parseCentroids(output_file, &reference_centroids);
+			parseOutCloud(output_file, &refPointCloud);
+			parseBoundingboxArray(output_file, &refBoundingBoxes);
+			parseCentroids(output_file, &refClusterCentroids);
 		} catch (std::ios_base::failure& e) {
 			std::cerr << e.what() << std::endl;
 			exit(-3);
@@ -251,64 +208,64 @@ void euclidean_clustering::check_next_outputs(int count)
 
 		// as the result is still right when points/boxes/centroids are in different order,
 		// we sort the result and reference to normalize it and we can compare it
-		std::sort(reference_out_cloud.begin(), reference_out_cloud.end(), compareRGBPoints);
+		std::sort(refPointCloud.begin(), refPointCloud.end(), compareRGBPoints);
 		std::sort(colorPointCloud[i].begin(), colorPointCloud[i].end(), compareRGBPoints);
-		std::sort(reference_bb_array.boxes.begin(), reference_bb_array.boxes.end(), compareBBs);
+		std::sort(refBoundingBoxes.boxes.begin(), refBoundingBoxes.boxes.end(), compareBBs);
 		std::sort(clusterBoundingBoxes[i].boxes.begin(), clusterBoundingBoxes[i].boxes.end(), compareBBs);
-		std::sort(reference_centroids.points.begin(), reference_centroids.points.end(), comparePoints);
+		std::sort(refClusterCentroids.points.begin(), refClusterCentroids.points.end(), comparePoints);
 		std::sort(clusterCentroids[i].points.begin(), clusterCentroids[i].points.end(), comparePoints);
 		// test for size differences
 		std::ostringstream sError;
 		int caseErrorNo = 0;
 		// test for size differences
-		if (reference_out_cloud.size() != colorPointCloud[i].size())
+		if (refPointCloud.size() != colorPointCloud[i].size())
 		{
 			error_so_far = true;
 			caseErrorNo += 1;
 			sError << " invalid point number: " << colorPointCloud[i].size();
-			sError << " should be " << reference_out_cloud.size() << std::endl;
+			sError << " should be " << refPointCloud.size() << std::endl;
 		}
-		if (reference_bb_array.boxes.size() != clusterBoundingBoxes[i].boxes.size())
+		if (refBoundingBoxes.boxes.size() != clusterBoundingBoxes[i].boxes.size())
 		{
 			error_so_far = true;
 			caseErrorNo += 1;
 			sError << " invalid bounding box number: " << clusterBoundingBoxes[i].boxes.size();
-			sError << " should be " << reference_bb_array.boxes.size() << std::endl;
+			sError << " should be " << refBoundingBoxes.boxes.size() << std::endl;
 		}
-		if (reference_centroids.points.size() != clusterCentroids[i].points.size())
+		if (refClusterCentroids.points.size() != clusterCentroids[i].points.size())
 		{
 			error_so_far = true;
 			caseErrorNo += 1;
 			sError << " invalid centroid number: " << clusterCentroids[i].points.size();
-			sError << " should be " << reference_centroids.points.size() << std::endl;
+			sError << " should be " << refClusterCentroids.points.size() << std::endl;
 		}
 		if (caseErrorNo == 0) {
 			// test for content divergence
-			for (int j = 0; j < reference_out_cloud.size(); j++)
+			for (int j = 0; j < refPointCloud.size(); j++)
 			{
-				float deltaX = std::abs(colorPointCloud[i][j].x - reference_out_cloud[j].x);
-				float deltaY = std::abs(colorPointCloud[i][j].y - reference_out_cloud[j].y);
-				float deltaZ = std::abs(colorPointCloud[i][j].z - reference_out_cloud[j].z);
+				float deltaX = std::abs(colorPointCloud[i][j].x - refPointCloud[j].x);
+				float deltaY = std::abs(colorPointCloud[i][j].y - refPointCloud[j].y);
+				float deltaZ = std::abs(colorPointCloud[i][j].z - refPointCloud[j].z);
 				float delta = std::fmax(deltaX, std::fmax(deltaY, deltaZ));
 				if (delta > MAX_EPS) {
 					caseErrorNo += 1;
 					sError << " deviating point " << j << ": (";
 					sError << colorPointCloud[i][j].x << " " << colorPointCloud[i][j].y << " " << colorPointCloud[i][j].z;
-					sError << ") should be (" << reference_out_cloud[j].x << " ";
-					sError << reference_out_cloud[j].y << " " << reference_out_cloud[j].z << ")" << std::endl;
+					sError << ") should be (" << refPointCloud[j].x << " ";
+					sError << refPointCloud[j].y << " " << refPointCloud[j].z << ")" << std::endl;
 					if (delta > max_delta) {
 						max_delta = delta;
 					}
 				}
 			}
-			for (int j = 0; j < reference_bb_array.boxes.size(); j++)
+			for (int j = 0; j < refBoundingBoxes.boxes.size(); j++)
 			{
-				float deltaX = std::abs(clusterBoundingBoxes[i].boxes[j].position.x - reference_bb_array.boxes[j].position.x);
-				float deltaY = std::abs(clusterBoundingBoxes[i].boxes[j].position.y - reference_bb_array.boxes[j].position.y);
-				float deltaW = std::abs(clusterBoundingBoxes[i].boxes[j].dimensions.x - reference_bb_array.boxes[j].dimensions.x);
-				float deltaH = std::abs(clusterBoundingBoxes[i].boxes[j].dimensions.y - reference_bb_array.boxes[j].dimensions.y);
-				float deltaOX = std::abs(clusterBoundingBoxes[i].boxes[j].orientation.x - reference_bb_array.boxes[j].orientation.x);
-				float deltaOY = std::abs(clusterBoundingBoxes[i].boxes[j].orientation.y - reference_bb_array.boxes[j].orientation.y);
+				float deltaX = std::abs(clusterBoundingBoxes[i].boxes[j].position.x - refBoundingBoxes.boxes[j].position.x);
+				float deltaY = std::abs(clusterBoundingBoxes[i].boxes[j].position.y - refBoundingBoxes.boxes[j].position.y);
+				float deltaW = std::abs(clusterBoundingBoxes[i].boxes[j].dimensions.x - refBoundingBoxes.boxes[j].dimensions.x);
+				float deltaH = std::abs(clusterBoundingBoxes[i].boxes[j].dimensions.y - refBoundingBoxes.boxes[j].dimensions.y);
+				float deltaOX = std::abs(clusterBoundingBoxes[i].boxes[j].orientation.x - refBoundingBoxes.boxes[j].orientation.x);
+				float deltaOY = std::abs(clusterBoundingBoxes[i].boxes[j].orientation.y - refBoundingBoxes.boxes[j].orientation.y);
 				float deltaP = std::fmax(deltaX, deltaY);
 				float deltaS = std::fmax(deltaW, deltaH);
 				float deltaO = std::fmax(deltaOX, deltaOY);
@@ -318,24 +275,24 @@ void euclidean_clustering::check_next_outputs(int count)
 					sError << " deviating bounding box " << j << " position: (";
 					sError << clusterBoundingBoxes[i].boxes[j].position.x << " ";
 					sError << clusterBoundingBoxes[i].boxes[j].position.y << ") should be (";
-					sError << reference_bb_array.boxes[j].position.x << " ";
-					sError << reference_bb_array.boxes[j].position.y << ")" << std::endl;
+					sError << refBoundingBoxes.boxes[j].position.x << " ";
+					sError << refBoundingBoxes.boxes[j].position.y << ")" << std::endl;
 				}
 				if (deltaS > MAX_EPS) {
 					delta = std::fmax(delta, deltaS);
 					sError << " deviating bounding box " << j << " size: (";
 					sError << clusterBoundingBoxes[i].boxes[j].dimensions.x << " ";
 					sError << clusterBoundingBoxes[i].boxes[j].dimensions.y << ") should be (";
-					sError << reference_bb_array.boxes[j].dimensions.x << " ";
-					sError << reference_bb_array.boxes[j].dimensions.y << ")" << std::endl;
+					sError << refBoundingBoxes.boxes[j].dimensions.x << " ";
+					sError << refBoundingBoxes.boxes[j].dimensions.y << ")" << std::endl;
 				}
 				if (deltaO > MAX_EPS) {
 					delta = std::fmax(delta, deltaO);
 					sError << " deviating bound box " << j << " orientation: (";
 					sError << clusterBoundingBoxes[i].boxes[j].orientation.x << " ";
 					sError << clusterBoundingBoxes[i].boxes[j].orientation.y << ") should be (";
-					sError << reference_bb_array.boxes[j].orientation.x << " ";
-					sError << reference_bb_array.boxes[j].orientation.y << ")" << std::endl;
+					sError << refBoundingBoxes.boxes[j].orientation.x << " ";
+					sError << refBoundingBoxes.boxes[j].orientation.y << ")" << std::endl;
 				}
 				if (delta > MAX_EPS) {
 					caseErrorNo += 1;
@@ -344,11 +301,11 @@ void euclidean_clustering::check_next_outputs(int count)
 					}
 				}
 			}
-			for (int j = 0; j < reference_centroids.points.size(); j++)
+			for (int j = 0; j < refClusterCentroids.points.size(); j++)
 			{
-				float deltaX = std::abs(clusterCentroids[i].points[j].x - reference_centroids.points[j].x);
-				float deltaY = std::abs(clusterCentroids[i].points[j].y - reference_centroids.points[j].y);
-				float deltaZ = std::abs(clusterCentroids[i].points[j].z - reference_centroids.points[j].z);
+				float deltaX = std::abs(clusterCentroids[i].points[j].x - refClusterCentroids.points[j].x);
+				float deltaY = std::abs(clusterCentroids[i].points[j].y - refClusterCentroids.points[j].y);
+				float deltaZ = std::abs(clusterCentroids[i].points[j].z - refClusterCentroids.points[j].z);
 				float delta = std::fmax(deltaX, std::fmax(deltaY, deltaZ));
 				if (delta > MAX_EPS) {
 					caseErrorNo += 1;
@@ -358,8 +315,8 @@ void euclidean_clustering::check_next_outputs(int count)
 					sError << " deviating centroid " << j << " position: (";
 					sError << clusterCentroids[i].points[j].x << " " << clusterCentroids[i].points[j].y << " ";
 					sError << clusterCentroids[i].points[j].z << ") should be (";
-					sError << reference_centroids.points[j].x << " " << reference_centroids.points[j].y << " ";
-					sError << reference_centroids.points[j].z << ")" << std::endl;
+					sError << refClusterCentroids.points[j].x << " " << refClusterCentroids.points[j].y << " ";
+					sError << refClusterCentroids.points[j].z << ")" << std::endl;
 				}
 			}
 		}
@@ -369,10 +326,22 @@ void euclidean_clustering::check_next_outputs(int count)
 			std::cerr << sError.str() << std::endl;
 		}
 		// finishing steps for the next iteration
-		reference_bb_array.boxes.clear();
-		reference_out_cloud.clear();
-		reference_centroids.points.clear();
+		refBoundingBoxes.boxes.clear();
+		refPointCloud.clear();
+		refClusterCentroids.points.clear();
+
+		delete[] plainPointCloud[i];
 	}
+	delete [] plainPointCloud;
+	plainPointCloud = nullptr;
+	//delete [] plainCloudSize;
+	delete [] colorPointCloud;
+	colorPointCloud = nullptr;
+	delete [] clusterBoundingBoxes;
+	clusterBoundingBoxes = nullptr;
+	delete [] clusterCentroids;
+	clusterCentroids = nullptr;
+	plainCloudSize.clear();
 }
 
 void euclidean_clustering::run(int p) {

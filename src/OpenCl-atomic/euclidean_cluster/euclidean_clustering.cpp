@@ -21,7 +21,7 @@
 #include "datatypes.h"
 #include "euclidean_clustering.h"
 #include "common/compute_tools.h"
-#include "ocl/device/ocl_kernel.h"
+#include "kernel/kernel.h"
 
 
 void euclidean_clustering::rotatingCalipers( const Point2D* points, int n, float* out )
@@ -46,11 +46,7 @@ void euclidean_clustering::rotatingCalipers( const Point2D* points, int n, float
 
 	for( i = 0; i < n; i++ )
 	{
-		#if defined (DOUBLE_FP)
 		double dx, dy;
-		#else
-		float dx, dy;
-		#endif
 		if( pt0.x < left_x )
 			left_x = pt0.x, left = i;
 		if( pt0.x > right_x )
@@ -70,27 +66,13 @@ void euclidean_clustering::rotatingCalipers( const Point2D* points, int n, float
 
 	// find convex hull orientation
 	{
-		#if defined (DOUBLE_FP)
 		double ax = vect[n-1].x;
 		double ay = vect[n-1].y;
-		#else
-		float ax = vect[n-1].x;
-		float ay = vect[n-1].y;
-		#endif
-
 		for( i = 0; i < n; i++ )
 		{
-			#if defined (DOUBLE_FP)
 			double bx = vect[i].x;
 			double by = vect[i].y;
-
 			double convexity = ax * by - ay * bx;
-			#else
-			float bx = vect[i].x;
-			float by = vect[i].y;
-
-			float convexity = ax * by - ay * bx;
-			#endif
 
 			if( convexity != 0 )
 			{
@@ -413,21 +395,12 @@ float euclidean_clustering::minAreaRectAngle(std::vector<Point2D>& points)
 	if( n > 2 )
 	{
 		rotatingCalipers( hpoints, n, (float*)out );
-		#if defined (DOUBLE_FP)
 		angle = (float)atan2( (double)out[1].y, (double)out[1].x );
-		#else
-		angle = (float)atan2( (float)out[1].y, (float)out[1].x );
-		#endif
 	}
 	else if( n == 2 )
 	{
-		#if defined (DOUBLE_FP)
 		double dx = hpoints[1].x - hpoints[0].x;
 		double dy = hpoints[1].y - hpoints[0].y;
-		#else
-		float dx = hpoints[1].x - hpoints[0].x;
-		float dy = hpoints[1].y - hpoints[0].y;
-		#endif
 		angle = (float)atan2( dy, dx );
 	} // angle 0 otherwise
 	return (float)(angle*180.0/PI);
@@ -458,17 +431,13 @@ void euclidean_clustering::extractEuclideanClusters (
 	cl::Buffer distanceBuffer (computeEnv.context, CL_MEM_READ_WRITE, sizeof(bool)*cloudSize*cloudSize);
 
 	cl::NDRange offsetRange(0);
-	cl::NDRange localSizeRange (NUMWORKITEMS_PER_WORKGROUP);
-	cl::NDRange globalSizeRange((cloudSize/NUMWORKITEMS_PER_WORKGROUP + 1) * NUMWORKITEMS_PER_WORKGROUP);
+	cl::NDRange localSizeRange (EPHOS_KERNEL_WORK_GROUP_SIZE);
+	cl::NDRange globalSizeRange((cloudSize/EPHOS_KERNEL_WORK_GROUP_SIZE + 1)*EPHOS_KERNEL_WORK_GROUP_SIZE);
 	// call the initialization kernel
 	distanceMatrixKernel.setArg(0, cloudBuffer);
 	distanceMatrixKernel.setArg(1, distanceBuffer);
 	distanceMatrixKernel.setArg(2, cloudSize);
-	#if defined (DOUBLE_FP)
 	distanceMatrixKernel.setArg(3, (double)(tolerance*tolerance));
-	#else
-	distanceMatrixKernel.setArg(3, (tolerance*tolerance));
-	#endif
 	computeEnv.cmdqueue.enqueueNDRangeKernel(
 		distanceMatrixKernel, offsetRange, globalSizeRange, localSizeRange);
 	// raidus search progress indicators
@@ -542,7 +511,7 @@ void euclidean_clustering::extractEuclideanClusters (
 			computeEnv.cmdqueue.enqueueUnmapMemObject(seedQueueBuffer, candidateStorage);
 		}
 	}
-	delete processed;
+	delete[] processed;
 }
 
 /**
@@ -560,12 +529,7 @@ void euclidean_clustering::extract(
 	const PointCloud input_,
 	int cloudSize,
 	std::vector<PointIndices> &clusters, 
-	#if defined (DOUBLE_FP)
-	double cluster_tolerance_
-	#else
-	float cluster_tolerance_
-	#endif
-	)
+	double cluster_tolerance_)
 {
 	if (cloudSize == 0)
 	{
@@ -585,12 +549,7 @@ void euclidean_clustering::clusterAndColor(
 	ColorPointCloud *colorPointCloud,
 	BoundingboxArray* in_clusterBoundingBoxes,
 	Centroid* in_clusterCentroids,
-	#if defined (DOUBLE_FP)
-	double in_max_cluster_distance=0.5
-	#else
-	float in_max_cluster_distance=0.5
-	#endif
-	)
+	double in_max_cluster_distance=0.5)
 {
 	std::vector<PointIndices> cluster_indices;
 	extract (plainPointCloud,
@@ -652,11 +611,7 @@ void euclidean_clustering::clusterAndColor(
 		bounding_box.dimensions.y = ((w<0)?-1*w:w);
 		bounding_box.dimensions.z = ((h<0)?-1*h:h);
 
-		#if defined (DOUBLE_FP)
 		double rz = 0;
-		#else
-		float rz = 0;
-		#endif
 		// estimate pose
 		if (_pose_estimation) 
 		{
@@ -676,15 +631,9 @@ void euclidean_clustering::clusterAndColor(
 		}
 
 		// quaternion for rotation stored in bounding box
-		#if defined (DOUBLE_FP)
 		double halfYaw = rz * 0.5;  
 		double cosYaw = cos(halfYaw);
 		double sinYaw = sin(halfYaw);
-		#else
-		float halfYaw = rz * 0.5;  
-		float cosYaw = cos(halfYaw);
-		float sinYaw = sin(halfYaw);
-		#endif
 		bounding_box.orientation.x = 0.0;
 		bounding_box.orientation.y = 0.0;
 		bounding_box.orientation.z = sinYaw;
@@ -713,11 +662,7 @@ void euclidean_clustering::segmentByDistance(
 	PointCloud   cloud_segments_array[5];
 	int segment_size[5] = {0, 0, 0, 0, 0};
 	int *segment_index = (int*) malloc(cloudSize * sizeof(int));
-	#if defined (DOUBLE_FP)
 	double thresholds[5] = {0.5, 1.1, 1.6, 2.3, 2.6f};
-	#else
-	float thresholds[5] = {0.5, 1.1, 1.6, 2.3, 2.6f};
-	#endif
 	for (unsigned int i=0; i< cloudSize; i++)
 	{
 		Point current_point;
@@ -767,6 +712,7 @@ void euclidean_clustering::segmentByDistance(
 			}
 		}
 	}
+	// TODO: allocate prepare buffers from biggest segments
 
 	free(segment_index);
 	// perform clustering and coloring on the individual categories
@@ -825,20 +771,27 @@ void euclidean_clustering::init() {
 		exit(EXIT_FAILURE);
 	}
 	// build program from stringified source code
-	std::string sourceCode = initRadiusSearch_ocl_krnl;
+	std::string sourceCode = radius_search_ocl_kernel_source;
 	std::vector<cl::Kernel> kernels;
 	try {
-		std::ostringstream sBuildOptions;
-		sBuildOptions << " -I ./ocl/device/";
-		sBuildOptions << " -DNUMWORKITEMS_PER_WORKGROUP=" << NUMWORKITEMS_PER_WORKGROUP_STRING;
-		#if defined(DOUBLE_FP)
-		sBuildOptions << " -DDOUBLE_FP";
-		#endif
+		std::string sBuildOptions =
+#ifdef EPHOS_KERNEL_ATOMICS
+		"-DEPHOS_ATOMICS "
+#ifdef EPHOS_KERNEL_LINE_PROCESSING
+		"-DEPHOS_LINE_PROCESSING "
+#endif
+#ifdef EPHOS_KERNEL_DISTANCES_PER_PACKET
+		"-DEPHOS_DISTANCES_PER_PACKET=" STRINGIFY(EPHOS_KERNEL_DISTANCES_PER_PACKET) " "
+#endif
+#ifdef EPHOS_KERNEL_DISTANCE_PACKETS_PER_ITEM
+		"-DEPHOS_DISTANCE_PACKETS_PER_ITEM=" STRINGIFY(EPHOS_KERNEL_DISTANCE_PACKETS_PER_ITEM) " "
+#endif
+		"";
 		std::vector<std::string> kernelNames {
-			"initRadiusSearch",
-			"parallelRadiusSearch"
+			"distanceMatrix",
+			"radiusSearch"
 		};
-		cl::Program program = ComputeTools::build_program(computeEnv, sourceCode, sBuildOptions.str(),
+		cl::Program program = ComputeTools::build_program(computeEnv, sourceCode, sBuildOptions,
 			kernelNames, kernels);
 	} catch (std::logic_error& e) {
 		std::cerr << e.what() << std::endl;

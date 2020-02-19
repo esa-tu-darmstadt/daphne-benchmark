@@ -13,11 +13,7 @@ typedef struct  {
 } Point;
 
 typedef struct  {
-    #if defined (DOUBLE_FP)
     double x,y,z;
-    #else
-    float x,y,z;
-    #endif
 } PointDouble;
 
 typedef struct {
@@ -26,11 +22,7 @@ typedef struct {
 
 
 typedef struct {
-    #if defined (DOUBLE_FP)
     double x,y,z,w;
-    #else
-    float x,y,z,w;
-    #endif
 } Orientation;
 
 typedef struct {

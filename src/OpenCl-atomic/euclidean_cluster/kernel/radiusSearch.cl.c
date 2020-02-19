@@ -16,9 +16,7 @@
  * staticQueueSize: point index to end at
  * cloudSize: number of elements in the point cloud
  */
-__kernel
-void __attribute__ ((reqd_work_group_size(NUMWORKITEMS_PER_WORKGROUP,1,1)))
-parallelRadiusSearch(
+__kernel void radiusSearch(
 	__global int*  restrict seedQueue,
 	__global const bool* restrict distances,
 	__global bool* processed,
@@ -27,6 +25,7 @@ parallelRadiusSearch(
 	int staticQueueSize,
 	int cloudSize)
 {
+#ifdef EPHOS_LINE_PROCESSING
 	int id = get_global_id(0);
 	if (id < cloudSize && !processed[id]) {
 		bool found = false;
@@ -55,6 +54,9 @@ parallelRadiusSearch(
 			processed[id] = true;
 		}
 	}
+#else
+
+#endif
 }
 
 

@@ -3,6 +3,46 @@
  * Embedded Systems & Applications Group 2018
  * License: Apache 2.0 (see attachached File)
  */
+
+#ifndef EPHOS_DISTANCE_PACKETS_PER_ITEM
+#define EPHOS_DISTANCE_PACKETS_PER_ITEM 1
+#endif
+
+#ifndef EPHOS_DISTANCES_PER_PACKET
+#define EPHOS_DISTANCES_PER_PACKET 1
+#endif
+
+#ifdef EPHOS_LINE_PROCESSING
+#undef EPHOS_DISTANCE_PACKETS_PER_ITEM
+#endif // EPHOS_LINE_PROCESSING
+
+// TODO: evaluate a way to compare bit count
+#if EPHOS_DISTANCES_PER_PACKET == 1
+typedef char DistancePacket;
+#elif EPHOS_DISTANCES_PER_PACKET == 8
+typedef char DistancePacket;
+#elif EPHOS_DISTANCES_PER_LOCATION == 16
+typedef short DistancePacket;
+#elif EPHOS_DISTANCES_PER_LOCATION == 32
+typedef int DistancePacket;
+#else
+#error "Invalid distance packet size"
+#endif
+
+// atomic access only availble on int types
+// use this if required
+#if defined(EPHOS_ATOMICS) && !defined(EPHOS_LINE_PROCESSING)
+typedef int Processed;
+#else
+typedef char Processed;
+#endif
+
+typedef struct {
+	double radius;
+	int cloudSize;
+	int lineLength;
+} RadiusSearchInfo;
+
 typedef struct  {
     float x,y,z;
 } Point;
@@ -17,18 +57,12 @@ typedef struct  {
  * cloudSize: distances calculated per work item
  * radius: reference distance
  */
-__kernel void 
-__attribute__ ((reqd_work_group_size(NUMWORKITEMS_PER_WORKGROUP,1,1)))
-initRadiusSearch(
+__kernel void distanceMatrix(
 	__global const Point* restrict cloud,
 	__global bool*        restrict distances,
 	int cloudSize,
-	#if defined (DOUBLE_FP)
-	double radius
-	#else
-	float radius
-	#endif
-) {
+	double radius) {
+#ifdef EPHOS_LINE_PROCESSING
 	int n = cloudSize;
 	int j = get_global_id(0);
 
@@ -42,5 +76,8 @@ initRadiusSearch(
 			distances[array_index] = ((dx*dx + dy*dy + dz*dz) <= radius);
 		}
 	}
+#else // !EPHOS_LINE_PROCESSING
+
+#endif // !EPHOS_LINE_PROCESSING
 }
 
