@@ -23,6 +23,29 @@
 #include "common/compute_tools.h"
 #include "kernel/kernel.h"
 
+euclidean_clustering::euclidean_clustering() :
+	plainPointCloud(nullptr),
+	colorPointCloud(nullptr),
+	clusterBoundingBoxes(nullptr),
+	clusterCentroids(nullptr),
+	plainCloudSize(),
+	read_testcases(0),
+	input_file(),
+	output_file(),
+	error_so_far(false),
+	max_delta(0),
+	computeEnv(),
+	distanceMatrixKernel(),
+	radiusSearchKernel(),
+	seedQueueBuffer(),
+	processedBuffer(),
+	distanceBuffer(),
+	pointCloudBuffer(),
+	seedQueueLengthBuffer(),
+	maxSeedQueueLength(0)
+{}
+
+euclidean_clustering::~euclidean_clustering() {}
 
 void euclidean_clustering::rotatingCalipers( const Point2D* points, int n, float* out )
 {
@@ -406,6 +429,19 @@ float euclidean_clustering::minAreaRectAngle(std::vector<Point2D>& points)
 	return (float)(angle*180.0/PI);
 }
 
+void euclidean_clustering::prepare_compute_buffers(const PointCloud pointCloud, int cloudSize) {
+	if (maxSeedQueueLength >= cloudSize) {
+		return;
+	}
+	maxSeedQueueLength = cloudSize;
+	pointCloudBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, sizeof(Point)*cloudSize);
+	seedQueueBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_WRITE, sizeof(int)*cloudSize);
+	distanceBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_WRITE, sizeof(bool)*cloudSize*cloudSize);
+	processedBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_WRITE, sizeof(bool)*cloudSize);
+	seedQueueLengthBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_WRITE, sizeof(int));
+
+}
+
 void euclidean_clustering::extractEuclideanClusters (
 	const PointCloud cloud,
 	int cloudSize,
@@ -417,42 +453,42 @@ void euclidean_clustering::extractEuclideanClusters (
 	cl_int err;
 	
 	// create buffers
-	cl::Buffer seedQueueBuffer (computeEnv.context, CL_MEM_READ_ONLY, sizeof(int)*cloudSize);
+	// seedQueueBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_ONLY, sizeof(int)*cloudSize);
 	
 	// move point cloud to device
-	cl::Buffer cloudBuffer (computeEnv.context, CL_MEM_READ_ONLY, sizeof(Point)*cloudSize);
-	Point* cloudStorage = (Point *) computeEnv.cmdqueue.enqueueMapBuffer(cloudBuffer, CL_TRUE, CL_MAP_WRITE_INVALIDATE_REGION, 0, sizeof(Point)*cloudSize);
+	//pointCloudBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_ONLY, sizeof(Point)*cloudSize);
+	Point* cloudStorage = (Point *) computeEnv.cmdqueue.enqueueMapBuffer(pointCloudBuffer, CL_TRUE, CL_MAP_WRITE_INVALIDATE_REGION, 0, sizeof(Point)*cloudSize);
 	std::memcpy(cloudStorage, cloud, sizeof(Point)*cloudSize);
-	computeEnv.cmdqueue.enqueueUnmapMemObject(cloudBuffer, cloudStorage);
-	//computeEnv.cmdqueue.enqueueWriteBuffer(cloudBuffer, CL_FALSE,
+	computeEnv.cmdqueue.enqueueUnmapMemObject(pointCloudBuffer, cloudStorage);
+	//computeEnv.cmdqueue.enqueueWriteBuffer(pointCloudBuffer, CL_FALSE,
 	//	0, sizeof(Point)*cloudSize, cloud);
 	
 	// create and initialize the distance matrix buffer
-	cl::Buffer distanceBuffer (computeEnv.context, CL_MEM_READ_WRITE, sizeof(bool)*cloudSize*cloudSize);
+	//distanceBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_WRITE, sizeof(bool)*cloudSize*cloudSize);
 
 	cl::NDRange offsetRange(0);
-	cl::NDRange localSizeRange (EPHOS_KERNEL_WORK_GROUP_SIZE);
-	cl::NDRange globalSizeRange((cloudSize/EPHOS_KERNEL_WORK_GROUP_SIZE + 1)*EPHOS_KERNEL_WORK_GROUP_SIZE);
+	cl::NDRange localNDRange (EPHOS_KERNEL_WORK_GROUP_SIZE);
+	cl::NDRange globalNDRange((cloudSize/EPHOS_KERNEL_WORK_GROUP_SIZE + 1)*EPHOS_KERNEL_WORK_GROUP_SIZE);
 	// call the initialization kernel
-	distanceMatrixKernel.setArg(0, cloudBuffer);
+	distanceMatrixKernel.setArg(0, pointCloudBuffer);
 	distanceMatrixKernel.setArg(1, distanceBuffer);
 	distanceMatrixKernel.setArg(2, cloudSize);
 	distanceMatrixKernel.setArg(3, (double)(tolerance*tolerance));
 	computeEnv.cmdqueue.enqueueNDRangeKernel(
-		distanceMatrixKernel, offsetRange, globalSizeRange, localSizeRange);
+		distanceMatrixKernel, offsetRange, globalNDRange, localNDRange);
 	// raidus search progress indicators
 	bool* processed = new bool[cloudSize];
 	std::memset(processed, 0, sizeof(bool)*cloudSize);
-	cl::Buffer seedQueueLengthBuffer(computeEnv.context, CL_MEM_READ_WRITE, sizeof(int));
-	cl::Buffer processedBuffer(computeEnv.context, CL_MEM_READ_WRITE, sizeof(bool)*cloudSize);
+	//seedQueueLengthBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_WRITE, sizeof(int));
+	//processedBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_WRITE, sizeof(bool)*cloudSize);
 
 	computeEnv.cmdqueue.enqueueWriteBuffer(processedBuffer, CL_FALSE,
 		0, sizeof(bool)*cloudSize, processed);
 
-	buildClusterKernel.setArg(0, seedQueueBuffer);
-	buildClusterKernel.setArg(1, distanceBuffer);
-	buildClusterKernel.setArg(2, processedBuffer);
-	buildClusterKernel.setArg(3, seedQueueLengthBuffer);
+	radiusSearchKernel.setArg(0, seedQueueBuffer);
+	radiusSearchKernel.setArg(1, distanceBuffer);
+	radiusSearchKernel.setArg(2, processedBuffer);
+	radiusSearchKernel.setArg(3, seedQueueLengthBuffer);
 	// Process all points in the indices vector
 	for (int i = 0; i < cloudSize; ++i)
 	{
@@ -474,13 +510,13 @@ void euclidean_clustering::extractEuclideanClusters (
 		while (nextCandidateNo > staticCandidateNo)
 		{
 			// call the radius search kernel
-			buildClusterKernel.setArg(4, staticCandidateNo);
-			buildClusterKernel.setArg(5, nextCandidateNo);
-			buildClusterKernel.setArg(6, cloudSize);
-			computeEnv.cmdqueue.enqueueNDRangeKernel(buildClusterKernel,
+			radiusSearchKernel.setArg(4, staticCandidateNo);
+			radiusSearchKernel.setArg(5, nextCandidateNo);
+			radiusSearchKernel.setArg(6, cloudSize);
+			computeEnv.cmdqueue.enqueueNDRangeKernel(radiusSearchKernel,
 				offsetRange,
-				globalSizeRange,
-				localSizeRange);
+				globalNDRange,
+				localNDRange);
 			// update counters
 			staticCandidateNo = nextCandidateNo;
 			computeEnv.cmdqueue.enqueueReadBuffer(seedQueueLengthBuffer, CL_TRUE,
@@ -712,8 +748,14 @@ void euclidean_clustering::segmentByDistance(
 			}
 		}
 	}
-	// TODO: allocate prepare buffers from biggest segments
-
+	// find the biggest segment and prepare the compute resources
+	int iBigSegment = 0;
+	for (int s = 0; s < 5; s++) {
+		if (segment_size[s] > segment_size[iBigSegment]) {
+			iBigSegment = s;
+		}
+	}
+	prepare_compute_buffers(cloud_segments_array[iBigSegment], segment_size[iBigSegment]);
 	free(segment_index);
 	// perform clustering and coloring on the individual categories
 	for(unsigned int i=0; i<5; i++)
@@ -777,6 +819,7 @@ void euclidean_clustering::init() {
 		std::string sBuildOptions =
 #ifdef EPHOS_KERNEL_ATOMICS
 		"-DEPHOS_ATOMICS "
+#endif
 #ifdef EPHOS_KERNEL_LINE_PROCESSING
 		"-DEPHOS_LINE_PROCESSING "
 #endif
@@ -798,7 +841,7 @@ void euclidean_clustering::init() {
 		exit(EXIT_FAILURE);
 	}
 	distanceMatrixKernel = kernels[0];
-	buildClusterKernel = kernels[1];
+	radiusSearchKernel = kernels[1];
 	// prepare for the first iteration
 	error_so_far = false;
 	max_delta = 0.0;
@@ -807,6 +850,7 @@ void euclidean_clustering::init() {
 	clusterBoundingBoxes = nullptr;
 	//clusterBoundingBoxes.clear();
 	clusterCentroids = nullptr;
+	maxSeedQueueLength = -1;
 
 	std::cout << "done" << std::endl;
 }

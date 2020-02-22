@@ -5,15 +5,14 @@
 
 CXXFLAGS=-O3
 CXXFLAGS+= -std=c++11
+CPPFLAGS+= -I./ -I../
 
 # opencl headers and library
-OPENCL_INCLUDE_PATH=
-OPENCL_LIBRARY_PATH=
-ifneq ($(OPENCL_INCLUDE_PATH),)
+ifdef OPENCL_INCLUDE_PATH
 	CPPFLAGS+= -I$(OPENCL_INCLUDE_PATH)
 endif
-CPPFLAGS+= -I./ -I../
-ifneq ($(OPENCL_LIBRARY_PATH),)
+
+ifdef OPENCL_LIBRARY_PATH
 	LDDFLAGS+= -L$(OPENCL_LIBRARY_PATH)
 endif
 LDDFLAGS+= -lOpenCL
@@ -33,7 +32,7 @@ $(info Searching for OpenCL device type $(OPENCL_DEVICE_TYPE))
 endif
 
 # opencl kernel optimization
-OPENCL_WORK_GROUP_SIZE=512
+OPENCL_WORK_GROUP_SIZE=256
 CPPFLAGS+= -DEPHOS_KERNEL_WORK_GROUP_SIZE=$(OPENCL_WORK_GROUP_SIZE)
 ifdef DISABLE_OPENCL_ATOMICS
 $(info Disabled OpenCL atomic operations)
@@ -72,11 +71,12 @@ endif
 
 all: euclidean_clustering checkdata
 
+euclidean_clustering: euclidean_clustering.o framework.o ../common/main.o ../common/compute_tools.o
+	$(CXX) $^ -o $@ $(LDDFLAGS)
+
 kernel/kernel.h:
 	cd kernel && ./stringify_kernels.sh
 
-euclidean_clustering: euclidean_clustering.o framework.o ../common/main.o ../common/compute_tools.o kernel/kernel.h
-	$(CXX) $^ -o $@ $(LDDFLAGS)
 
 %.o: %.cpp
 	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -o $@ $<
@@ -94,7 +94,7 @@ clean:
 	../common/main.o ../common/compute_tools.o kernel/kernel.h
 
 Makefile.deps:
-	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include -MM -MG \
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS)  -MM -MG \
 	../common/main.cpp ../common/compute_tools.cpp euclidean_clustering.cpp framework.cpp > Makefile.deps
 
 

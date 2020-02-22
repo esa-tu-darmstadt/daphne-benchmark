@@ -77,8 +77,16 @@ private:
 	// compute resources
 	ComputeEnv computeEnv;
 	cl::Kernel distanceMatrixKernel;
-	cl::Kernel buildClusterKernel;
-
+	cl::Kernel radiusSearchKernel;
+	cl::Buffer seedQueueBuffer;
+	cl::Buffer processedBuffer;
+	cl::Buffer distanceBuffer;
+	cl::Buffer pointCloudBuffer;
+	cl::Buffer seedQueueLengthBuffer;
+	int maxSeedQueueLength = -1;
+public:
+	euclidean_clustering();
+	~euclidean_clustering();
 public:
 	virtual void init();
 	virtual void quit();
@@ -152,6 +160,12 @@ protected:
 		ColorPointCloud *colorPointCloud,
 		BoundingboxArray *in_clusterBoundingBoxes,
 		Centroid *in_clusterCentroids);
+	/**
+	 * Manages compute resources.
+	 * plainPointCloud: biggest point cloud
+	 * cloudSize: number of cloud elements
+	 */
+	void prepare_compute_buffers(const PointCloud plainPointCloud, int cloudSize);
 	/**
 	 * Reads the number of testcases in the data set.
 	 */
