@@ -20,17 +20,18 @@
 #include "datatypes.h"
 #include "euclidean_clustering.h"
 
-void euclidean_clustering::parsePointCloud(std::ifstream& input_file, PointCloud *cloud, int *cloudSize)
+void euclidean_clustering::parsePlainPointCloud(std::ifstream& input_file, PlainPointCloud& cloud,
+	int& cloudSize)
 {
-	input_file.read((char*)(cloudSize), sizeof(int));
+	input_file.read((char*)&cloudSize, sizeof(int));
 	//*cloud = (Point*) malloc(sizeof(Point) * (*cloudSize));
-	*cloud = new Point[*cloudSize];
+	cloud = new Point[cloudSize];
 	try {
-	for (int i = 0; i < *cloudSize; i++)
+	for (int i = 0; i < cloudSize; i++)
 		{
-		input_file.read((char*)&(*cloud)[i].x, sizeof(float));
-		input_file.read((char*)&(*cloud)[i].y, sizeof(float));
-		input_file.read((char*)&(*cloud)[i].z, sizeof(float));
+		input_file.read((char*)&(cloud[i].x), sizeof(float));
+		input_file.read((char*)&(cloud[i].y), sizeof(float));
+		input_file.read((char*)&(cloud[i].z), sizeof(float));
 		}
 	} catch (std::ifstream::failure e) {
 		throw std::ios_base::failure("Error reading point cloud");
@@ -39,7 +40,7 @@ void euclidean_clustering::parsePointCloud(std::ifstream& input_file, PointCloud
 /**
  * Reads the next reference cloud result.
  */
-void euclidean_clustering::parseOutCloud(std::ifstream& input_file, ColorPointCloud *cloud)
+void euclidean_clustering::parseColorPointCloud(std::ifstream& input_file, ColorPointCloud& cloud)
 {
     int size = 0;
     PointRGB p;
@@ -54,7 +55,7 @@ void euclidean_clustering::parseOutCloud(std::ifstream& input_file, ColorPointCl
 		input_file.read((char*)&p.r, sizeof(uint8_t));
 		input_file.read((char*)&p.g, sizeof(uint8_t));
 		input_file.read((char*)&p.b, sizeof(uint8_t));
-		cloud->push_back(p);
+		cloud.push_back(p);
 	    }
     }  catch (std::ifstream::failure) {
 		throw std::ios_base::failure("Error reading reference cloud");
@@ -62,7 +63,7 @@ void euclidean_clustering::parseOutCloud(std::ifstream& input_file, ColorPointCl
 }
 
 
-void euclidean_clustering::parseBoundingboxArray(std::ifstream& input_file, BoundingboxArray *bb_array)
+void euclidean_clustering::parseBoundingboxArray(std::ifstream& input_file, BoundingboxArray& bb_array)
 {
 	int size = 0;
 	Boundingbox bba;
@@ -78,7 +79,7 @@ void euclidean_clustering::parseBoundingboxArray(std::ifstream& input_file, Boun
 			input_file.read((char*)&bba.orientation.w, sizeof(double));
 			input_file.read((char*)&bba.dimensions.x, sizeof(double));
 			input_file.read((char*)&bba.dimensions.y, sizeof(double));
-			bb_array->boxes.push_back(bba);
+			bb_array.boxes.push_back(bba);
 		}
 	}  catch (std::ifstream::failure e) {
 		throw std::ios_base::failure("Error reading reference bounding boxes");
@@ -88,7 +89,7 @@ void euclidean_clustering::parseBoundingboxArray(std::ifstream& input_file, Boun
 /*
  * Reads the next reference centroids.
  */
-void euclidean_clustering::parseCentroids(std::ifstream& input_file, Centroid *centroids)
+void euclidean_clustering::parseCentroids(std::ifstream& input_file, Centroid& centroids)
 {
 	int size = 0;
 	PointDouble p;
@@ -99,7 +100,7 @@ void euclidean_clustering::parseCentroids(std::ifstream& input_file, Centroid *c
 			input_file.read((char*)&p.x, sizeof(double));
 			input_file.read((char*)&p.y, sizeof(double));
 			input_file.read((char*)&p.z, sizeof(double));
-			centroids->points.push_back(p);
+			centroids.points.push_back(p);
 		}
     } catch (std::ifstream::failure e) {
 		throw std::ios_base::failure("Error reading reference centroids");
@@ -120,19 +121,17 @@ int euclidean_clustering::read_next_testcases(int count)
 {
 	// free memory of the last iteration and allocate new one
 	int i;
-	plainPointCloud = new PointCloud[count];
-	//plainCloudSize = new int [count];
-	colorPointCloud = new ColorPointCloud[count];
-	clusterBoundingBoxes = new BoundingboxArray[count];
-	clusterCentroids = new Centroid[count];
+	plainPointCloud.resize(count);
+	colorPointCloud.resize(count);
+	clusterBoundingBoxes.resize(count);
+	clusterCentroids.resize(count);
 	plainCloudSize.resize(count);
-	//clusterBoundingBoxes.resize(count);
 
 	// read the respective point clouds
 	for (i = 0; (i < count) && (read_testcases < testcases); i++,read_testcases++)
 	{
 		try {
-			parsePointCloud(input_file, &plainPointCloud[i], &plainCloudSize[i]);
+			parsePlainPointCloud(input_file, plainPointCloud[i], plainCloudSize[i]);
 		} catch (std::ios_base::failure& e) {
 			std::cerr << e.what() << std::endl;
 			exit(-3);
@@ -198,9 +197,9 @@ void euclidean_clustering::check_next_outputs(int count)
 	{
 		// read the reference result
 		try {
-			parseOutCloud(output_file, &refPointCloud);
-			parseBoundingboxArray(output_file, &refBoundingBoxes);
-			parseCentroids(output_file, &refClusterCentroids);
+			parseColorPointCloud(output_file, refPointCloud);
+			parseBoundingboxArray(output_file, refBoundingBoxes);
+			parseCentroids(output_file, refClusterCentroids);
 		} catch (std::ios_base::failure& e) {
 			std::cerr << e.what() << std::endl;
 			exit(-3);
@@ -332,15 +331,19 @@ void euclidean_clustering::check_next_outputs(int count)
 
 		delete[] plainPointCloud[i];
 	}
-	delete [] plainPointCloud;
-	plainPointCloud = nullptr;
+	//delete[] plainPointCloud;
+	//plainPointCloud = nullptr;
+	plainPointCloud.clear();
 	//delete [] plainCloudSize;
-	delete [] colorPointCloud;
-	colorPointCloud = nullptr;
-	delete [] clusterBoundingBoxes;
-	clusterBoundingBoxes = nullptr;
-	delete [] clusterCentroids;
-	clusterCentroids = nullptr;
+	//delete [] colorPointCloud;
+	//colorPointCloud = nullptr;
+	colorPointCloud.clear();
+	//delete [] clusterBoundingBoxes;
+	//clusterBoundingBoxes = nullptr;
+	clusterBoundingBoxes.clear();
+	//delete [] clusterCentroids;
+	//clusterCentroids = nullptr;
+	clusterCentroids.clear();
 	plainCloudSize.clear();
 }
 
@@ -358,9 +361,9 @@ void euclidean_clustering::run(int p) {
 			segmentByDistance(
 				plainPointCloud[i],
 				plainCloudSize[i],
-				&colorPointCloud[i],
-				&clusterBoundingBoxes[i],
-				&clusterCentroids[i]
+				colorPointCloud[i],
+				clusterBoundingBoxes[i],
+				clusterCentroids[i]
 			);
 		}
 		// pause the timer, then read and compare with the reference data
