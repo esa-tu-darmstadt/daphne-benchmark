@@ -21,9 +21,9 @@
 typedef char DistancePacket;
 #elif EPHOS_DISTANCES_PER_PACKET == 8
 typedef char DistancePacket;
-#elif EPHOS_DISTANCES_PER_LOCATION == 16
+#elif EPHOS_DISTANCES_PER_PACKET == 16
 typedef short DistancePacket;
-#elif EPHOS_DISTANCES_PER_LOCATION == 32
+#elif EPHOS_DISTANCES_PER_PACKET == 32
 typedef int DistancePacket;
 #else
 #error "Invalid distance packet size"
@@ -47,6 +47,8 @@ typedef struct  {
     float x,y,z;
 } Point;
 
+typedef float3 Point3;
+
 
 /**
  * Computes the pairwise squared distances. Results are stored in a matrix.
@@ -59,7 +61,7 @@ typedef struct  {
  */
 __kernel void distanceMatrix(
 	__global const Point* restrict cloud,
-	__global bool*        restrict distances,
+	__global DistancePacket* restrict distances,
 	int cloudSize,
 	double radius) {
 #ifdef EPHOS_LINE_PROCESSING
@@ -67,13 +69,30 @@ __kernel void distanceMatrix(
 	int j = get_global_id(0);
 
 	if (j < cloudSize) {
-		for (int i = 0; i < cloudSize; i++)
+		for (int i = 0; i*EPHOS_DISTANCES_PER_PACKET < cloudSize; i++)
 		{
-			float dx = cloud[i].x - cloud[j].x;
-			float dy = cloud[i].y - cloud[j].y;
-			float dz = cloud[i].z - cloud[j].z;
-			int array_index = i*cloudSize + j;
-			distances[array_index] = ((dx*dx + dy*dy + dz*dz) <= radius);
+			DistancePacket dist = 0;
+			for (int k = 0; k < EPHOS_DISTANCES_PER_PACKET; k++) {
+				// distabled because of misaligned address error
+				//__global const float3* pCloud1 = (__global const float3*)&cloud[i*EPHOS_DISTANCES_PER_PACKET + k];
+				//__global const float3* pCloud2 = (__global const float3*)&cloud[j];
+
+				//float3 d = (*pCloud1) - (*pCloud2); //cloud[i*EPHOS_DISTANCES_PER_PACKET + k] - cloud[j];
+				float dx = cloud[i*EPHOS_DISTANCES_PER_PACKET + k].x - cloud[j].x;
+				float dy = cloud[i*EPHOS_DISTANCES_PER_PACKET + k].y - cloud[j].y;
+				float dz = cloud[i*EPHOS_DISTANCES_PER_PACKET + k].z - cloud[j].z;
+				if (dx*dx + dy*dy + dz*dz <= radius) {
+				//if (d.x*d.x + d.y*d.y + d.z*d.z <=radius) {
+					dist |= 0x1 << k;
+				}
+			}
+			int iDist = i*cloudSize + j; // spaced out work group write
+			distances[iDist] = dist;
+			//float dx = cloud[i].x - cloud[j].x;
+			//float dy = cloud[i].y - cloud[j].y;
+			//float dz = cloud[i].z - cloud[j].z;
+			//int array_index = i*cloudSize + j;
+			//distances[array_index] = ((dx*dx + dy*dy + dz*dz) <= radius);
 		}
 	}
 #else // !EPHOS_LINE_PROCESSING

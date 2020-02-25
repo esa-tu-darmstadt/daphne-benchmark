@@ -18,7 +18,7 @@
  */
 __kernel void radiusSearch(
 	__global int*  restrict seedQueue,
-	__global const bool* restrict distances,
+	__global const DistancePacket* restrict distances,
 	__global bool* processed,
 	__global int* nextQueueSize,
 	int iQueueStart,
@@ -44,7 +44,7 @@ __kernel void radiusSearch(
 			if (!is_skipped) 
 			{
 				int array_index = seedQueue[iQueue] * cloudSize+id;;
-				if (distances[array_index])
+				if (distances[array_index] != 0)
 					found = true;
 			}
 		}

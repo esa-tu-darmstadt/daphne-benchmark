@@ -434,7 +434,7 @@ void euclidean_clustering::prepare_compute_buffers(const PlainPointCloud& pointC
 		return;
 	}
 	maxSeedQueueLength = cloudSize;
-	pointCloudBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, sizeof(Point)*cloudSize);
+	pointCloudBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, 2*sizeof(Point)*cloudSize);
 	seedQueueBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_WRITE, sizeof(int)*cloudSize);
 	distanceBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_WRITE, sizeof(bool)*cloudSize*cloudSize);
 	processedBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_WRITE, sizeof(bool)*cloudSize);
