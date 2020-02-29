@@ -42,7 +42,6 @@
 #define EPHOS_DEVICE_TYPE_S ""
 #endif
 
-#define NUMWORKITEMS_PER_WORKGROUP_STRING STRINGIFY(NUMWORKITEMS_PER_WORKGROUP)
 
 // algorithm parameters
 const int _cluster_size_min = 20;

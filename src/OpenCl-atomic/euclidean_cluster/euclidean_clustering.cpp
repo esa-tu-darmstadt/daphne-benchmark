@@ -433,11 +433,20 @@ void euclidean_clustering::prepare_compute_buffers(const PlainPointCloud& pointC
 	if (maxSeedQueueLength >= cloudSize) {
 		return;
 	}
-	maxSeedQueueLength = cloudSize;
-	pointCloudBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, 2*sizeof(Point)*cloudSize);
+	int alignedCloudSize;
+	if (cloudSize%(EPHOS_KERNEL_DISTANCES_PER_PACKET*EPHOS_KERNEL_DISTANCE_PACKETS_PER_ITEM) == 0) {
+		int itemNo = cloudSize/(EPHOS_KERNEL_DISTANCES_PER_PACKET*EPHOS_KERNEL_DISTANCE_PACKETS_PER_ITEM) + 1;
+		alignedCloudSize = itemNo*EPHOS_KERNEL_DISTANCES_PER_PACKET*EPHOS_KERNEL_DISTANCE_PACKETS_PER_ITEM;
+	} else {
+		alignedCloudSize = cloudSize;
+	}
+	maxSeedQueueLength = alignedCloudSize;
+	//int distanceLineLength
+
+	pointCloudBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, sizeof(Point)*alignedCloudSize);
 	seedQueueBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_WRITE, sizeof(int)*cloudSize);
-	distanceBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_WRITE, sizeof(bool)*cloudSize*cloudSize);
-	processedBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_WRITE, sizeof(bool)*cloudSize);
+	distanceBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_WRITE, sizeof(bool)*alignedCloudSize*alignedCloudSize);
+	processedBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_WRITE, sizeof(bool)*alignedCloudSize);
 	seedQueueLengthBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_WRITE, sizeof(int));
 
 }
@@ -463,15 +472,27 @@ void euclidean_clustering::extractEuclideanClusters (
 	//computeEnv.cmdqueue.enqueueWriteBuffer(pointCloudBuffer, CL_FALSE,
 	//	0, sizeof(Point)*cloudSize, cloud);
 	
-	// create and initialize the distance matrix buffer
-	//distanceBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_WRITE, sizeof(bool)*cloudSize*cloudSize);
-
+	int alignedCloudSize;
+	if (cloudSize%(EPHOS_KERNEL_DISTANCES_PER_PACKET*EPHOS_KERNEL_DISTANCE_PACKETS_PER_ITEM) == 0) {
+		int itemNo = cloudSize/(EPHOS_KERNEL_DISTANCES_PER_PACKET*EPHOS_KERNEL_DISTANCE_PACKETS_PER_ITEM) + 1;
+		alignedCloudSize = itemNo*EPHOS_KERNEL_DISTANCES_PER_PACKET*EPHOS_KERNEL_DISTANCE_PACKETS_PER_ITEM;
+	} else {
+		alignedCloudSize = cloudSize;
+	}
 	cl::NDRange offsetRange(0);
 	cl::NDRange localNDRange (EPHOS_KERNEL_WORK_GROUP_SIZE);
 	cl::NDRange globalNDRange((cloudSize/EPHOS_KERNEL_WORK_GROUP_SIZE + 1)*EPHOS_KERNEL_WORK_GROUP_SIZE);
+	RadiusSearchInfo searchInfo = {
+		(double)(tolerance*tolerance),
+		cloudSize,
+		alignedCloudSize,
+		0, // queue start
+		1 // queue length
+	};
 	// call the initialization kernel
 	distanceMatrixKernel.setArg(0, pointCloudBuffer);
 	distanceMatrixKernel.setArg(1, distanceBuffer);
+	// distanceMatrixKernel.setArg(2, searchInfo);
 	distanceMatrixKernel.setArg(2, cloudSize);
 	distanceMatrixKernel.setArg(3, (double)(tolerance*tolerance));
 	computeEnv.cmdqueue.enqueueNDRangeKernel(
@@ -509,7 +530,10 @@ void euclidean_clustering::extractEuclideanClusters (
 		// grow the candidate until convergence
 		while (nextCandidateNo > staticCandidateNo)
 		{
+			searchInfo.queueStartIndex = staticCandidateNo;
+			searchInfo.staticQueueSize = nextCandidateNo;
 			// call the radius search kernel
+			// radiusSearchKernel.setArg(4, searchInfo);
 			radiusSearchKernel.setArg(4, staticCandidateNo);
 			radiusSearchKernel.setArg(5, nextCandidateNo);
 			radiusSearchKernel.setArg(6, cloudSize);

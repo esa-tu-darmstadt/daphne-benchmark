@@ -39,8 +39,10 @@ typedef char Processed;
 
 typedef struct {
 	double radius;
-	int cloudSize;
-	int lineLength;
+	int unboundCloudSize;
+	int alignedCloudSize;
+	int queueStartIndex;
+	int staticQueueSize;
 } RadiusSearchInfo;
 
 typedef struct  {
@@ -68,15 +70,21 @@ __kernel void distanceMatrix(
 	int n = cloudSize;
 	int j = get_global_id(0);
 
+	// pivot element with index j
 	if (j < cloudSize) {
+		// go through one line
+		// line processing ignores packets per work item
+		// because it always generates a whole line of distance packets
+		// step over previously processed cloud elements
 		for (int i = 0; i*EPHOS_DISTANCES_PER_PACKET < cloudSize; i++)
 		{
 			DistancePacket dist = 0;
+			// build distance packet
+			// one packet consists of the nearness indicators for one or more pairwise distances
 			for (int k = 0; k < EPHOS_DISTANCES_PER_PACKET; k++) {
 				// distabled because of misaligned address error
 				//__global const float3* pCloud1 = (__global const float3*)&cloud[i*EPHOS_DISTANCES_PER_PACKET + k];
 				//__global const float3* pCloud2 = (__global const float3*)&cloud[j];
-
 				//float3 d = (*pCloud1) - (*pCloud2); //cloud[i*EPHOS_DISTANCES_PER_PACKET + k] - cloud[j];
 				float dx = cloud[i*EPHOS_DISTANCES_PER_PACKET + k].x - cloud[j].x;
 				float dy = cloud[i*EPHOS_DISTANCES_PER_PACKET + k].y - cloud[j].y;

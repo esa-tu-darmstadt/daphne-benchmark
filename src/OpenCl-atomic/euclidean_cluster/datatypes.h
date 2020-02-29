@@ -57,6 +57,33 @@ typedef struct PointIndices {
     std::vector<int> indices;
 } PointIndices;
 
+typedef struct RadiusSearchInfo {
+	double radius;
+	int unboundCloudSize;
+	int alignedCloudSize;
+	int queueStartIndex;
+	int staticQueueSize;
+} RadiusSearchInfo;
+
+#ifndef EPHOS_KERNEL_DISTANCE_PACKETS_PER_ITEM
+#define EPHOS_KERNEL_DISTANCE_PACKETS_PER_ITEM 1
+#endif
+
+#ifndef EPHOS_KERNEL_DISTANCES_PER_PACKET
+#define EPHOS_KERNEL_DISTANCES_PER_PACKET 8
+#endif
+
+#if EPHOS_KERNEL_DISTANCES_PER_PACKET == 1
+typedef int8_t DistancePacket;
+#elif EPHOS_KERNEL_DISTANCES_PER_PACKET == 8
+typedef int8_t DistancePacket;
+#elif EPHOS_KERNEL_DISTANCES_PER_PACKET == 16
+typedef int16_t DistancePacket;
+#elif EHPOS_KERNEL_DISTANCES_PER_PACKET == 32
+typedef int32_t DistancePacket;
+#else
+#error "Invalid distance packet size"
+#endif
 
 #define PI 3.1415926535897932384626433832795
 
