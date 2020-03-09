@@ -21,53 +21,64 @@ __kernel void radiusSearch(
 	__global const DistancePacket* restrict distances,
 	__global bool* processed,
 	__global int* nextQueueSize,
-	int iQueueStart,
-	int staticQueueSize,
-	int cloudSize)
+	RadiusSearchInfo searchInfo)
 {
-#ifdef EPHOS_LINE_PROCESSING
+//#ifndef EPHOS_LINE_PROCESSING // disabled for testing
+#if 0
 	int iPivotPacket = get_global_id(0);
 	// the number of cloud elements to compare is determined by the number of distances per distance packet
 	int iPivotStart = iPivotPacket*EPHOS_DISTANCES_PER_PACKET;
-	if (iPivotStart < cloudSize && !processed[iPivotStart]) {
-		DistancePacket skipped = 0;
+	//if (iPivotStart < searchInfo.sourceCloudSize) {
+	if (iPivotStart < searchInfo.alignedCloudSize) {
+		DistancePacket skipped = 0x0;
 		int findNo = EPHOS_DISTANCES_PER_PACKET;
-		for (int i = 0; i < EPHOS_DISTANCES_PER_PACKET; i++) {
-			// mark already processed elements as skipped
-			// skipped elements are removed from find
-			if (processed[iPivotStart + i]) {
-				skipped |= 0x1<<i;
-				findNo -= 1;
-			}
-		}
+// 		for (int i = 0; i < EPHOS_DISTANCES_PER_PACKET; i++) {
+// 			// mark already processed elements as skipped
+// 			// skipped elements are removed from find
+// 			if (processed[iPivotStart + i]) {
+// 				skipped |= 0x1<<i;
+// 				findNo -= 1;
+// 			}
+// 		}
 		// only process further if there are non processed elements
 		if (findNo > 0) {
-			DistancePacket find = 0;
+		//if (skipped != (DistancePacket)~0x0) {
+			DistancePacket find = 0x0;
 			findNo = 0;
 			// line processing ignores packets per work item
 			// as it compares a constant number of cloud elements with all new cluster elements
-			for (int iQueue = iQueueStart; iQueue < staticQueueSize; iQueue++)
+			for (int iQueue = searchInfo.queueStartIndex; iQueue < searchInfo.staticQueueSize; iQueue++)
 			{
-				int iDist = seedQueue[iQueue]*cloudSize + iPivotPacket;
+				int seedElement = seedQueue[iQueue];
+				int iDist = seedElement*searchInfo.distanceLineLength + iPivotPacket;
 				DistancePacket dist = distances[iDist];
 				for (int i = 0; i < EPHOS_DISTANCES_PER_PACKET; i++) {
-					if ((skipped>>i & 0x1) == 0) {
+					// skip elements that are already in queue
+					// need to compare with seed
+					// because host does not mark first element as processed
+					// TODO: necessary for correctness?
+					if (seedElement == iPivotStart + i) {
+						skipped |= 0x1<<i;
+					} else if (processed[iPivotStart + i]) {
+						skipped |= 0x1<<i;
+					} else if ((skipped>>i & 0x1) == 0x0) {
 						// skip elements that are already in queue
-						if (iPivotPacket + i == seedQueue[iQueue]) {
+						//if (iPivotPacket + i == seedElement) {
+						if (false) {
 							// mark as skipped and remove from find
 							skipped |= 0x1<<i;
 							// disable element find status
-							find &= 0x1<<i ^ ~0x0;
+//							find &= 0x1<<i ^ ~0x0;
 							// subtract previously added occurrence
 							// this subtracts 1 if find status is set
-							findNo -= find>>i & 0x1;
+//							findNo -= find>>i & 0x1;
 						} else {
 							// add elements that are near the current queue element
 							//int iDist = seedQueue[iQueue]*cloudSize + iPivotPacket + i;
-							if ((dist>>i & 0x1) == 1) {
+							if ((dist>>i & 0x1) == 0x1) {
 								// add a new occurence
-								// this adds 0 if find state is already set
-								findNo += find>>i ^ 0x1;
+								// adds 1 if the find state is not already set
+//								findNo += find>>i ^ 0x1;
 								// mark the element as found
 								find |= 0x1<<i;
 							}
@@ -75,80 +86,82 @@ __kernel void radiusSearch(
 					}
 				}
 			}
-			if (findNo > 0) {
-				//findNo = 1;
+			//if (findNo > 0) {
+			if (true) {
+				findNo = 0;
+				for (int i = 0; i < EPHOS_DISTANCES_PER_PACKET; i++) {
+					if ((find>>i & 0x1) == 0x1 && (skipped>>i & 0x1) == 0x0) {
+						findNo += 1;
+					}
+				}
+				//int iTarget = atomic_add(nextQueueSize, findNo);
+				//int iTarget = atomic_inc(nextQueueSize);
 				int iTarget = atomic_add(nextQueueSize, findNo);
+
+				//atomic_dec(nextQueueSize);
 				for (int i = 0; i < EPHOS_DISTANCES_PER_PACKET; i++) {
 					// add elements that have find status set and skipped status unset
-					if ((find>>i & 0x1) != 0 && (skipped>>i & 0x1) == 0) {
-						seedQueue[iTarget] = iPivotStart + i;
+					if ((find>>i & 0x1) == 0x1 && (skipped>>i & 0x1) == 0x0) {
+						//seedQueue[iTarget] = iPivotStart + i;
+						seedQueue[iTarget++] = iPivotStart + i;
 						processed[iPivotStart + i] = true;
 					}
 				}
 			}
 		}
 	}
-
-
-
-
-
-
-/*
-
-			int seedElement = seedQueue[iQueue];
-			int iPacket = seedElement*cloudSize + iPivotPacket;
-			DistancePacket dist = distances[iPacket];
-			// go through one packet
-			for (int i = 0; i < EPHOS_DISTANCES_PER_PACKET; i++) {
-				// skip elements already in cluster
-				if (iPivotStart + i == seedElement) {
-					skipped |= 0x1<<i;
-				}
-				// near elements to queue
-				if ((dist & (0x1<<i)) != 0 && (skipped & (0x1<<i)) != 0) {
-					found |= 0x1<<i;
-				}
-			}
-
-
-// 			if (iPivotPacket == seedQueue[iQueue])
-// 			{
-// 				found = true;
-// 				is_skipped = true;
-// 			}
-// 			else
-// 			{
-// 				is_skipped = false;
-// 			}
-// 			if (!is_skipped)
-// 			{
-// 				int array_index = seedQueue[iQueue] * cloudSize+iPivotPacket;
-// 				if (distances[array_index] != 0)
-// 					found = true;
-// 			}
-		}
-		if (found != 0) {
-			int foundNo = 0;
-			for (int i = 0; i < EPHOS_DISTANCES_PER_PACKET; i++) {
-				if ((found & (0x1<<i)) != 0 && (skipped & (0x1<<i)) == 0) {
-					foundNo += 1;
-				}
-			}
-			int iTarget = atomic_add(nextQueueSize, foundNo);
-			for (int i = 0; i < EPHOS_DISTANCES_PER_PACKET; i++) {
-				if ((found & (0x1<<i)) != 0 && (skipped & (0x1<<i)) == 0) {
-					seedQueue[iTarget++] = iPivotStart + i;
-					processed[iPivotStart + i] = true;
-
-				}
-			}
-// 			seedQueue[iTarget] = iPivotPacket;
-// 			processed[iPivotPacket] = true;
-		}
-	}*/
 #else
+	int iPacket = get_global_id(0);
+	int iCloud = get_global_id(0)*EPHOS_DISTANCES_PER_PACKET;
 
+	//if (iPivotStart < searchInfo.sourceCloudSize) {
+	if (iCloud < searchInfo.sourceCloudSize) {
+		DistancePacket skipped = 0x0;
+		int findNo = 0;
+		// only process further if there are non processed elements
+		if (true) {
+		//if (skipped != (DistancePacket)~0x0) {
+			DistancePacket find = 0x0;
+			findNo = 0;
+			// line processing ignores packets per work item
+			// as it compares a constant number of cloud elements with all new cluster elements
+			for (int iQueue = searchInfo.queueStartIndex; iQueue < searchInfo.staticQueueSize; iQueue++)
+			{
+				int seedElement = seedQueue[iQueue];
+				int iDist = seedElement*searchInfo.distanceLineLength + iPacket;
+				DistancePacket dist = distances[iDist];
+				for (int p = 0; p < EPHOS_DISTANCES_PER_PACKET; p++) {
+					// skip elements that are already in queue
+					// need to compare with seed
+					// because host does not mark first element as processed
+					// TODO: necessary for correctness?
+					if (processed[iCloud + p]) {
+						skipped |= 0x1<<p;
+					} else if (seedElement == iCloud + p) {
+						skipped |= 0x1<<p;
+					} else if (!(skipped>>p & 0x1) && (dist>>p & 0x1)) {
+						find |= 0x1<<p;
+					}
+				}
+			}
+			if (true) {
+				findNo = 0;
+				for (int p = 0; p < EPHOS_DISTANCES_PER_PACKET; p++) {
+					if (!(skipped>>p & 0x1) && (find>>p & 0x1)) {
+						findNo += 1;
+					}
+				}
+				int iTarget = atomic_add(nextQueueSize, findNo);
+				for (int p = 0; p < EPHOS_DISTANCES_PER_PACKET; p++) {
+					if (!(skipped>>p & 0x1) && (find>>p & 0x1)) {
+						processed[iCloud + p] = true;
+						seedQueue[iTarget] = iCloud + p;
+						iTarget += 1;
+					}
+				}
+			}
+		}
+	}
 #endif
 }
 

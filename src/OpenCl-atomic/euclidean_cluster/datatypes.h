@@ -59,11 +59,15 @@ typedef struct PointIndices {
 
 typedef struct RadiusSearchInfo {
 	double radius;
-	int unboundCloudSize;
+	int sourceCloudSize;
 	int alignedCloudSize;
+	int distanceLineLength;
 	int queueStartIndex;
 	int staticQueueSize;
 } RadiusSearchInfo;
+
+// TODO: evaluate
+typedef int8_t Processed;
 
 #ifndef EPHOS_KERNEL_DISTANCE_PACKETS_PER_ITEM
 #define EPHOS_KERNEL_DISTANCE_PACKETS_PER_ITEM 1
@@ -73,14 +77,14 @@ typedef struct RadiusSearchInfo {
 #define EPHOS_KERNEL_DISTANCES_PER_PACKET 8
 #endif
 
-#if EPHOS_KERNEL_DISTANCES_PER_PACKET == 1
-typedef int8_t DistancePacket;
-#elif EPHOS_KERNEL_DISTANCES_PER_PACKET == 8
-typedef int8_t DistancePacket;
+#if EPHOS_KERNEL_DISTANCES_PER_PACKET == 1 || EPHOS_KERNEL_DISTANCES_PER_PACKET == 8
+typedef uint8_t DistancePacket;
 #elif EPHOS_KERNEL_DISTANCES_PER_PACKET == 16
-typedef int16_t DistancePacket;
-#elif EHPOS_KERNEL_DISTANCES_PER_PACKET == 32
-typedef int32_t DistancePacket;
+typedef uint16_t DistancePacket;
+#elif EPHOS_KERNEL_DISTANCES_PER_PACKET == 32
+typedef uint32_t DistancePacket;
+#elif EPHOS_KERNEL_DISTANCES_PER_PACKET == 64
+typedef uint64_t DistancePacket;
 #else
 #error "Invalid distance packet size"
 #endif

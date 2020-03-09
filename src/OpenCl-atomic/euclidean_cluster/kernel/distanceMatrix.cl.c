@@ -17,14 +17,14 @@
 #endif // EPHOS_LINE_PROCESSING
 
 // TODO: evaluate a way to compare bit count
-#if EPHOS_DISTANCES_PER_PACKET == 1
-typedef char DistancePacket;
-#elif EPHOS_DISTANCES_PER_PACKET == 8
-typedef char DistancePacket;
+#if EPHOS_DISTANCES_PER_PACKET == 1 || EPHOS_DISTANCES_PER_PACKET == 8
+typedef uchar DistancePacket;
 #elif EPHOS_DISTANCES_PER_PACKET == 16
-typedef short DistancePacket;
+typedef ushort DistancePacket;
 #elif EPHOS_DISTANCES_PER_PACKET == 32
-typedef int DistancePacket;
+typedef uint DistancePacket;
+#elif EPHOS_DISTANCES_PER_PACKET == 64
+typedef ulong DistancePacket;
 #else
 #error "Invalid distance packet size"
 #endif
@@ -39,8 +39,9 @@ typedef char Processed;
 
 typedef struct {
 	double radius;
-	int unboundCloudSize;
+	int sourceCloudSize;
 	int alignedCloudSize;
+	int distanceLineLength;
 	int queueStartIndex;
 	int staticQueueSize;
 } RadiusSearchInfo;
@@ -64,21 +65,22 @@ typedef float3 Point3;
 __kernel void distanceMatrix(
 	__global const Point* restrict cloud,
 	__global DistancePacket* restrict distances,
-	int cloudSize,
-	double radius) {
+	RadiusSearchInfo searchInfo) {
+//	int cloudSize,
+//	double radius) {
 #ifdef EPHOS_LINE_PROCESSING
-	int n = cloudSize;
 	int j = get_global_id(0);
 
 	// pivot element with index j
-	if (j < cloudSize) {
+	if (j < searchInfo.sourceCloudSize) {
 		// go through one line
 		// line processing ignores packets per work item
 		// because it always generates a whole line of distance packets
 		// step over previously processed cloud elements
-		for (int i = 0; i*EPHOS_DISTANCES_PER_PACKET < cloudSize; i++)
+		for (int i = 0; i*EPHOS_DISTANCES_PER_PACKET < searchInfo.alignedCloudSize; i++)
 		{
-			DistancePacket dist = 0;
+			//DistancePacket dist = ~0x0;
+			DistancePacket dist = 0x0;
 			// build distance packet
 			// one packet consists of the nearness indicators for one or more pairwise distances
 			for (int k = 0; k < EPHOS_DISTANCES_PER_PACKET; k++) {
@@ -89,12 +91,16 @@ __kernel void distanceMatrix(
 				float dx = cloud[i*EPHOS_DISTANCES_PER_PACKET + k].x - cloud[j].x;
 				float dy = cloud[i*EPHOS_DISTANCES_PER_PACKET + k].y - cloud[j].y;
 				float dz = cloud[i*EPHOS_DISTANCES_PER_PACKET + k].z - cloud[j].z;
-				if (dx*dx + dy*dy + dz*dz <= radius) {
+				//if (dx*dx + dy*dy + dz*dz > searchInfo.radius) {
+				//	dist ^= (0x1<<k);
+				//}
+				if (dx*dx + dy*dy + dz*dz <= searchInfo.radius) {
 				//if (d.x*d.x + d.y*d.y + d.z*d.z <=radius) {
-					dist |= 0x1 << k;
+					dist |= (0x1<<k);
 				}
 			}
-			int iDist = i*cloudSize + j; // spaced out work group write
+			//int iDist = i*searchInfo.distanceLineLength + j; // spaced out work group write
+			int iDist = j*searchInfo.distanceLineLength + i;
 			distances[iDist] = dist;
 			//float dx = cloud[i].x - cloud[j].x;
 			//float dy = cloud[i].y - cloud[j].y;
@@ -102,6 +108,10 @@ __kernel void distanceMatrix(
 			//int array_index = i*cloudSize + j;
 			//distances[array_index] = ((dx*dx + dy*dy + dz*dz) <= radius);
 		}
+// 		for (int i = searchInfo.sourceCloudSize; i < searchInfo.alignedCloudSize; i++) {
+// 			int iDist = i*searchInfo.alignedCloudSize + j;
+// 			distances[iDist] = 0x0;
+// 		}
 	}
 #else // !EPHOS_LINE_PROCESSING
 
