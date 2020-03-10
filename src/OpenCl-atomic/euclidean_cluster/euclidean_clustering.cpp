@@ -472,7 +472,6 @@ void euclidean_clustering::extractEuclideanClusters (
 	int distanceLineLength = alignedCloudSize/EPHOS_KERNEL_DISTANCES_PER_PACKET;
 
 	// move point cloud to device
-	//pointCloudBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_ONLY, sizeof(Point)*cloudSize);
 	Point* cloudStorage = (Point *) computeEnv.cmdqueue.enqueueMapBuffer(pointCloudBuffer, CL_TRUE, CL_MAP_WRITE_INVALIDATE_REGION, 0, sizeof(Point)*alignedCloudSize);
 	std::memcpy(cloudStorage, cloud, sizeof(Point)*cloudSize);
 	float farAway = FLT_MAX*0.5f;
@@ -480,6 +479,11 @@ void euclidean_clustering::extractEuclideanClusters (
 	computeEnv.cmdqueue.enqueueUnmapMemObject(pointCloudBuffer, cloudStorage);
 	//computeEnv.cmdqueue.enqueueWriteBuffer(pointCloudBuffer, CL_FALSE,
 	//	0, sizeof(Point)*cloudSize, cloud);
+	if (alignedCloudSize > cloudSize) {
+		// std::vector<float> farAway(3*(alignedCloudSize - cloudSize), FLT_MAX*0.5f);
+		// computeEnv.cmdqueue.enqueueWriteBuffer(pointCloudBuffer, CL_FALSE,
+		//	sizeof(Point)*cloudSize, sizeof(Point)*(alignedCloudSize - cloudSize), farAway.data());
+	}
 
 
 	// calculate global range aligned to work group size
@@ -508,10 +512,6 @@ void euclidean_clustering::extractEuclideanClusters (
 	distanceMatrixKernel.setArg(1, distanceBuffer);
 	distanceMatrixKernel.setArg(2, searchInfo);
 
-// 	std::vector<DistancePacket> distances(distanceLineLength*alignedCloudSize, 0x0);
-// 	// TODO: disable after testing
-//  	computeEnv.cmdqueue.enqueueWriteBuffer(distanceBuffer, CL_TRUE,
-//  		0, sizeof(DistancePacket)*distanceLineLength*cloudSize, distances.data());
  	computeEnv.cmdqueue.enqueueNDRangeKernel(
  		distanceMatrixKernel, offsetNDRange, globalNDRange, localNDRange);
 	// raidus search progress indicators
@@ -520,74 +520,6 @@ void euclidean_clustering::extractEuclideanClusters (
 	std::memset(processed.data() + cloudSize, 1, sizeof(Processed)*(alignedCloudSize - cloudSize));
 	computeEnv.cmdqueue.enqueueWriteBuffer(processedBuffer, CL_FALSE,
 		0, sizeof(Processed)*alignedCloudSize, processed.data());
-	// TODO: disable when done testing
-//  	computeEnv.cmdqueue.enqueueReadBuffer(distanceBuffer, CL_TRUE,
-//  		0, sizeof(DistancePacket)*cloudSize*distanceLineLength, distances.data());
-	// TODO: remove test output
-// 	for (int r = 0; r < 9; r += 1) {
-// 		std::cout << "point " << r << " is close to: ";
-// 		for (int c = 0; c*EPHOS_KERNEL_DISTANCES_PER_PACKET < cloudSize; c++) {
-// 			DistancePacket dist = distances[r*distanceLineLength + c];
-// 			for (int p = 0; p < EPHOS_KERNEL_DISTANCES_PER_PACKET; p++) {
-// 				if ((dist>>p & 0x1) == 0x1) {
-// 					std::cout << c*EPHOS_KERNEL_DISTANCES_PER_PACKET + p << " ";
-// 				}
-// 			}
-// 		}
-// 		std::cout << std::endl;
-// 	}
-	// TODO: move to cpu branch after testing
-// 	for (int iLine = 0; iLine < globalRange; iLine++) {
-// 		if (iLine < searchInfo.sourceCloudSize) {
-// 			//std::cout << "line " << iLine << std::endl;
-// 			for (int iPacket = 0; iPacket*EPHOS_KERNEL_DISTANCES_PER_PACKET < searchInfo.alignedCloudSize; iPacket++) {
-// 				DistancePacket dist = 0x0;
-// 				for (int shift = 0; shift < EPHOS_KERNEL_DISTANCES_PER_PACKET; shift++) {
-// 					int iCloud1 = iLine;
-// 					int iCloud2 = iPacket*EPHOS_KERNEL_DISTANCES_PER_PACKET + shift;
-// 					float dx = cloud[iCloud1].x - cloud[iCloud2].x;
-// 					float dy = cloud[iCloud1].y - cloud[iCloud2].y;
-// 					float dz = cloud[iCloud1].z - cloud[iCloud2].z;
-// 					if (dx*dx + dy*dy + dz*dz <= searchInfo.radius) {
-// 						dist |= 0x1<<shift;
-// 					}
-// 				}
-// 				int iDist = iLine*searchInfo.distanceLineLength + iPacket;
-// 				distances[iDist] = dist;
-// 			}
-// 		}
-// 	}
-	// TODO: remove output after testing
-// 	bool matrixOK = true;
-// 	for (int r = 0; r < cloudSize; r+= 1) {
-// 		for (int c = 0; c*EPHOS_KERNEL_DISTANCES_PER_PACKET < alignedCloudSize; c++) {
-// 			DistancePacket dist = distances[r*distanceLineLength + c];
-// 			for (int p = 0; p < EPHOS_KERNEL_DISTANCES_PER_PACKET; p++) {
-// 				int iCloud1 = r;
-// 				int iCloud2 = c*EPHOS_KERNEL_DISTANCES_PER_PACKET + p;
-// 				float dx = cloud[iCloud1].x - cloud[iCloud2].x;
-// 				float dy = cloud[iCloud1].y - cloud[iCloud2].y;
-// 				float dz = cloud[iCloud1].z - cloud[iCloud2].z;
-// 				char near = (dx*dx + dy*dy + dz*dz <= tolerance*tolerance) ? 0x1 : 0x0;
-// 				if ((dist>>p & 0x1) != near) {
-// 					matrixOK = false;
-// 					std::cout << "invalid distance at [" << iCloud1 << " " << iCloud2;
-// 					std::cout <<"]: " << std::sqrt(dx*dx + dy*dy + dz*dz);
-// 					if (near) {
-// 						std::cout << " < " << tolerance*tolerance << std::endl;
-// 					} else {
-// 						std::cout << " >" << tolerance*tolerance << std::endl;
-// 					}
-// 				}
-// 			}
-// 		}
-// 	}
-// 	if (matrixOK) {
-// 		std::cout << "distance matrix ok" << std::endl;
-// 	}
-
-
-
 	radiusSearchKernel.setArg(0, seedQueueBuffer);
 	radiusSearchKernel.setArg(1, distanceBuffer);
 	radiusSearchKernel.setArg(2, processedBuffer);
@@ -611,64 +543,10 @@ void euclidean_clustering::extractEuclideanClusters (
 		computeEnv.cmdqueue.enqueueWriteBuffer(seedQueueLengthBuffer, CL_FALSE,
 			0, sizeof(int), &nextCandidateNo);
 		// grow the candidate until convergence
-
-		// TODO: move to cpu branch after testing
-// 		std::vector<int> seedQueue;
-// 		seedQueue.push_back(i);
-
 		while (nextCandidateNo > staticCandidateNo)
 		{
 			searchInfo.queueStartIndex = staticCandidateNo;
 			searchInfo.staticQueueSize = nextCandidateNo;
-
-
-			// TODO: move to cpu version
-// 			staticCandidateNo = nextCandidateNo;
-// 			for (int iPacket = 0; iPacket < globalRange; iPacket++) {
-// 				DistancePacket find = 0x0;
-// 				DistancePacket skip = 0x0;
-// 				int iCloud = iPacket*EPHOS_KERNEL_DISTANCES_PER_PACKET;
-// 				if (iCloud < searchInfo.sourceCloudSize) {
-// 					for (int iQueue = searchInfo.queueStartIndex; iQueue < searchInfo.staticQueueSize; iQueue++) {
-// 						int seedElement = seedQueue[iQueue];
-// 						int iDist = seedElement*searchInfo.distanceLineLength + iPacket;
-// 						DistancePacket dist = distances[iDist];
-// 						for (int shift = 0; shift < EPHOS_KERNEL_DISTANCES_PER_PACKET; shift++) {
-// 							if (((skip>>shift) & 0x1) == 0x0) {
-// 								if (iCloud + shift == seedElement) {
-// 									skip |= 0x1<<shift;
-// 								} else if (processed[iCloud + shift]) {
-// 									skip |= 0x1<<shift;
-// 								} else if (((dist>>shift) & 0x1) == 0x1) {
-// 									find |= 0x1<<shift;
-// 								}
-// 							}
-// 						}
-// 					}
-// 					int findNo = 0;
-// 					for (int shift = 0; shift < EPHOS_KERNEL_DISTANCES_PER_PACKET; shift++) {
-// 						if (((skip>>shift) & 0x1) == 0x0 && ((find>>shift) & 0x1) == 0x1) {
-// 							seedQueue.push_back(iCloud + shift);
-// 							if (processed[iCloud + shift]) {
-// 								std::cout << "error 2" << std::endl;
-// 							}
-// 							processed[iCloud + shift] = true;
-// 							nextCandidateNo += 1;
-// 						}
-// 					}
-// 				}
-// 			}
-// 			//std::cout << "new queue (" << nextCandidateNo << "): " << std::endl;
-// 			if (nextCandidateNo != seedQueue.size()) {
-// 				std::cout << "error 1" << std::endl;
-// 			}
-
-
-
-
-
-
-			// TODO: enable when done testing
 			// call the radius search kernel
 			radiusSearchKernel.setArg(4, searchInfo);
 			computeEnv.cmdqueue.enqueueNDRangeKernel(
@@ -678,42 +556,8 @@ void euclidean_clustering::extractEuclideanClusters (
 			computeEnv.cmdqueue.enqueueReadBuffer(seedQueueLengthBuffer, CL_TRUE,
 				0, sizeof(int), &nextCandidateNo);
 
-			// TODO: remove test output
-// 			if (nextCandidateNo > 1) {
-// 				std::cout << "continue cluster with seed length " << nextCandidateNo << std::endl;
-// 				PointIndices cluster;
-// 				cluster.indices.resize(nextCandidateNo);
-// 				computeEnv.cmdqueue.enqueueReadBuffer(seedQueueBuffer, CL_TRUE,
-// 					0, sizeof(int)*nextCandidateNo, cluster.indices.data());
-// 				std::sort(cluster.indices.begin(), cluster.indices.end());
-// 				for (int j = 0; j < nextCandidateNo; j++) {
-// 					std::cout << cluster.indices[j] << " ";
-// 				}
-// 				std::cout << std::endl;
-// 			} else {
-// 				std::cout << "next cluster" << std::endl;
-// 			}
 		}
 		staticCandidateNo = nextCandidateNo;
-
-		// TODO: move to cpu branch
-// 		if (nextCandidateNo >= min_pts_per_cluster && nextCandidateNo <= max_pts_per_cluster)
-// 		{
-// 			// store the cluster
-// 			int iCluster = clusters.size();
-// 			clusters.resize(iCluster + 1);
-// 			PointIndices& cluster = clusters[iCluster];
-// 			for (int seed : seedQueue) {
-// 				cluster.indices.push_back(seed);
-// 				processed[seed] = true;
-// 			}
-// 			std::sort(cluster.indices.begin(), cluster.indices.end());
-// 		} else if (nextCandidateNo > 1) {
-// 			for (int seed : seedQueue) {
-// 				processed[seed] = true;
-// 			}
-// 		}
-		// TODO: enable when done testing
 		// add the cluster candidate if it is inside satisfactory size bounds
 		if (nextCandidateNo >= min_pts_per_cluster && nextCandidateNo <= max_pts_per_cluster)
 		{
@@ -738,7 +582,6 @@ void euclidean_clustering::extractEuclideanClusters (
 			computeEnv.cmdqueue.enqueueUnmapMemObject(seedQueueBuffer, candidateStorage);
 		}
 	}
-	//delete[] processed;
 }
 
 /**
