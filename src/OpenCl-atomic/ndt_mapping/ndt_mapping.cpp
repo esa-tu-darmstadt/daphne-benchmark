@@ -7,8 +7,8 @@
  * Embedded Systems & Applications Group 2019
  * License: Apache 2.0 (see attachached File)
  */
-#include "benchmark.h"
-#include "datatypes.h"
+
+
 #include <cmath>
 #include <iostream>
 #include <sstream>
@@ -17,14 +17,18 @@
 #include <cstring>
 #include <chrono>
 #include <stdexcept>
-//#include <stdlib.h>
 
-#include "ocl/host/ocl_ephos.h"
-#include "ocl/device/ocl_kernel.h"
+#include "ndt_mapping.h"
+#include "datatypes.h"
+#include "kernel/kernel.h"
+
+#include "common/benchmark.h"
+#include "common/compute_tools.h"
+
 
 #define STRINGIZE2(s) #s
 #define STRINGIZE(s) STRINGIZE2(s)
-#define NUMWORKITEMS_PER_WORKGROUP_STRING STRINGIZE(NUMWORKITEMS_PER_WORKGROUP) 
+#define EPHOS_KERNEL_WORK_GROUP_SIZE_S STRINGIZE(EPHOS_KERNEL_WORK_GROUP_SIZE)
 
 // maximum allowed deviation from reference
 #define MAX_TRANSLATION_EPS 0.001
@@ -50,7 +54,7 @@
 #define EPHOS_DEVICE_TYPE_S ""
 #endif
 
-class ndt_mapping : public kernel {
+class ndt_mapping : public benchmark {
 private:
 	// the number of testcases read
 	int read_testcases = 0;
@@ -107,11 +111,17 @@ private:
 	PointCloud* filtered_scan_ptr = nullptr;
 	PointCloud* maps = nullptr;
 	// voxel grid spanning over the cloud
-	OCL_Struct OCL_objs;
+	ComputeEnv OCL_objs;
 	cl::Buffer buff_target_cells;
 	cl::Buffer buff_target;
 	cl::Buffer buff_subvoxel;
 	cl::Buffer buff_counter;
+
+	cl::Kernel radiusSearchKernel;
+	cl::Kernel findMinMaxKernel;
+	cl::Kernel initTargetCellsKernel;
+	cl::Kernel firstPassKernel;
+	cl::Kernel secondPassKernel;
 	// voxel grid extends
 	PointXYZI minVoxel, maxVoxel;
 	int voxelDimension[3];
@@ -123,6 +133,7 @@ public:
 	ndt_mapping();
 public:
 	virtual void init();
+	virtual void quit();
 	virtual void run(int p = 1);
 	virtual bool check_output();
 protected:
@@ -451,6 +462,9 @@ void ndt_mapping::init() {
 	filtered_scan_ptr = nullptr;
 	results = nullptr;
 	std::cout << "done\n" << std::endl;
+}
+void ndt_mapping::quit() {
+	// TODO: close streams and destroy opencl objects
 }
 
 /**
@@ -819,12 +833,12 @@ float ndt_mapping::computeDerivatives (
 	int nearVoxelNo = 0;
 	OCL_objs.cmdqueue.enqueueWriteBuffer(buff_counter, CL_FALSE, 0, sizeof(int), &nearVoxelNo);
 	// call radius search kernel
-	OCL_objs.kernel_radiusSearch.setArg(6, pointNo);
-	size_t local_size = NUMWORKITEMS_PER_WORKGROUP;
+	radiusSearchKernel.setArg(6, pointNo);
+	size_t local_size = EPHOS_KERNEL_WORK_GROUP_SIZE;
 	size_t num_workgroups = pointNo/local_size + 1;
 	size_t global_size = local_size*num_workgroups;
 	OCL_objs.cmdqueue.enqueueNDRangeKernel(
-		OCL_objs.kernel_radiusSearch,
+		radiusSearchKernel,
 		cl::NDRange(0),
 		cl::NDRange(global_size),
 		cl::NDRange(local_size));
@@ -1675,22 +1689,22 @@ void ndt_mapping::initCompute()
 	buff_target_cells = cl::Buffer(OCL_objs.context,
 		CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, nbytes_targetcells);
 
-	OCL_objs.kernel_initTargetCells.setArg(0, buff_target_cells);
-	OCL_objs.kernel_initTargetCells.setArg(1, cellNo);
-	size_t local_size2 = NUMWORKITEMS_PER_WORKGROUP;
+	initTargetCellsKernel.setArg(0, buff_target_cells);
+	initTargetCellsKernel.setArg(1, cellNo);
+	size_t local_size2 = EPHOS_KERNEL_WORK_GROUP_SIZE;
 	size_t num_workgroups2 = cellNo / local_size2 + 1;
 	size_t global_size2 = local_size2*num_workgroups2;
 	cl::NDRange ndrange_localsize2(local_size2);
 	cl::NDRange ndrange_globalsize2(global_size2);
 	cl::NDRange ndrange_offset2(offset);
 	OCL_objs.cmdqueue.enqueueNDRangeKernel(
-		OCL_objs.kernel_initTargetCells,
+		initTargetCellsKernel,
 		ndrange_offset2,
 		ndrange_globalsize2,
 		ndrange_localsize2);
 	
 	// call the kernel that assigns points to cells
-	size_t local_size3     = NUMWORKITEMS_PER_WORKGROUP;
+	size_t local_size3     = EPHOS_KERNEL_WORK_GROUP_SIZE;
 	size_t num_workgroups3 = pointNo / local_size3 + 1;
 	size_t global_size3    = local_size3 * num_workgroups3;
 
@@ -1698,35 +1712,35 @@ void ndt_mapping::initCompute()
 	cl::NDRange ndrange_localsize3 (local_size3);
 	cl::NDRange ndrange_globalsize3(global_size3);
 
-	OCL_objs.kernel_firstPass.setArg(0, buff_target);
-	OCL_objs.kernel_firstPass.setArg(1, static_cast<int>(pointNo));
-	OCL_objs.kernel_firstPass.setArg(2, buff_target_cells);
-	OCL_objs.kernel_firstPass.setArg(3, static_cast<int>(cellNo));
-	OCL_objs.kernel_firstPass.setArg(4, minVoxel);
-	OCL_objs.kernel_firstPass.setArg(5, voxelDimension[0]);
-	OCL_objs.kernel_firstPass.setArg(6, voxelDimension[1]);
+	firstPassKernel.setArg(0, buff_target);
+	firstPassKernel.setArg(1, static_cast<int>(pointNo));
+	firstPassKernel.setArg(2, buff_target_cells);
+	firstPassKernel.setArg(3, static_cast<int>(cellNo));
+	firstPassKernel.setArg(4, minVoxel);
+	firstPassKernel.setArg(5, voxelDimension[0]);
+	firstPassKernel.setArg(6, voxelDimension[1]);
 
-	OCL_objs.kernel_radiusSearch.setArg(0, buff_target);
-	OCL_objs.kernel_radiusSearch.setArg(1, buff_target_cells);
-	OCL_objs.kernel_radiusSearch.setArg(2, buff_subvoxel);
-	OCL_objs.kernel_radiusSearch.setArg(3, buff_counter);
-	OCL_objs.kernel_radiusSearch.setArg(4, cl::Local(sizeof(int)));
-	OCL_objs.kernel_radiusSearch.setArg(5, cl::Local(sizeof(int)));
+	radiusSearchKernel.setArg(0, buff_target);
+	radiusSearchKernel.setArg(1, buff_target_cells);
+	radiusSearchKernel.setArg(2, buff_subvoxel);
+	radiusSearchKernel.setArg(3, buff_counter);
+	radiusSearchKernel.setArg(4, cl::Local(sizeof(int)));
+	radiusSearchKernel.setArg(5, cl::Local(sizeof(int)));
 	// point number set in radius search
-	OCL_objs.kernel_radiusSearch.setArg(7, minVoxel);
-	OCL_objs.kernel_radiusSearch.setArg(8, maxVoxel);
-	OCL_objs.kernel_radiusSearch.setArg(9, voxelDimension[0]);
-	OCL_objs.kernel_radiusSearch.setArg(10, voxelDimension[1]);
+	radiusSearchKernel.setArg(7, minVoxel);
+	radiusSearchKernel.setArg(8, maxVoxel);
+	radiusSearchKernel.setArg(9, voxelDimension[0]);
+	radiusSearchKernel.setArg(10, voxelDimension[1]);
 
 
 	OCL_objs.cmdqueue.enqueueNDRangeKernel(
-		OCL_objs.kernel_firstPass,
+		firstPassKernel,
 		ndrange_offset3,
 		ndrange_globalsize3,
 		ndrange_localsize3);
 	
 	// call the kernel that normalizes the voxel grid
-	size_t local_size4     = NUMWORKITEMS_PER_WORKGROUP;
+	size_t local_size4     = EPHOS_KERNEL_WORK_GROUP_SIZE;
 	size_t num_workgroups4 = cellNo / local_size4 + 1; // rounded up, se we don't miss one
 	size_t global_size4    = local_size4 * num_workgroups4;        // BEFORE: =cellNo;
 
@@ -1734,13 +1748,13 @@ void ndt_mapping::initCompute()
 	cl::NDRange ndrange_localsize4 (local_size4);
 	cl::NDRange ndrange_globalsize4(global_size4);
 
-	OCL_objs.kernel_secondPass.setArg(0, buff_target_cells);
-	OCL_objs.kernel_secondPass.setArg(1, buff_target);
-	OCL_objs.kernel_secondPass.setArg(2, static_cast<int>(cellNo));
-	OCL_objs.kernel_secondPass.setArg(3, static_cast<int>(cellNo-1));
+	secondPassKernel.setArg(0, buff_target_cells);
+	secondPassKernel.setArg(1, buff_target);
+	secondPassKernel.setArg(2, static_cast<int>(cellNo));
+	secondPassKernel.setArg(3, static_cast<int>(cellNo-1));
 
 	OCL_objs.cmdqueue.enqueueNDRangeKernel(
-		OCL_objs.kernel_secondPass,
+		secondPassKernel,
 		ndrange_offset4,
 		ndrange_globalsize4,
 		ndrange_localsize4);
@@ -1803,14 +1817,12 @@ CallbackResult ndt_mapping::partial_points_callback(
 }
 
 void ndt_mapping::run(int p) {
-	// do not measure the initialization
-	pause_func();
 	
 	try {
 		std::vector<std::vector<std::string>> requiredExtensions = { 
 			{"cl_khr_fp64", "cl_amd_fp64"}
 		};
-		OCL_objs = OCL_Tools::find_compute_platform(EPHOS_PLATFORM_HINT_S, EPHOS_DEVICE_HINT_S,
+		OCL_objs = ComputeTools::find_compute_platform(EPHOS_PLATFORM_HINT_S, EPHOS_DEVICE_HINT_S,
 			EPHOS_DEVICE_TYPE_S, requiredExtensions);
 		std::cout << "EPHoS OpenCL device: " << OCL_objs.device.getInfo<CL_DEVICE_NAME>() << std::endl;
 	} catch (std::logic_error& e) {
@@ -1818,20 +1830,14 @@ void ndt_mapping::run(int p) {
 		exit(EXIT_FAILURE);
 	}
 	// Kernel code was stringified, rather than read from file
-	std::string sourceCode = all_ocl_krnl;
+	std::string sourceCode = voxel_grid_ocl_kernel_source;
 	
 	//cl::Program::Sources sourcesCL = cl::Program::Sources(1, std::make_pair(sourceCode.c_str(), sourceCode.size()));
 	cl::Program::Sources sourcesCL;
-	#if defined(CL_HPP_ENABLE_PROGRAM_CONSTRUCTION_FROM_ARRAY_COMPATIBILITY)
-	sourcesCL.push_back(std::make_pair(sourceCode.c_str(), sourceCode.size()));
-	#else
-	sourcesCL.push_back(sourceCode);
-	#endif
 	std::vector<cl::Kernel> kernels;
 	try {
 		std::ostringstream sBuildOptions;
-		sBuildOptions << " -I ./ocl/device/";
-		sBuildOptions << " -DNUMWORKITEMS_PER_WORKGROUP=" << NUMWORKITEMS_PER_WORKGROUP_STRING;
+		sBuildOptions << " -DNUMWORKITEMS_PER_WORKGROUP=" << EPHOS_KERNEL_WORK_GROUP_SIZE;
 		#if defined(DOUBLE_FP)
 		sBuildOptions << " -DDOUBLE_FP";
 		#endif
@@ -1842,23 +1848,25 @@ void ndt_mapping::run(int p) {
 			"secondPass",
 			"radiusSearch"
 		});
-		cl::Program program = OCL_Tools::build_program(OCL_objs, sourcesCL, sBuildOptions.str(),
+		cl::Program program = ComputeTools::build_program(OCL_objs, sourceCode, sBuildOptions.str(),
 			kernelNames, kernels);
 	} catch (std::logic_error& e) {
 		std::cerr << e.what() << std::endl;
 		exit(EXIT_FAILURE);
 	}
-	OCL_objs.kernel_findMinMax = kernels[0];
-	OCL_objs.kernel_initTargetCells = kernels[1];
-	OCL_objs.kernel_firstPass = kernels[2];
-	OCL_objs.kernel_secondPass = kernels[3];
-	OCL_objs.kernel_radiusSearch = kernels[4];
+	findMinMaxKernel = kernels[0];
+	initTargetCellsKernel = kernels[1];
+	firstPassKernel = kernels[2];
+	secondPassKernel = kernels[3];
+	radiusSearchKernel = kernels[4];
 
+	start_timer();
+	pause_timer();
 	while (read_testcases < testcases)
 	{
 		int count = read_next_testcases(p);
 		
-		unpause_func();
+		resume_timer();
 		for (int i = 0; i < count; i++)
 		{
 			// actual kernel invocation
@@ -1868,9 +1876,10 @@ void ndt_mapping::run(int p) {
 				maps[i]
 			);
 		}
-		pause_func();
+		pause_timer();
 		check_next_outputs(count);
 	}
+	stop_timer();
 }
 
 void ndt_mapping::check_next_outputs(int count)
@@ -1947,4 +1956,4 @@ bool ndt_mapping::check_output() {
 
 // set the kernel used in main()
 ndt_mapping a = ndt_mapping();
-kernel& myKernel = a;
+benchmark& myKernel = a;
