@@ -446,8 +446,8 @@ void euclidean_clustering::prepare_compute_buffers(const PlainPointCloud& pointC
 
 	pointCloudBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, sizeof(Point)*alignedCloudSize);
 	seedQueueBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_WRITE, sizeof(int)*cloudSize);
-	distanceBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_WRITE, sizeof(DistancePacket)*cloudSize*distanceLineLength);
-	processedBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_WRITE, sizeof(bool)*alignedCloudSize);
+	distanceBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, sizeof(DistancePacket)*cloudSize*distanceLineLength);
+	processedBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_WRITE | CL_MEM_HOST_WRITE_ONLY, sizeof(bool)*alignedCloudSize);
 	seedQueueLengthBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_WRITE, sizeof(int));
 
 }
@@ -472,18 +472,31 @@ void euclidean_clustering::extractEuclideanClusters (
 	int distanceLineLength = alignedCloudSize/EPHOS_KERNEL_DISTANCES_PER_PACKET;
 
 	// move point cloud to device
-	Point* cloudStorage = (Point *) computeEnv.cmdqueue.enqueueMapBuffer(pointCloudBuffer, CL_TRUE, CL_MAP_WRITE_INVALIDATE_REGION, 0, sizeof(Point)*alignedCloudSize);
+	// due to alignment a tail of the buffer can remain undefined
+	// the entries in the processed buffer are set accordingly in the first kernel
+	// so that the distance matrix entries for these points do not matter
+#ifdef EPHOS_ZERO_COPY
+	Point* cloudStorage = (Point *) computeEnv.cmdqueue.enqueueMapBuffer(pointCloudBuffer, CL_TRUE,
+		CL_MAP_WRITE_INVALIDATE_REGION, 0, sizeof(Point)*cloudSize);
 	std::memcpy(cloudStorage, cloud, sizeof(Point)*cloudSize);
-	float farAway = FLT_MAX*0.5f;
-	std::memset(&cloudStorage[cloudSize], farAway, sizeof(Point)*(alignedCloudSize - cloudSize));
 	computeEnv.cmdqueue.enqueueUnmapMemObject(pointCloudBuffer, cloudStorage);
-	//computeEnv.cmdqueue.enqueueWriteBuffer(pointCloudBuffer, CL_FALSE,
-	//	0, sizeof(Point)*cloudSize, cloud);
-	if (alignedCloudSize > cloudSize) {
-		// std::vector<float> farAway(3*(alignedCloudSize - cloudSize), FLT_MAX*0.5f);
-		// computeEnv.cmdqueue.enqueueWriteBuffer(pointCloudBuffer, CL_FALSE,
-		//	sizeof(Point)*cloudSize, sizeof(Point)*(alignedCloudSize - cloudSize), farAway.data());
-	}
+
+#else // !EPHOS_ZERO_COPY
+
+// 	if (alignedCloudSize > cloudSize) {
+// 		float farAway = FLT_MAX*0.5f;
+// 		computeEnv.cmdqueue.enqueueFillBuffer(pointCloudBuffer, farAway,
+// 			sizeof(Point)*cloudSize, sizeof(Point)*(alignedCloudSize - cloudSize));
+// 	}
+
+// 	if (alignedCloudSize > cloudSize) {
+// 		std::vector<float> farAway(sizeof(Point)/sizeof(float)*(alignedCloudSize - cloudSize), FLT_MAX*0.5f);
+// 		computeEnv.cmdqueue.enqueueWriteBuffer(pointCloudBuffer, CL_FALSE,
+// 			sizeof(Point)*cloudSize, sizeof(Point)*(alignedCloudSize - cloudSize), farAway.data());
+// 	}
+	computeEnv.cmdqueue.enqueueWriteBuffer(pointCloudBuffer, CL_FALSE,
+		0, sizeof(Point)*cloudSize, cloud);
+#endif // !EPHOS_ZERO_COPY
 
 
 	// calculate global range aligned to work group size
@@ -510,7 +523,8 @@ void euclidean_clustering::extractEuclideanClusters (
 	// call the initialization kernel
 	distanceMatrixKernel.setArg(0, pointCloudBuffer);
 	distanceMatrixKernel.setArg(1, distanceBuffer);
-	distanceMatrixKernel.setArg(2, searchInfo);
+	distanceMatrixKernel.setArg(2, processedBuffer);
+	distanceMatrixKernel.setArg(3, searchInfo);
 
  	computeEnv.cmdqueue.enqueueNDRangeKernel(
  		distanceMatrixKernel, offsetNDRange, globalNDRange, localNDRange);
@@ -518,8 +532,8 @@ void euclidean_clustering::extractEuclideanClusters (
 	std::vector<Processed> processed(alignedCloudSize, 0);
 	//bool* processed = new bool[cloudSize];
 	std::memset(processed.data() + cloudSize, 1, sizeof(Processed)*(alignedCloudSize - cloudSize));
-	computeEnv.cmdqueue.enqueueWriteBuffer(processedBuffer, CL_FALSE,
-		0, sizeof(Processed)*alignedCloudSize, processed.data());
+//	computeEnv.cmdqueue.enqueueWriteBuffer(processedBuffer, CL_FALSE,
+//		0, sizeof(Processed)*alignedCloudSize, processed.data());
 	radiusSearchKernel.setArg(0, seedQueueBuffer);
 	radiusSearchKernel.setArg(1, distanceBuffer);
 	radiusSearchKernel.setArg(2, processedBuffer);
@@ -534,12 +548,12 @@ void euclidean_clustering::extractEuclideanClusters (
 		processed[i] = true;
 		int staticCandidateNo = 0;
 		int nextCandidateNo = 1;
-		bool proc = true;
+		Processed proc = 0x1;
 		// TODO: enable when done testing
 		computeEnv.cmdqueue.enqueueWriteBuffer(seedQueueBuffer, CL_FALSE,
 			0, sizeof(int), &i);
 		computeEnv.cmdqueue.enqueueWriteBuffer(processedBuffer, CL_FALSE,
-			sizeof(bool)*i, sizeof(bool), &proc);
+			sizeof(Processed)*i, sizeof(Processed), &proc);
 		computeEnv.cmdqueue.enqueueWriteBuffer(seedQueueLengthBuffer, CL_FALSE,
 			0, sizeof(int), &nextCandidateNo);
 		// grow the candidate until convergence
@@ -570,14 +584,14 @@ void euclidean_clustering::extractEuclideanClusters (
 				0, sizeof(int)*nextCandidateNo, cluster.indices.data());
 			std::sort(cluster.indices.begin(), cluster.indices.end());
 			for (int j = 1; j < nextCandidateNo; j++) {
-				processed[cluster.indices[j]] = true;
+				processed[cluster.indices[j]] = 0x1;
 			}
 		} else if (nextCandidateNo > 1) {
 			// mark all except the starting element as processsed
 			int* candidateStorage = (int *) computeEnv.cmdqueue.enqueueMapBuffer(seedQueueBuffer, CL_TRUE, CL_MAP_READ,
 				sizeof(int), sizeof(int)*(nextCandidateNo - 1));
 			for (int j = 0; j < nextCandidateNo - 1; j++) {
-				processed[candidateStorage[j]] = true;
+				processed[candidateStorage[j]] = 0x1;
 			}
 			computeEnv.cmdqueue.enqueueUnmapMemObject(seedQueueBuffer, candidateStorage);
 		}

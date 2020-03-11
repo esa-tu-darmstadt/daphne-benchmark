@@ -81,7 +81,7 @@ __kernel void radiusSearch(
 			}
 		}
 	}
-#endif
+#endif // EPHOS_LINE_PROCESSING
 }
 
 

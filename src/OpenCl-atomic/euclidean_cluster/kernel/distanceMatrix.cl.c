@@ -65,6 +65,7 @@ typedef float3 Point3;
 __kernel void distanceMatrix(
 	__global const Point* restrict cloud,
 	__global DistancePacket* restrict distances,
+	__global Processed* restrict processed,
 	RadiusSearchInfo searchInfo) {
 //	int cloudSize,
 //	double radius) {
@@ -108,13 +109,10 @@ __kernel void distanceMatrix(
 			//int array_index = i*cloudSize + j;
 			//distances[array_index] = ((dx*dx + dy*dy + dz*dz) <= radius);
 		}
-// 		for (int i = searchInfo.sourceCloudSize; i < searchInfo.alignedCloudSize; i++) {
-// 			int iDist = i*searchInfo.alignedCloudSize + j;
-// 			distances[iDist] = 0x0;
-// 		}
+		processed[j] = 0x0;
+	} else if (j < searchInfo.alignedCloudSize) {
+		processed[j] = 0x1;
 	}
-#else // !EPHOS_LINE_PROCESSING
-
-#endif // !EPHOS_LINE_PROCESSING
+#endif // EPHOS_LINE_PROCESSING
 }
 
