@@ -19,6 +19,7 @@
 #include <cstring>
 #include <chrono>
 #include <stdexcept>
+#include <vector>
 
 #include "datatypes.h"
 
@@ -107,19 +108,24 @@ private:
 	#endif
 	int max_iterations_;
 
+	std::vector<PointCloud> filtered_scan;
+	std::vector<PointCloud> maps;
+	// starting transformation matrix
+	//Matrix4f* init_guess = nullptr;
+	std::vector<Matrix4f> init_guess;
+	// algorithm results
+	//CallbackResult* results = nullptr;
+	std::vector<CallbackResult> results;
+	//PointCloud dummy;
 	// point clouds
-	PointCloud* input_ = nullptr;
-	PointCloud* target_ = nullptr;
-	PointCloud* filtered_scan_ptr = nullptr;
-	PointCloud* maps = nullptr;
+	PointCloud* input_cloud = nullptr;
+	PointCloud* target_cloud = nullptr;
+	//PointCloud* filtered_scan_ptr = nullptr;
+
 	// voxel grid extends
 	PointXYZI minVoxel, maxVoxel;
 	int voxelDimension[3];
-	// starting transformation matrix
-	Matrix4f* init_guess = nullptr;
-	// algorithm results
-	CallbackResult* results = nullptr;
-	// voxel grid spanning over the cloud
+	// compute members
 	ComputeEnv OCL_objs;
 	cl::Buffer buff_target_cells;
 	cl::Buffer buff_target;

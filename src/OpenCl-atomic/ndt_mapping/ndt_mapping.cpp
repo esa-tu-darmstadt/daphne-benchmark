@@ -206,10 +206,12 @@ void ndt_mapping::init() {
 	// prepare the first iteration
 	error_so_far = false;
 	max_delta = 0.0;
-	maps = nullptr;
-	init_guess = nullptr;
-	filtered_scan_ptr = nullptr;
-	results = nullptr;
+	input_cloud = nullptr;
+	target_cloud = nullptr;
+	maps.clear();
+	init_guess.clear();
+	filtered_scan.clear();
+	results.clear();
 
 	// opencl setup
 	try {
@@ -580,6 +582,7 @@ float ndt_mapping::computeDerivatives (
 	size_t local_size = EPHOS_KERNEL_WORK_GROUP_SIZE;
 	size_t num_workgroups = pointNo/local_size + 1;
 	size_t global_size = local_size*num_workgroups;
+	try {
 	OCL_objs.cmdqueue.enqueueNDRangeKernel(
 		radiusSearchKernel,
 		cl::NDRange(0),
@@ -587,25 +590,29 @@ float ndt_mapping::computeDerivatives (
 		cl::NDRange(local_size));
 	// move near voxels to host
 	OCL_objs.cmdqueue.enqueueReadBuffer(buff_counter, CL_TRUE, 0, sizeof(int), &nearVoxelNo);
+	} catch (cl::Error& e) {
+		std::cout << e.what() << std::endl;
+		exit(-2);
+	}
 	size_t nbytes_subvoxel = sizeof(PointVoxel)*nearVoxelNo;
 	PointVoxel* storage_subvoxel = (PointVoxel*)OCL_objs.cmdqueue.enqueueMapBuffer(buff_subvoxel,
 		CL_TRUE, CL_MAP_READ, 0, nbytes_subvoxel);
 	// process near voxels
 	for (int i = 0; i < nearVoxelNo; i++) {
 		int iPoint = storage_subvoxel[i].point;
-		PointXYZI* x_pt = &input_->at(iPoint);
+		PointXYZI& x_pt = input_cloud->at(iPoint);
 		Vec3 x = {
-			x_pt->data[0],
-			x_pt->data[1],
-			x_pt->data[2]
+			x_pt.data[0],
+			x_pt.data[1],
+			x_pt.data[2]
 		};
 		computePointDerivatives(x);
 		Vec3* mean = &storage_subvoxel[i].mean;
-		PointXYZI* x_trans_pt = &trans_cloud.at(iPoint);
+		PointXYZI& x_trans_pt = trans_cloud.at(iPoint);
 		Vec3 x_trans = {
-			x_trans_pt->data[0] - (*mean)[0],
-			x_trans_pt->data[1] - (*mean)[1],
-			x_trans_pt->data[2] - (*mean)[2]
+			x_trans_pt.data[0] - (*mean)[0],
+			x_trans_pt.data[1] - (*mean)[1],
+			x_trans_pt.data[2] - (*mean)[2]
 		};
 		Mat33 c_inv = storage_subvoxel[i].invCovariance;
 		score += updateDerivatives(score_gradient, hessian, x_trans, c_inv, compute_hessian);
@@ -1083,7 +1090,7 @@ ndt_mapping::computeStepLengthMT (
 
 	buildTransformationMatrix(final_transformation_, x_t);
 	// New transformed point cloud
-	transformPointCloud (*input_, trans_cloud, final_transformation_);
+	transformPointCloud(*input_cloud, trans_cloud, final_transformation_);
 	// Updates score, gradient and hessian.  Hessian calculation is unessisary but testing showed that most step calculations use the
 	// initial step suggestion and recalculation the reusable portions of the hessian would intail more computation time.
 	score = computeDerivatives (score_gradient, hessian, trans_cloud, x_t, true);
@@ -1137,7 +1144,7 @@ ndt_mapping::computeStepLengthMT (
 		buildTransformationMatrix(final_transformation_, x_t); 
 		// New transformed point cloud
 		// Done on final cloud to prevent wasted computation
-		transformPointCloud (*input_, trans_cloud, final_transformation_);
+		transformPointCloud (*input_cloud, trans_cloud, final_transformation_);
 		// Updates score, gradient. Values stored to prevent wasted computation.
 		score = computeDerivatives (score_gradient, hessian, trans_cloud, x_t, false);
 		// Calculate phi(alpha_t+)
@@ -1304,9 +1311,9 @@ void ndt_mapping::computeTransformation(PointCloud &output, const Matrix4f &gues
 		if (delta_p_norm == 0 || delta_p_norm != delta_p_norm)
 		{
 			#if defined (DOUBLE_FP)
-			trans_probability_ = score / static_cast<double> (input_->size ());
+			trans_probability_ = score / static_cast<double> (input_cloud->size());
 			#else
-			trans_probability_ = score / static_cast<float> (input_->size ());
+			trans_probability_ = score / static_cast<float> (input_cloud->size());
 			#endif
 			converged_ = delta_p_norm == delta_p_norm;
 			return;
@@ -1346,9 +1353,9 @@ void ndt_mapping::computeTransformation(PointCloud &output, const Matrix4f &gues
 	// Store transformation probability.  The realtive differences within each scan registration are accurate
 	// but the normalization constants need to be modified for it to be globally accurate
 	#if defined (DOUBLE_FP)
-	trans_probability_ = score / static_cast<double> (input_->size ());
+	trans_probability_ = score / static_cast<double> (input_cloud->size());
 	#else
-	trans_probability_ = score / static_cast<float> (input_->size ());
+	trans_probability_ = score / static_cast<float> (input_cloud->size());
 	#endif
 }
 
@@ -1392,18 +1399,18 @@ void invertMatrix(Mat33 &m)
 void ndt_mapping::initCompute()
 {
 	// find cloud extends
-	minVoxel = (*target_)[0];
-	maxVoxel = (*target_)[0];
-	int pointNo = target_->size();
+	minVoxel = target_cloud->at(0);
+	maxVoxel = target_cloud->at(0);
+	int pointNo = target_cloud->size();
 
 	for (int i = 1; i < pointNo; i++)
 	{
 		for (int elem = 0; elem < 3; elem++)
 		{
-			if ( (*target_)[i].data[elem] > maxVoxel.data[elem] )
-			maxVoxel.data[elem] = (*target_)[i].data[elem];
-			if ( (*target_)[i].data[elem] < minVoxel.data[elem] )
-			minVoxel.data[elem] = (*target_)[i].data[elem];
+			if ( target_cloud->at(i).data[elem] > maxVoxel.data[elem] )
+			maxVoxel.data[elem] = target_cloud->at(i).data[elem];
+			if ( target_cloud->at(i).data[elem] < minVoxel.data[elem] )
+			minVoxel.data[elem] = target_cloud->at(i).data[elem];
 		}
 	}
 	for (int i = 0; i < 3; i++) {
@@ -1420,7 +1427,7 @@ void ndt_mapping::initCompute()
 	buff_target = cl::Buffer(OCL_objs.context, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, nbytes_target);
 	PointXYZI* tmp_target = (PointXYZI*)OCL_objs.cmdqueue.enqueueMapBuffer(buff_target,
 		CL_TRUE, CL_MAP_WRITE_INVALIDATE_REGION, 0, nbytes_target);
-	memcpy(tmp_target, target_->data(), nbytes_target);
+	memcpy(tmp_target, target_cloud->data(), nbytes_target);
 	OCL_objs.cmdqueue.enqueueUnmapMemObject(buff_target, tmp_target);
 	buff_subvoxel = cl::Buffer(OCL_objs.context,
 		CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY, sizeof(PointVoxel)*pointNo);
@@ -1506,13 +1513,10 @@ void ndt_mapping::initCompute()
 
 void ndt_mapping::ndt_align(const Matrix4f& guess)
 {
-	PointCloud output;
+
 	initCompute();
-	// Resize the output dataset
-	output.resize (input_->size ());
 	// Copy the point data to output
-	for (size_t i = 0; i < input_->size (); ++i)
-	output[i] = (*input_)[i];
+	PointCloud output(*input_cloud);
 	// Perform the actual transformation computation
 	converged_ = false;
 	final_transformation_ = transformation_ = previous_transformation_ = {
@@ -1523,41 +1527,20 @@ void ndt_mapping::ndt_align(const Matrix4f& guess)
 	};
 	// Right before we estimate the transformation, we set all the point.data[3] values to 1
 	// to aid the rigid transformation
-	for (size_t i = 0; i < input_->size (); ++i)
+	for (size_t i = 0; i < input_cloud->size (); ++i)
 		output[i].data[3] = 1.0;
 	computeTransformation (output, guess);
 }
 
-/**
- * Helper function that calculates the squared euclidean distance between two points
- */
-// #if defined (DOUBLE_FP)
-// double distance_sqr(const PointXYZI& a, const PointXYZI& b)
-// {
-// 	double dx = a.data[0]-b.data[0];
-// 	double dy = a.data[1]-b.data[1];
-// 	double dz = a.data[2]-b.data[2];
-// 	return dx*dx + dy*dy + dz*dz;
-// }
-// #else
-// float distance_sqr(const PointXYZI& a, const PointXYZI& b)
-// {
-// 	float dx = a.data[0]-b.data[0];
-// 	float dy = a.data[1]-b.data[1];
-// 	float dz = a.data[2]-b.data[2];
-// 	return dx*dx + dy*dy + dz*dz;
-// }
-// #endif
-
 
 CallbackResult ndt_mapping::partial_points_callback(
-	PointCloud &input_cloud,
-	Matrix4f &init_guess,
+	PointCloud& input_cloud,
+	Matrix4f& init_guess,
 	PointCloud& target_cloud)
 {
 	CallbackResult result;
-	input_ = &input_cloud;
-	target_ = &target_cloud;
+	this->input_cloud = &input_cloud;
+	this->target_cloud = &target_cloud;
 	ndt_align(init_guess);
 	result.final_transformation = final_transformation_;
 	result.converged = converged_;

@@ -17,7 +17,7 @@
 #include <cstring>
 #include <chrono>
 #include <stdexcept>
-
+#include <vector>
 #include "ndt_mapping.h"
 #include "datatypes.h"
 
@@ -28,20 +28,16 @@ int ndt_mapping::read_next_testcases(int count)
 {
 	int i;
 	// free memory used in the previous test case and allocate new one
-	delete [] maps;
-	maps = new PointCloud[count];
-	delete [] filtered_scan_ptr;
-	filtered_scan_ptr = new PointCloud[count];
-	delete [] init_guess;
-	init_guess = new Matrix4f[count];
-	delete [] results;
-	results = new CallbackResult[count];
+	maps.resize(count);
+	filtered_scan.resize(count);
+	init_guess.resize(count);
+	results.resize(count);
 	// parse the test cases
 	for (i = 0; (i < count) && (read_testcases < testcases); i++,read_testcases++)
 	{
 		try {
 			parseInitGuess(input_file, init_guess[i]);
-			parseFilteredScan(input_file, filtered_scan_ptr[i]);
+			parseFilteredScan(input_file, filtered_scan[i]);
 			parseFilteredScan(input_file, maps[i]);
 		} catch (std::ios_base::failure& e) {
 			std::cerr << e.what() << std::endl;
@@ -128,7 +124,7 @@ void ndt_mapping::run(int p) {
 		{
 			// actual kernel invocation
 			results[i] = partial_points_callback(
-				filtered_scan_ptr[i],
+				filtered_scan[i],
 				init_guess[i],
 				maps[i]
 			);
