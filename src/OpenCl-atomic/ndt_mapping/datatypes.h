@@ -104,13 +104,6 @@ typedef struct PointVoxel {
 
 typedef std::vector<Voxel> VoxelGrid;
 
-Matrix4f Matrix4f_Identity = {
-	{{1.0, 0.0, 0.0, 0.0}, 
-	 {0.0, 1.0, 0.0, 0.0},
-	 {0.0, 0.0, 1.0, 0.0},
-	 {0.0, 0.0, 0.0, 1.0}}
-};
-
 #define PI 3.1415926535897932384626433832795
 
 #endif

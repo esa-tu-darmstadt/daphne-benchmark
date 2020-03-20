@@ -26,279 +26,6 @@
 #include "common/compute_tools.h"
 
 
-#define STRINGIZE2(s) #s
-#define STRINGIZE(s) STRINGIZE2(s)
-#define EPHOS_KERNEL_WORK_GROUP_SIZE_S STRINGIZE(EPHOS_KERNEL_WORK_GROUP_SIZE)
-
-// maximum allowed deviation from reference
-#define MAX_TRANSLATION_EPS 0.001
-#define MAX_ROTATION_EPS 1.8
-#define MAX_EPS 2
-
-// opencl platform hints
-#if defined(EPHOS_PLATFORM_HINT)
-#define EPHOS_PLATFORM_HINT_S STRINGIZE(EPHOS_PLATFORM_HINT)
-#else 
-#define EPHOS_PLATFORM_HINT_S ""
-#endif
-
-#if defined(EPHOS_DEVICE_HINT)
-#define EPHOS_DEVICE_HINT_S STRINGIZE(EPHOS_DEVICE_HINT)
-#else
-#define EPHOS_DEVICE_HINT_S ""
-#endif
-
-#if defined(EPHOS_DEVICE_TYPE)
-#define EPHOS_DEVICE_TYPE_S STRINGIZE(EPHOS_DEVICE_TYPE)
-#else
-#define EPHOS_DEVICE_TYPE_S ""
-#endif
-
-class ndt_mapping : public benchmark {
-private:
-	// the number of testcases read
-	int read_testcases = 0;
-	std::ifstream input_file, output_file;
-	// indicates a discrete deviation
-	bool error_so_far = false;
-	// continuous deviation from the reference
-	#if defined (DOUBLE_FP)
-	double max_delta;
-	#else
-	float max_delta;
-	#endif
-	// ndt parameters
-	#if defined (DOUBLE_FP)
-	double outlier_ratio_ = 0.55;
-	float  resolution_    = 1.0;
-	double trans_eps      = 0.01; //Transformation epsilon
-	double step_size_     = 0.1;  // Step size
-	#else
-	float outlier_ratio_  = 0.55;
-	float resolution_     = 1.0;
-	float trans_eps       = 0.01; //Transformation epsilon
-	float step_size_      = 0.1;  // Step size
-	#endif
-
-	int iter = 30;  // Maximum iterations
-	Matrix4f final_transformation_, transformation_, previous_transformation_;
-	bool converged_;
-	int nr_iterations_;
-	Vec3 h_ang_a2_, h_ang_a3_,
-	h_ang_b2_, h_ang_b3_,
-	h_ang_c2_, h_ang_c3_,
-	h_ang_d1_, h_ang_d2_, h_ang_d3_,
-	h_ang_e1_, h_ang_e2_, h_ang_e3_,
-	h_ang_f1_, h_ang_f2_, h_ang_f3_;
-	Vec3 j_ang_a_, j_ang_b_, j_ang_c_, j_ang_d_, j_ang_e_, j_ang_f_, j_ang_g_, j_ang_h_;
-	Mat36 point_gradient_;
-	Mat186 point_hessian_;
-
-	#if defined (DOUBLE_FP)
-	double gauss_d1_, gauss_d2_;
-	double trans_probability_;
-	double transformation_epsilon_ = 0.1;
-	#else
-	float gauss_d1_, gauss_d2_;
-	float trans_probability_;
-	float transformation_epsilon_ = 0.1;
-	#endif
-	int max_iterations_;
-
-	// point clouds
-	PointCloud* input_ = nullptr;
-	PointCloud* target_ = nullptr;
-	PointCloud* filtered_scan_ptr = nullptr;
-	PointCloud* maps = nullptr;
-	// voxel grid spanning over the cloud
-	ComputeEnv OCL_objs;
-	cl::Buffer buff_target_cells;
-	cl::Buffer buff_target;
-	cl::Buffer buff_subvoxel;
-	cl::Buffer buff_counter;
-
-	cl::Kernel radiusSearchKernel;
-	cl::Kernel findMinMaxKernel;
-	cl::Kernel initTargetCellsKernel;
-	cl::Kernel firstPassKernel;
-	cl::Kernel secondPassKernel;
-	// voxel grid extends
-	PointXYZI minVoxel, maxVoxel;
-	int voxelDimension[3];
-	// starting transformation matrix
-	Matrix4f* init_guess = nullptr;
-	// algorithm results
-	CallbackResult* results = nullptr;
-public:
-	ndt_mapping();
-public:
-	virtual void init();
-	virtual void quit();
-	virtual void run(int p = 1);
-	virtual bool check_output();
-protected:
-	/**
-	 * Reads the number of testcases in the data file
-	 */
-	int read_number_testcases(std::ifstream& input_file);
-	/**
-	 * Reads the next testcases.
-	 * count: number of datasets to read
-	 * return: number of data sets actually read.
-	 */
-    virtual int read_next_testcases(int count);
-	/**
-	 * Reads and compares algorithm results with the respective reference.
-	 * count: number of testcase results to compare
-	 */
-	virtual void check_next_outputs(int count);
-	/**
-	 * Reduces a multi dimensional voxel grid index to one dimension.
-	 */
-	inline int linearizeAddr(const int x, const int y, const int z);
-	/**
-	 * Reduces a coordinate to a voxel grid index.
-	 */
-	inline int linearizeCoord(const float x, const float y, const float z);
-
-	#if defined (DOUBLE_FP)
-	double updateDerivatives (Vec6 &score_gradient,
-						Mat66 &hessian,
-						Vec3 &x_trans, Mat33 &c_inv,
-						bool compute_hessian = true);
-	#else
-	float updateDerivatives (Vec6 &score_gradient,
-						Mat66 &hessian,
-						Vec3 &x_trans, Mat33 &c_inv,
-						bool compute_hessian = true);
-	#endif
-
-	void computePointDerivatives (Vec3 &x, bool compute_hessian = true);
-	void computeHessian (Mat66 &hessian,
-				PointCloudSource &trans_cloud, Vec6 &);
-	void updateHessian (Mat66 &hessian, Vec3 &x_trans, Mat33 &c_inv);
-
-	#if defined (DOUBLE_FP)
-	double computeDerivatives (Vec6 &score_gradient,
-						Mat66 &hessian,
-						PointCloudSource &trans_cloud,
-						Vec6 &p,
-						bool compute_hessian = true );
-	#else
-	float computeDerivatives (Vec6 &score_gradient,
-						Mat66 &hessian,
-						PointCloudSource &trans_cloud,
-						Vec6 &p,
-						bool compute_hessian = true );
-	#endif
-
-	#if defined (DOUBLE_FP)
-	bool updateIntervalMT (double &a_l, double &f_l, double &g_l,
-					double &a_u, double &f_u, double &g_u,
-					double a_t, double f_t, double g_t);
-	double trialValueSelectionMT (double a_l, double f_l, double g_l,
-							double a_u, double f_u, double g_u,
-							double a_t, double f_t, double g_t);
-	double computeStepLengthMT (const Vec6 &x, Vec6 &step_dir, double step_init, double step_max,
-				double step_min, double &score, Vec6 &score_gradient, Mat66 &hessian,
-				PointCloudSource &trans_cloud);
-	#else
-	bool updateIntervalMT (float &a_l, float &f_l, float &g_l,
-					float &a_u, float &f_u, float &g_u,
-					float a_t, float f_t, float g_t);
-	float trialValueSelectionMT (float a_l, float f_l, float g_l,
-							float a_u, float f_u, float g_u,
-							float a_t, float f_t, float g_t);
-	float computeStepLengthMT (const Vec6 &x, Vec6 &step_dir, float step_init, float step_max,
-				float step_min, float &score, Vec6 &score_gradient, Mat66 &hessian,
-				PointCloudSource &trans_cloud);
-	#endif
-
-	void computeTransformation(PointCloud &output, const Matrix4f &guess);
-	void computeAngleDerivatives (Vec6 &p, bool compute_hessian = true);
-
-	void ndt_align (const Matrix4f& guess);
-	/**
-	 * Performs point cloud specific voxel grid initialization.
-	 */
-	void initCompute();
-
-	void buildTransformationMatrix(Matrix4f &matrix, Vec6 transform);
-
-	#if defined (DOUBLE_FP)
-	inline double ndt_getFitnessScore ();
-	#else
-	inline float ndt_getFitnessScore ();
-	#endif  
-	/**
-	 * Computes the eulerangles from an rotation matrix.
-	 */
-	void eulerAngles(Matrix4f transform, Vec3 &result);
-
-	CallbackResult partial_points_callback(
-		PointCloud &input_cloud,
-		Matrix4f &init_guess,
-		PointCloud& target_cloud
-	);
-};
-
-/**
- * Reads the next point cloud.
- */
-void  parseFilteredScan(std::ifstream& input_file, PointCloud* pointcloud) {
-	int32_t size;
-	try {
-		input_file.read((char*)&(size), sizeof(int32_t));
-		pointcloud->clear();
-		for (int i = 0; i < size; i++)
-		{
-			PointXYZI p;
-			input_file.read((char*)&p.data[0], sizeof(float));
-			input_file.read((char*)&p.data[1], sizeof(float));
-			input_file.read((char*)&p.data[2], sizeof(float));
-			input_file.read((char*)&p.data[3], sizeof(float));
-			pointcloud->push_back(p);
-		}
-	}  catch (std::ifstream::failure) {
-		throw std::ios_base::failure("Error reading filtered scan");
-	}
-}
-
-/**
- * Reads the next initilization matrix.
- */
-void  parseInitGuess(std::ifstream& input_file, Matrix4f* initGuess) {
-	try {
-	for (int h = 0; h < 4; h++)
-		for (int w = 0; w < 4; w++)
-			input_file.read((char*)&(initGuess->data[h][w]),sizeof(float));
-	}  catch (std::ifstream::failure) {
-		throw std::ios_base::failure("Error reading initial guess");
-	}
-}
-
-/**
- * Reads the next reference matrix.
- */
-void parseResult(std::ifstream& output_file, CallbackResult* goldenResult) {
-	try {
-		for (int h = 0; h < 4; h++)
-			for (int w = 0; w < 4; w++)
-			{
-				output_file.read((char*)&(goldenResult->final_transformation.data[h][w]), sizeof(float));
-			}
-		#if defined (DOUBLE_FP)
-		output_file.read((char*)&(goldenResult->fitness_score), sizeof(double));
-		#else
-		double temp;
-		output_file.read((char*)&(temp), sizeof(double));
-		goldenResult->fitness_score = temp;
-		#endif
-		output_file.read((char*)&(goldenResult->converged), sizeof(bool));
-	}  catch (std::ifstream::failure e) {
-		throw std::ios_base::failure("Error reading result.");
-	}
-}
 
 ndt_mapping::ndt_mapping() :
 	OCL_objs(),
@@ -307,43 +34,7 @@ ndt_mapping::ndt_mapping() :
 	buff_subvoxel(),
 	buff_counter() {
 }
-int ndt_mapping::read_next_testcases(int count)
-{
-	int i;
-	// free memory used in the previous test case and allocate new one
-	delete [] maps;
-	maps = new PointCloud[count];
-	delete [] filtered_scan_ptr;
-	filtered_scan_ptr = new PointCloud[count];
-	delete [] init_guess;
-	init_guess = new Matrix4f[count];
-	delete [] results;
-	results = new CallbackResult[count];
-	// parse the test cases
-	for (i = 0; (i < count) && (read_testcases < testcases); i++,read_testcases++)
-	{
-		try {
-			parseInitGuess(input_file, init_guess + i);
-			parseFilteredScan(input_file, filtered_scan_ptr + i);
-			parseFilteredScan(input_file, maps + i);
-		} catch (std::ios_base::failure& e) {
-			std::cerr << e.what() << std::endl;
-			exit(-3);
-		}
-	}
-	return i;
-}
 
-int ndt_mapping::read_number_testcases(std::ifstream& input_file)
-{
-	int32_t number;
-	try {
-		input_file.read((char*)&(number), sizeof(int32_t));
-	} catch (std::ifstream::failure) {
-		throw std::ios_base::failure("Error reading number of test cases");
-	}
-	return number;
-}
 
 inline int ndt_mapping::linearizeAddr(const int x, const int y, const int z)
 {
@@ -357,6 +48,59 @@ inline int ndt_mapping::linearizeCoord(const float x, const float y, const float
 	int idx_z = (z - minVoxel.data[2]) / resolution_;
 	return linearizeAddr(idx_x, idx_y, idx_z);
 }
+
+/**
+ * Helper function to calculate the dot product of two vectors.
+ */
+#if defined (DOUBLE_FP)
+double dot_product(Vec3 &a, Vec3 &b)
+#else
+float dot_product(Vec3 &a, Vec3 &b)
+#endif
+{
+	return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+/**
+ * Helper function to calculate the dot product of two vectors.
+ */
+#if defined (DOUBLE_FP)
+double dot_product6(Vec6 &a, Vec6 &b)
+#else
+float dot_product6(Vec6 &a, Vec6 &b)
+#endif
+{
+	return a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3] + a[4] * b[4] + a[5] * b[5];
+}
+
+/**
+ * Helper function for offset point generation.
+ */
+#if defined (DOUBLE_FP)
+inline double
+auxilaryFunction_dPsiMT (double g_a, double g_0, double mu = 1.e-4)
+#else
+inline float
+auxilaryFunction_dPsiMT (float g_a, float g_0, float mu = 1.e-4)
+#endif
+{
+	return (g_a - mu * g_0);
+}
+
+/**
+ * Helper function for difference offset generation.
+ */
+#if defined (DOUBLE_FP)
+inline double
+auxilaryFunction_PsiMT (double a, double f_a, double f_0, double g_0, double mu = 1.e-4)
+#else
+inline float
+auxilaryFunction_PsiMT (float a, float f_a, float f_0, float g_0, float mu = 1.e-4)
+#endif
+{
+    return (f_a - f_0 - mu * g_0 * a);
+}
+
 
 /**
  * Solves Ax = b for x.
@@ -454,6 +198,11 @@ void ndt_mapping::init() {
 		std::cerr << e.what() << std::endl;
 		exit(-3);
 	}
+#ifdef TESTCASE_LIMIT
+	if (TESTCASE_LIMIT < testcases) {
+		testcases = TESTCASE_LIMIT;
+	}
+#endif
 	// prepare the first iteration
 	error_so_far = false;
 	max_delta = 0.0;
@@ -461,10 +210,55 @@ void ndt_mapping::init() {
 	init_guess = nullptr;
 	filtered_scan_ptr = nullptr;
 	results = nullptr;
-	std::cout << "done\n" << std::endl;
+
+	// opencl setup
+	try {
+		std::vector<std::vector<std::string>> requiredExtensions = {
+			{"cl_khr_fp64", "cl_amd_fp64"}
+		};
+		OCL_objs = ComputeTools::find_compute_platform(EPHOS_PLATFORM_HINT_S, EPHOS_DEVICE_HINT_S,
+			EPHOS_DEVICE_TYPE_S, requiredExtensions);
+		std::cout << "OpenCL device: " << OCL_objs.device.getInfo<CL_DEVICE_NAME>() << std::endl;
+	} catch (std::logic_error& e) {
+		std::cerr << e.what() << std::endl;
+		exit(EXIT_FAILURE);
+	}
+	// Kernel code was stringified, rather than read from file
+	std::string sourceCode = voxel_grid_ocl_kernel_source;
+
+	//cl::Program::Sources sourcesCL = cl::Program::Sources(1, std::make_pair(sourceCode.c_str(), sourceCode.size()));
+	cl::Program::Sources sourcesCL;
+	std::vector<cl::Kernel> kernels;
+	try {
+		std::ostringstream sBuildOptions;
+		sBuildOptions << " -DNUMWORKITEMS_PER_WORKGROUP=" << EPHOS_KERNEL_WORK_GROUP_SIZE;
+		#if defined(DOUBLE_FP)
+		sBuildOptions << " -DDOUBLE_FP";
+		#endif
+		std::vector<std::string> kernelNames({
+			"findMinMax",
+			"initTargetCells",
+			"firstPass",
+			"secondPass",
+			"radiusSearch"
+		});
+		cl::Program program = ComputeTools::build_program(OCL_objs, sourceCode, sBuildOptions.str(),
+			kernelNames, kernels);
+	} catch (std::logic_error& e) {
+		std::cerr << e.what() << std::endl;
+		exit(EXIT_FAILURE);
+	}
+	findMinMaxKernel = kernels[0];
+	initTargetCellsKernel = kernels[1];
+	firstPassKernel = kernels[2];
+	secondPassKernel = kernels[3];
+	radiusSearchKernel = kernels[4];
+
+	std::cout << "done" << std::endl;
 }
 void ndt_mapping::quit() {
-	// TODO: close streams and destroy opencl objects
+	input_file.close();
+	output_file.close();
 }
 
 /**
@@ -494,57 +288,6 @@ void transformPointCloud(const PointCloud& input, PointCloud &output, Matrix4f t
 	}
 }
 
-/**
- * Helper function to calculate the dot product of two vectors.
- */
-#if defined (DOUBLE_FP)
-double dot_product(Vec3 &a, Vec3 &b)
-#else
-float dot_product(Vec3 &a, Vec3 &b)
-#endif
-{
-	return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
-
-/**
- * Helper function to calculate the dot product of two vectors.
- */
-#if defined (DOUBLE_FP)
-double dot_product6(Vec6 &a, Vec6 &b)
-#else
-float dot_product6(Vec6 &a, Vec6 &b)
-#endif
-{
-	return a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3] + a[4] * b[4] + a[5] * b[5];
-}
-
-/**
- * Helper function for offset point generation.
- */
-#if defined (DOUBLE_FP)
-inline double
-auxilaryFunction_dPsiMT (double g_a, double g_0, double mu = 1.e-4)
-#else
-inline float
-auxilaryFunction_dPsiMT (float g_a, float g_0, float mu = 1.e-4)
-#endif
-{
-	return (g_a - mu * g_0);
-}
-
-/**
- * Helper function for difference offset generation.
- */
-#if defined (DOUBLE_FP)
-inline double
-auxilaryFunction_PsiMT (double a, double f_a, double f_0, double g_0, double mu = 1.e-4)
-#else
-inline float
-auxilaryFunction_PsiMT (float a, float f_a, float f_0, float g_0, float mu = 1.e-4)
-#endif
-{
-    return (f_a - f_0 - mu * g_0 * a);
-}
 
 #if defined (DOUBLE_FP)
 double ndt_mapping::updateDerivatives (Vec6 &score_gradient,
@@ -1772,7 +1515,12 @@ void ndt_mapping::ndt_align(const Matrix4f& guess)
 	output[i] = (*input_)[i];
 	// Perform the actual transformation computation
 	converged_ = false;
-	final_transformation_ = transformation_ = previous_transformation_ = Matrix4f_Identity;
+	final_transformation_ = transformation_ = previous_transformation_ = {
+		{{ 1.0, 0.0, 0.0, 0.0 },
+		 { 0.0, 1.0, 0.0, 0.0 },
+		 { 0.0, 0.0, 1.0, 0.0 },
+		 { 0.0, 0.0, 0.0, 1.0 }}
+	};
 	// Right before we estimate the transformation, we set all the point.data[3] values to 1
 	// to aid the rigid transformation
 	for (size_t i = 0; i < input_->size (); ++i)
@@ -1783,23 +1531,23 @@ void ndt_mapping::ndt_align(const Matrix4f& guess)
 /**
  * Helper function that calculates the squared euclidean distance between two points
  */
-#if defined (DOUBLE_FP)
-double distance_sqr(const PointXYZI& a, const PointXYZI& b)
-{
-	double dx = a.data[0]-b.data[0];
-	double dy = a.data[1]-b.data[1];
-	double dz = a.data[2]-b.data[2];
-	return dx*dx + dy*dy + dz*dz;
-}
-#else
-float distance_sqr(const PointXYZI& a, const PointXYZI& b)
-{
-	float dx = a.data[0]-b.data[0];
-	float dy = a.data[1]-b.data[1];
-	float dz = a.data[2]-b.data[2];
-	return dx*dx + dy*dy + dz*dz;
-}
-#endif
+// #if defined (DOUBLE_FP)
+// double distance_sqr(const PointXYZI& a, const PointXYZI& b)
+// {
+// 	double dx = a.data[0]-b.data[0];
+// 	double dy = a.data[1]-b.data[1];
+// 	double dz = a.data[2]-b.data[2];
+// 	return dx*dx + dy*dy + dz*dz;
+// }
+// #else
+// float distance_sqr(const PointXYZI& a, const PointXYZI& b)
+// {
+// 	float dx = a.data[0]-b.data[0];
+// 	float dy = a.data[1]-b.data[1];
+// 	float dz = a.data[2]-b.data[2];
+// 	return dx*dx + dy*dy + dz*dz;
+// }
+// #endif
 
 
 CallbackResult ndt_mapping::partial_points_callback(
@@ -1816,144 +1564,5 @@ CallbackResult ndt_mapping::partial_points_callback(
 	return result;
 }
 
-void ndt_mapping::run(int p) {
-	
-	try {
-		std::vector<std::vector<std::string>> requiredExtensions = { 
-			{"cl_khr_fp64", "cl_amd_fp64"}
-		};
-		OCL_objs = ComputeTools::find_compute_platform(EPHOS_PLATFORM_HINT_S, EPHOS_DEVICE_HINT_S,
-			EPHOS_DEVICE_TYPE_S, requiredExtensions);
-		std::cout << "EPHoS OpenCL device: " << OCL_objs.device.getInfo<CL_DEVICE_NAME>() << std::endl;
-	} catch (std::logic_error& e) {
-		std::cerr << e.what() << std::endl;
-		exit(EXIT_FAILURE);
-	}
-	// Kernel code was stringified, rather than read from file
-	std::string sourceCode = voxel_grid_ocl_kernel_source;
-	
-	//cl::Program::Sources sourcesCL = cl::Program::Sources(1, std::make_pair(sourceCode.c_str(), sourceCode.size()));
-	cl::Program::Sources sourcesCL;
-	std::vector<cl::Kernel> kernels;
-	try {
-		std::ostringstream sBuildOptions;
-		sBuildOptions << " -DNUMWORKITEMS_PER_WORKGROUP=" << EPHOS_KERNEL_WORK_GROUP_SIZE;
-		#if defined(DOUBLE_FP)
-		sBuildOptions << " -DDOUBLE_FP";
-		#endif
-		std::vector<std::string> kernelNames({
-			"findMinMax",
-			"initTargetCells",
-			"firstPass",
-			"secondPass",
-			"radiusSearch"
-		});
-		cl::Program program = ComputeTools::build_program(OCL_objs, sourceCode, sBuildOptions.str(),
-			kernelNames, kernels);
-	} catch (std::logic_error& e) {
-		std::cerr << e.what() << std::endl;
-		exit(EXIT_FAILURE);
-	}
-	findMinMaxKernel = kernels[0];
-	initTargetCellsKernel = kernels[1];
-	firstPassKernel = kernels[2];
-	secondPassKernel = kernels[3];
-	radiusSearchKernel = kernels[4];
 
-	start_timer();
-	pause_timer();
-	while (read_testcases < testcases)
-	{
-		int count = read_next_testcases(p);
-		
-		resume_timer();
-		for (int i = 0; i < count; i++)
-		{
-			// actual kernel invocation
-			results[i] = partial_points_callback(
-				filtered_scan_ptr[i],
-				init_guess[i],
-				maps[i]
-			);
-		}
-		pause_timer();
-		check_next_outputs(count);
-	}
-	stop_timer();
-}
 
-void ndt_mapping::check_next_outputs(int count)
-{
-	CallbackResult reference;
-	for (int i = 0; i < count; i++)
-	{
-		try {
-			parseResult(output_file, &reference);
-		} catch (std::ios_base::failure& e) {
-			std::cerr << e.what() << std::endl;
-			exit(-3);
-		}
-		if (results[i].converged != reference.converged)
-		{
-			error_so_far = true;
-		}
-		// compare the matrices
-		for (int h = 0; h < 4; h++) {
-			// test for nan
-			for (int w = 0; w < 4; w++) {
-				if (std::isnan(results[i].final_transformation.data[h][w]) !=
-					std::isnan(reference.final_transformation.data[h][w])) {
-					error_so_far = true;
-				}
-			}
-			// compare translation
-			float delta = std::fabs(results[i].final_transformation.data[h][3] -
-				reference.final_transformation.data[h][3]);
-			if (delta > max_delta) {
-				max_delta = delta;
-				if (delta > MAX_TRANSLATION_EPS) {
-					error_so_far = true;
-				}
-			}
-		}
-		// compare transformed points
-		PointXYZI origin = {
-			{ 0.724f, 0.447f, 0.525f, 1.0f }
-		};
-		PointXYZI resPoint = {
-			{ 0.0f, 0.0f, 0.0f, 0.0f }
-		};
-		PointXYZI refPoint = {
-			{ 0.0f, 0.0f, 0.0f, 0.0f }
-		};
-		for (int h = 0; h < 4; h++) {
-			for (int w = 0; w < 4; w++) {
-				resPoint.data[h] += results[i].final_transformation.data[h][w]*origin.data[w];
-				refPoint.data[h] += reference.final_transformation.data[h][w]*origin.data[w];
-			}
-		}
-		for (int w = 0; w < 4; w++) {
-			float delta = std::fabs(resPoint.data[w] - refPoint.data[w]);
-			if (delta > max_delta) {
-				max_delta = delta;
-				if (delta > MAX_EPS) {
-					error_so_far = true;
-				}
-			}
-		}
-	}
-}
-  
-bool ndt_mapping::check_output() {
-	std::cout << "checking output \n";
-	// complement to init()
-	input_file.close();
-	output_file.close();
-	// check for error
-	std::cout << "max delta: " << max_delta << "\n";
-	return !error_so_far;
-}
-
-// set the kernel used in main()
-ndt_mapping a = ndt_mapping();
-benchmark& myKernel = a;
