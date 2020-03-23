@@ -52,11 +52,7 @@ inline int ndt_mapping::linearizeCoord(const float x, const float y, const float
 /**
  * Helper function to calculate the dot product of two vectors.
  */
-#if defined (DOUBLE_FP)
 double dot_product(Vec3 &a, Vec3 &b)
-#else
-float dot_product(Vec3 &a, Vec3 &b)
-#endif
 {
 	return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
@@ -64,11 +60,7 @@ float dot_product(Vec3 &a, Vec3 &b)
 /**
  * Helper function to calculate the dot product of two vectors.
  */
-#if defined (DOUBLE_FP)
 double dot_product6(Vec6 &a, Vec6 &b)
-#else
-float dot_product6(Vec6 &a, Vec6 &b)
-#endif
 {
 	return a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3] + a[4] * b[4] + a[5] * b[5];
 }
@@ -76,27 +68,14 @@ float dot_product6(Vec6 &a, Vec6 &b)
 /**
  * Helper function for offset point generation.
  */
-#if defined (DOUBLE_FP)
-inline double
-auxilaryFunction_dPsiMT (double g_a, double g_0, double mu = 1.e-4)
-#else
-inline float
-auxilaryFunction_dPsiMT (float g_a, float g_0, float mu = 1.e-4)
-#endif
-{
+inline double auxilaryFunction_dPsiMT (double g_a, double g_0, double mu = 1.e-4) {
 	return (g_a - mu * g_0);
 }
 
 /**
  * Helper function for difference offset generation.
  */
-#if defined (DOUBLE_FP)
-inline double
-auxilaryFunction_PsiMT (double a, double f_a, double f_0, double g_0, double mu = 1.e-4)
-#else
-inline float
-auxilaryFunction_PsiMT (float a, float f_a, float f_0, float g_0, float mu = 1.e-4)
-#endif
+inline double auxilaryFunction_PsiMT (double a, double f_a, double f_0, double g_0, double mu = 1.e-4)
 {
     return (f_a - f_0 - mu * g_0 * a);
 }
@@ -109,20 +88,12 @@ auxilaryFunction_PsiMT (float a, float f_a, float f_0, float g_0, float mu = 1.e
  */
 void solve(Vec6& result, Mat66 A, Vec6& b)
 {
-	#if defined (DOUBLE_FP)
 	double pivot;
-	#else
-	float pivot;
-	#endif
 
 	// bring to upper diagonal
 	for(int j = 0; j < 6; j++)
 	{
-		#if defined (DOUBLE_FP)
 		double max = fabs(A.data[j][j]);
-		#else
-		float max = fabs(A.data[j][j]);
-		#endif
 		int mi = j;
 		for (int i = j + 1; i < 6; i++)
 			if (fabs(A.data[i][j]) > max)
@@ -134,11 +105,7 @@ void solve(Vec6& result, Mat66 A, Vec6& b)
 		if (mi !=j)
 			for (int i = 0; i < 6; i++)
 			{
-				#if defined (DOUBLE_FP)
 				double temp = A.data[mi][i];
-				#else
-				float temp = A.data[mi][i];
-				#endif
 				A.data[mi][i] = A.data[j][i];
 				A.data[j][i] = temp;
 			}
@@ -161,11 +128,7 @@ void solve(Vec6& result, Mat66 A, Vec6& b)
 	result[5]=b[5]/A.data[5][5];
 	for( int i = 4; i >= 0; i--)
 	{
-		#if defined (DOUBLE_FP)
 		double sum=0.0;
-		#else
-		float sum=0.0;
-		#endif
 		for(int j = i+1; j < 6; j++)
 		{
 			sum=sum+A.data[i][j]*result[j];
@@ -191,6 +154,14 @@ void ndt_mapping::init() {
 		std::cerr << "Error opening the results file" << std::endl;
 		exit(-3);
 	}
+#ifdef EPHOS_DATAGEN
+	try {
+		datagen_file.open("../../../data/ndt_output_gen.dat", std::ios::binary);
+	} catch (std::ofstream::failure & e) {
+		std::cerr << "Error opening the datagen file" << std::endl;
+		exit(-3);
+	}
+#endif // EPHOS_DATAGEN
 	// consume the number of testcases from the testcase file
 	try {
 		testcases = read_number_testcases(input_file);
@@ -198,9 +169,9 @@ void ndt_mapping::init() {
 		std::cerr << e.what() << std::endl;
 		exit(-3);
 	}
-#ifdef TESTCASE_LIMIT
-	if (TESTCASE_LIMIT < testcases) {
-		testcases = TESTCASE_LIMIT;
+#ifdef EPHOS_TESTCASE_LIMIT
+	if (EPHOS_TESTCASE_LIMIT < testcases) {
+		testcases = EPHOS_TESTCASE_LIMIT;
 	}
 #endif
 	// prepare the first iteration
@@ -234,9 +205,7 @@ void ndt_mapping::init() {
 	try {
 		std::ostringstream sBuildOptions;
 		sBuildOptions << " -DNUMWORKITEMS_PER_WORKGROUP=" << EPHOS_KERNEL_WORK_GROUP_SIZE;
-		#if defined(DOUBLE_FP)
-		sBuildOptions << " -DDOUBLE_FP";
-		#endif
+		sBuildOptions << " -DDOUBLE_FP=1";
 		std::vector<std::string> kernelNames({
 			"findMinMax",
 			"initTargetCells",
@@ -261,6 +230,9 @@ void ndt_mapping::init() {
 void ndt_mapping::quit() {
 	input_file.close();
 	output_file.close();
+#ifdef EPHOS_DATAGEN
+	datagen_file.close();
+#endif
 }
 
 /**
@@ -291,22 +263,14 @@ void transformPointCloud(const PointCloud& input, PointCloud &output, Matrix4f t
 }
 
 
-#if defined (DOUBLE_FP)
 double ndt_mapping::updateDerivatives (Vec6 &score_gradient,
 				       Mat66 &hessian,
 				       Vec3 &x_trans, Mat33 &c_inv,
 				       bool compute_hessian)
-#else
-float ndt_mapping::updateDerivatives (Vec6 &score_gradient,
-				       Mat66 &hessian,
-				       Vec3 &x_trans, Mat33 &c_inv,
-				       bool compute_hessian)
-#endif
 {
 	Vec3 cov_dxd_pi;
 
 	// matrix preparation
-	#if defined (DOUBLE_FP)
 	double xCx = c_inv.data[0][0] * x_trans[0] * x_trans[0] +
 	c_inv.data[1][1] * x_trans[1] * x_trans[1] +
 	c_inv.data[2][2] * x_trans[2] * x_trans[2] +
@@ -317,18 +281,6 @@ float ndt_mapping::updateDerivatives (Vec6 &score_gradient,
 	double e_x_cov_x = exp (-gauss_d2_ * (xCx) / 2);
 	// Calculate probability of transtormed points existance, Equation 6.9 [Magnusson 2009]
 	double score_inc = -gauss_d1_ * e_x_cov_x;
-	#else
-	float xCx = c_inv.data[0][0] * x_trans[0] * x_trans[0] +
-		c_inv.data[1][1] * x_trans[1] * x_trans[1] +
-		c_inv.data[2][2] * x_trans[2] * x_trans[2] +
-		(c_inv.data[0][1] + c_inv.data[1][0]) * x_trans[0] * x_trans[1] +
-		(c_inv.data[0][2] + c_inv.data[2][0]) * x_trans[0] * x_trans[2] +
-		(c_inv.data[1][2] + c_inv.data[2][1]) * x_trans[1] * x_trans[2];
-
-	float e_x_cov_x = exp (-gauss_d2_ * (xCx) / 2);
-	// Calculate probability of transtormed points existance, Equation 6.9 [Magnusson 2009]
-	float score_inc = -gauss_d1_ * e_x_cov_x;
-	#endif
 	e_x_cov_x = gauss_d2_ * e_x_cov_x;
 	// Error checking for invalid values.
 	if (e_x_cov_x > 1 || e_x_cov_x < 0 || e_x_cov_x != e_x_cov_x)
@@ -441,56 +393,57 @@ void ndt_mapping::computePointDerivatives (Vec3 &x, bool compute_hessian)
 void ndt_mapping::computeHessian(
 	Mat66 &hessian, PointCloud &trans_cloud, Vec6 &)
 {
-	throw std::logic_error("Non anticipated computeHessian() function call");
-	// temporary data structures
-	// TODO: call kernel and postprocess when the funktion is called
-// 	PointXYZI  x_pt, x_trans_pt; // Original Point and Transformed Point
-// 	Vec3 x, x_trans; // Original Point and Transformed Point
-// 	Voxel cell; // Occupied Voxel
-// 	Mat33 c_inv; // Inverse Covariance of Occupied Voxel
-// 	#if defined (DOUBLE_FP)
-// 	memset(&(hessian.data[0][0]), 0, sizeof(double) * 6 * 6);
-// 	#else
-// 	memset(&(hessian.data[0][0]), 0, sizeof(float) * 6 * 6);
-// 	#endif
-// 	// Update hessian for each point, line 17 in Algorithm 2 [Magnusson 2009]
-// 	for (size_t idx = 0; idx < input_->size (); idx++)
-// 	{
-// 		x_trans_pt = trans_cloud[idx];
-// 		// Find neighbors
-// 		std::vector<Voxel> neighborhood;
-// 		std::vector<float> distances;
-// 		voxelRadiusSearch (target_cells_, x_trans_pt, resolution_, neighborhood, distances);
-// 		// execute for each neighbor
-// 		for (auto neighborhood_it = neighborhood.begin (); neighborhood_it != neighborhood.end (); neighborhood_it++)
-// 		{
-// 			cell = *neighborhood_it;
-// 			// extract point
-// 			x_pt = (*input_)[idx];
-// 			x[0] = x_pt.data[0];
-// 			x[1] = x_pt.data[1];
-// 			x[2] = x_pt.data[2];
-// 			x_trans[0] = x_trans_pt.data[0];
-// 			x_trans[1] = x_trans_pt.data[1];
-// 			x_trans[2] = x_trans_pt.data[2];
-// 			// Denorm point, x_k' in Equations 6.12 and 6.13 [Magnusson 2009]
-// 			x_trans[0] -= cell.mean[0];
-// 			x_trans[1] -= cell.mean[1];
-// 			x_trans[2] -= cell.mean[2];
-// 			c_inv = cell.invCovariance;
-// 			// Compute derivative of transform function w.r.t. transform vector, J_E and H_E in Equations 6.18 and 6.20 [Magnusson 2009]
-// 			computePointDerivatives (x);
-// 			// Update hessian, lines 21 in Algorithm 2, according to Equations 6.10, 6.12 and 6.13, respectively [Magnusson 2009]
-// 			updateHessian (hessian, x_trans, c_inv);
-// 		}
-// 	}
+	// TODO: test unused code here
+	memset(&(hessian.data[0][0]), 0, sizeof(double) * 6 * 6);
+	// move transformed cloud to device
+	int pointNo = trans_cloud.size();
+	size_t nbytes_cloud = sizeof(PointXYZI)*pointNo;
+	OCL_objs.cmdqueue.enqueueWriteBuffer(buff_target, CL_FALSE, 0, nbytes_cloud,
+		trans_cloud.data());
+	int nearVoxelNo = 0;
+	OCL_objs.cmdqueue.enqueueWriteBuffer(buff_counter, CL_FALSE, 0, sizeof(int), &nearVoxelNo);
+	// call radius search kernel
+	radiusSearchKernel.setArg(6, pointNo);
+	size_t local_size = EPHOS_KERNEL_WORK_GROUP_SIZE;
+	size_t num_workgroups = pointNo/local_size + 1;
+	size_t global_size = local_size*num_workgroups;
+	OCL_objs.cmdqueue.enqueueNDRangeKernel(
+		radiusSearchKernel,
+		cl::NDRange(0),
+		cl::NDRange(global_size),
+		cl::NDRange(local_size));
+	// move near voxels to host
+	OCL_objs.cmdqueue.enqueueReadBuffer(buff_counter, CL_TRUE, 0, sizeof(int), &nearVoxelNo);
+	size_t nbytes_subvoxel = sizeof(PointVoxel)*nearVoxelNo;
+	PointVoxel* storage_subvoxel = (PointVoxel*)OCL_objs.cmdqueue.enqueueMapBuffer(buff_subvoxel,
+		CL_TRUE, CL_MAP_READ, 0, nbytes_subvoxel);
+	// process near voxels
+	for (int i = 0; i < nearVoxelNo; i++) {
+		int iPoint = storage_subvoxel[i].point;
+		PointXYZI& x_pt = input_cloud->at(iPoint);
+		Vec3 x = {
+			x_pt.data[0],
+			x_pt.data[1],
+			x_pt.data[2]
+		};
+		computePointDerivatives(x);
+		Vec3* mean = &storage_subvoxel[i].mean;
+		PointXYZI& x_trans_pt = trans_cloud.at(iPoint);
+		Vec3 x_trans = {
+			x_trans_pt.data[0] - (*mean)[0],
+			x_trans_pt.data[1] - (*mean)[1],
+			x_trans_pt.data[2] - (*mean)[2]
+		};
+		Mat33& c_inv = storage_subvoxel[i].invCovariance;
+		updateHessian(hessian, x_trans, c_inv);
+	}
+	OCL_objs.cmdqueue.enqueueUnmapMemObject(buff_subvoxel, storage_subvoxel);
 }
 
 void ndt_mapping::updateHessian (Mat66 &hessian, Vec3 &x_trans, Mat33 &c_inv)
 {
 	Vec3 cov_dxd_pi;
 	// Equation 6.9 [Magnusson 2009]
-	#if defined (DOUBLE_FP)
 	double xCx = c_inv.data[0][0] * x_trans[0] * x_trans[0] +
 		c_inv.data[1][1] * x_trans[1] * x_trans[1] +
 		c_inv.data[2][2] * x_trans[2] * x_trans[2] +
@@ -498,15 +451,6 @@ void ndt_mapping::updateHessian (Mat66 &hessian, Vec3 &x_trans, Mat33 &c_inv)
 		(c_inv.data[0][2] + c_inv.data[2][0]) * x_trans[0] * x_trans[2] +
 		(c_inv.data[1][2] + c_inv.data[2][1]) * x_trans[1] * x_trans[2];
 	double e_x_cov_x = gauss_d2_ * exp (-gauss_d2_ * (xCx) / 2);
-	#else
-	float xCx = c_inv.data[0][0] * x_trans[0] * x_trans[0] +
-		c_inv.data[1][1] * x_trans[1] * x_trans[1] +
-		c_inv.data[2][2] * x_trans[2] * x_trans[2] +
-		(c_inv.data[0][1] + c_inv.data[1][0]) * x_trans[0] * x_trans[1] +
-		(c_inv.data[0][2] + c_inv.data[2][0]) * x_trans[0] * x_trans[2] +
-		(c_inv.data[1][2] + c_inv.data[2][1]) * x_trans[1] * x_trans[2];
-	float e_x_cov_x = gauss_d2_ * exp (-gauss_d2_ * (xCx) / 2);
-	#endif
 
 	// Error checking for invalid values.
 	if (e_x_cov_x > 1 || e_x_cov_x < 0 || e_x_cov_x != e_x_cov_x)
@@ -543,31 +487,16 @@ void ndt_mapping::updateHessian (Mat66 &hessian, Vec3 &x_trans, Mat33 &c_inv)
 	}
 }
 
-#if defined (DOUBLE_FP)
 double ndt_mapping::computeDerivatives (
 	Vec6 &score_gradient,
 	Mat66 &hessian,
 	PointCloudSource &trans_cloud,
 	Vec6 &p,
 	bool compute_hessian)
-#else
-float ndt_mapping::computeDerivatives (
-	Vec6 &score_gradient,
-	Mat66 &hessian,
-	PointCloudSource &trans_cloud,
-	Vec6 &p,
-	bool compute_hessian)
-#endif
 {
-	#if defined (DOUBLE_FP)
 	memset(&(score_gradient[0]), 0, sizeof(double) * 6 );
 	memset(&(hessian.data[0][0]), 0, sizeof(double) * 6 * 6);
 	double score = 0.0;
-	#else
-	memset(&(score_gradient[0]), 0, sizeof(float) * 6 );
-	memset(&(hessian.data[0][0]), 0, sizeof(float) * 6 * 6);
-	float score = 0.0;
-	#endif
 	// Precompute Angular Derivatives (eq. 6.19 and 6.21)[Magnusson 2009]
 	computeAngleDerivatives (p);
 	// move transformed cloud to device
@@ -614,7 +543,7 @@ float ndt_mapping::computeDerivatives (
 			x_trans_pt.data[1] - (*mean)[1],
 			x_trans_pt.data[2] - (*mean)[2]
 		};
-		Mat33 c_inv = storage_subvoxel[i].invCovariance;
+		Mat33& c_inv = storage_subvoxel[i].invCovariance;
 		score += updateDerivatives(score_gradient, hessian, x_trans, c_inv, compute_hessian);
 	}
 	OCL_objs.cmdqueue.enqueueUnmapMemObject(buff_subvoxel, storage_subvoxel);
@@ -624,11 +553,7 @@ float ndt_mapping::computeDerivatives (
 void ndt_mapping::computeAngleDerivatives (Vec6 &p, bool compute_hessian)
 {
 	// Simplified math for near 0 angles
-	#if defined (DOUBLE_FP)
 	double cx, cy, cz, sx, sy, sz;
-	#else
-	float cx, cy, cz, sx, sy, sz;
-	#endif
 	if (std::fabs (p[3]) < 10e-5)
 	{
 		//p(3) = 0;
@@ -745,20 +670,11 @@ void ndt_mapping::computeAngleDerivatives (Vec6 &p, bool compute_hessian)
 	}
 }
 
-#if defined (DOUBLE_FP)
 bool
 ndt_mapping::updateIntervalMT (
 	double &a_l, double &f_l, double &g_l,
 	double &a_u, double &f_u, double &g_u,
 	double a_t, double f_t, double g_t)
-#else
-bool
-ndt_mapping::updateIntervalMT (
-	float &a_l, float &f_l, float &g_l,
-	float &a_u, float &f_u, float &g_u,
-	float a_t, float f_t, float g_t)
-
-#endif
 {
 	// Case U1 in Update Algorithm and Case a in Modified Update Algorithm [More, Thuente 1994]
 	if (f_t > f_l)
@@ -795,26 +711,17 @@ ndt_mapping::updateIntervalMT (
 		return (true);
 }
 
-#if defined (DOUBLE_FP)
 double
 ndt_mapping::trialValueSelectionMT (
 	double a_l, double f_l, double g_l,
 	double a_u, double f_u, double g_u,
 	double a_t, double f_t, double g_t)
-#else
-float
-ndt_mapping::trialValueSelectionMT (
-	float a_l, float f_l, float g_l,
-	float a_u, float f_u, float g_u,
-	float a_t, float f_t, float g_t)
-#endif
 {
 	// Case 1 in Trial Value Selection [More, Thuente 1994]
 	if (f_t > f_l)
 	{
 		// Calculate the minimizer of the cubic that interpolates f_l, f_t, g_l and g_t
 		// Equation 2.4.52 [Sun, Yuan 2006]
-		#if defined (DOUBLE_FP)
 		double z = 3 * (f_t - f_l) / (a_t - a_l) - g_t - g_l;
 		double w = sqrt (z * z - g_t * g_l);
 		// Equation 2.4.56 [Sun, Yuan 2006]
@@ -823,16 +730,6 @@ ndt_mapping::trialValueSelectionMT (
 		// Calculate the minimizer of the quadratic that interpolates f_l, f_t and g_l
 		// Equation 2.4.2 [Sun, Yuan 2006]
 		double a_q = a_l - 0.5 * (a_l - a_t) * g_l / (g_l - (f_l - f_t) / (a_l - a_t));
-		#else
-		float z = 3 * (f_t - f_l) / (a_t - a_l) - g_t - g_l;
-		float w = sqrt (z * z - g_t * g_l);
-		// Equation 2.4.56 [Sun, Yuan 2006]
-		float a_c = a_l + (a_t - a_l) * (w - g_l - z) / (g_t - g_l + 2 * w);
-
-		// Calculate the minimizer of the quadratic that interpolates f_l, f_t and g_l
-		// Equation 2.4.2 [Sun, Yuan 2006]
-		float a_q = a_l - 0.5 * (a_l - a_t) * g_l / (g_l - (f_l - f_t) / (a_l - a_t));
-		#endif
 
 		if (fabs (a_c - a_l) < fabs (a_q - a_l))
 		return (a_c);
@@ -845,7 +742,6 @@ ndt_mapping::trialValueSelectionMT (
 	{
 		// Calculate the minimizer of the cubic that interpolates f_l, f_t, g_l and g_t
 		// Equation 2.4.52 [Sun, Yuan 2006]
-		#if defined (DOUBLE_FP)
 		double z = 3 * (f_t - f_l) / (a_t - a_l) - g_t - g_l;
 		double w = sqrt (z * z - g_t * g_l);
 		// Equation 2.4.56 [Sun, Yuan 2006]
@@ -854,16 +750,6 @@ ndt_mapping::trialValueSelectionMT (
 		// Calculate the minimizer of the quadratic that interpolates f_l, g_l and g_t
 		// Equation 2.4.5 [Sun, Yuan 2006]
 		double a_s = a_l - (a_l - a_t) / (g_l - g_t) * g_l;
-		#else
-		float z = 3 * (f_t - f_l) / (a_t - a_l) - g_t - g_l;
-		float w = sqrt (z * z - g_t * g_l);
-		// Equation 2.4.56 [Sun, Yuan 2006]
-		float a_c = a_l + (a_t - a_l) * (w - g_l - z) / (g_t - g_l + 2 * w);
-
-		// Calculate the minimizer of the quadratic that interpolates f_l, g_l and g_t
-		// Equation 2.4.5 [Sun, Yuan 2006]
-		float a_s = a_l - (a_l - a_t) / (g_l - g_t) * g_l;
-		#endif
 
 		if (fabs (a_c - a_t) >= fabs (a_s - a_t))
 		return (a_c);
@@ -876,7 +762,6 @@ ndt_mapping::trialValueSelectionMT (
 	{
 		// Calculate the minimizer of the cubic that interpolates f_l, f_t, g_l and g_t
 		// Equation 2.4.52 [Sun, Yuan 2006]
-		#if defined (DOUBLE_FP)
 		double z = 3 * (f_t - f_l) / (a_t - a_l) - g_t - g_l;
 		double w = sqrt (z * z - g_t * g_l);
 		double a_c = a_l + (a_t - a_l) * (w - g_l - z) / (g_t - g_l + 2 * w);
@@ -886,17 +771,6 @@ ndt_mapping::trialValueSelectionMT (
 		double a_s = a_l - (a_l - a_t) / (g_l - g_t) * g_l;
 
 		double a_t_next;
-		#else
-		float z = 3 * (f_t - f_l) / (a_t - a_l) - g_t - g_l;
-		float w = sqrt (z * z - g_t * g_l);
-		float a_c = a_l + (a_t - a_l) * (w - g_l - z) / (g_t - g_l + 2 * w);
-
-		// Calculate the minimizer of the quadratic that interpolates g_l and g_t
-		// Equation 2.4.5 [Sun, Yuan 2006]
-		float a_s = a_l - (a_l - a_t) / (g_l - g_t) * g_l;
-
-		float a_t_next;
-		#endif
 
 		if (fabs (a_c - a_t) < fabs (a_s - a_t))
 		a_t_next = a_c;
@@ -904,30 +778,17 @@ ndt_mapping::trialValueSelectionMT (
 		a_t_next = a_s;
 
 		if (a_t > a_l)
-		#if defined (DOUBLE_FP)
 		return (std::min (a_t + 0.66 * (a_u - a_t), a_t_next));
-		#else
-		return (std::min (a_t + 0.66f * (a_u - a_t), a_t_next));
-		#endif
 		else
-		#if defined (DOUBLE_FP)
 		return (std::max (a_t + 0.66 * (a_u - a_t), a_t_next));
-		#else
-		return (std::max (a_t + 0.66f * (a_u - a_t), a_t_next));
-		#endif
 	}
 	// Case 4 in Trial Value Selection [More, Thuente 1994]
 	else
 	{
 		// Calculate the minimizer of the cubic that interpolates f_u, f_t, g_u and g_t
 		// Equation 2.4.52 [Sun, Yuan 2006]
-		#if defined (DOUBLE_FP)
 		double z = 3 * (f_t - f_u) / (a_t - a_u) - g_t - g_u;
 		double w = sqrt (z * z - g_t * g_u);
-		#else
-		float z = 3 * (f_t - f_u) / (a_t - a_u) - g_t - g_u;
-		float w = sqrt (z * z - g_t * g_u);
-		#endif
 		// Equation 2.4.56 [Sun, Yuan 2006]
 		return (a_u + (a_t - a_u) * (w - g_u - z) / (g_t - g_u + 2 * w));
 	}
@@ -1000,32 +861,16 @@ void ndt_mapping::buildTransformationMatrix(Matrix4f &matrix, Vec6 transform)
 }
 
 // from /usr/include/pcl-1.7/pcl/registration/impl/ndt.hpp
-#if defined (DOUBLE_FP)
 double
 ndt_mapping::computeStepLengthMT (
 	const Vec6 &x, Vec6 &step_dir, double step_init, double step_max,
 	double step_min, double &score, Vec6 &score_gradient, Mat66 &hessian,
 	PointCloudSource &trans_cloud)
-#else
-float
-ndt_mapping::computeStepLengthMT (
-	const Vec6 &x, Vec6 &step_dir, float step_init, float step_max,
-	float step_min, float &score, Vec6 &score_gradient, Mat66 &hessian,
-	PointCloudSource &trans_cloud)
-#endif
 {
 	// Set the value of phi(0), Equation 1.3 [More, Thuente 1994]
-	#if defined (DOUBLE_FP)
 	double phi_0 = -score;
-	#else
-	float phi_0 = -score;
-	#endif
 	// Set the value of phi'(0), Equation 1.3 [More, Thuente 1994]
-	#if defined (DOUBLE_FP)
 	double d_phi_0 = -(dot_product6(score_gradient, step_dir));
-	#else
-	float d_phi_0 = -(dot_product6(score_gradient, step_dir));
-	#endif
 	Vec6  x_t = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
 	if (d_phi_0 >= 0)
 	{
@@ -1045,79 +890,40 @@ ndt_mapping::computeStepLengthMT (
 	int max_step_iterations = 10;
 	int step_iterations = 0;
 	// Sufficient decreace constant, Equation 1.1 [More, Thuete 1994]
-	#if defined (DOUBLE_FP)
 	double mu = 1.e-4;
-	#else
-	float mu = 1.e-4;
-	#endif
 	// Curvature condition constant, Equation 1.2 [More, Thuete 1994]
-	#if defined (DOUBLE_FP)
 	double nu = 0.9;
-	#else
-	float nu = 0.9;
-	#endif
 	// Initial endpoints of Interval I,
-	#if defined (DOUBLE_FP)
 	double a_l = 0, a_u = 0;
-	#else
-	float a_l = 0, a_u = 0;
-	#endif
 	// Auxiliary function psi is used until I is determined ot be a closed interval, Equation 2.1 [More, Thuente 1994]
-	#if defined (DOUBLE_FP)
 	double f_l = auxilaryFunction_PsiMT (a_l, phi_0, phi_0, d_phi_0, mu);
 	double g_l = auxilaryFunction_dPsiMT (d_phi_0, d_phi_0, mu);
 
 	double f_u = auxilaryFunction_PsiMT (a_u, phi_0, phi_0, d_phi_0, mu);
 	double g_u = auxilaryFunction_dPsiMT (d_phi_0, d_phi_0, mu);
-	#else
-	float f_l = auxilaryFunction_PsiMT (a_l, phi_0, phi_0, d_phi_0, mu);
-	float g_l = auxilaryFunction_dPsiMT (d_phi_0, d_phi_0, mu);
-
-	float f_u = auxilaryFunction_PsiMT (a_u, phi_0, phi_0, d_phi_0, mu);
-	float g_u = auxilaryFunction_dPsiMT (d_phi_0, d_phi_0, mu);
-	#endif
 	// Check used to allow More-Thuente step length calculation to be skipped by making step_min == step_max
 	bool interval_converged = (step_max - step_min) > 0, open_interval = true;
-	#if defined (DOUBLE_FP)
 	double a_t = step_init;
-	#else
-	float a_t = step_init;
-	#endif
 	a_t = std::min (a_t, step_max);
 	a_t = std::max (a_t, step_min);
 	for (int i = 0; i < 6; i++)
 		x_t[i] = x[i] + step_dir[i] * a_t;
 
 	buildTransformationMatrix(final_transformation_, x_t);
+	intermediate_transformations_.push_back(final_transformation_);
 	// New transformed point cloud
 	transformPointCloud(*input_cloud, trans_cloud, final_transformation_);
 	// Updates score, gradient and hessian.  Hessian calculation is unessisary but testing showed that most step calculations use the
 	// initial step suggestion and recalculation the reusable portions of the hessian would intail more computation time.
 	score = computeDerivatives (score_gradient, hessian, trans_cloud, x_t, true);
 	// Calculate phi(alpha_t)
-	#if defined (DOUBLE_FP)
 	double phi_t = -score;
-	#else
-	float phi_t = -score;
-	#endif
 	// Calculate phi'(alpha_t)
-	#if defined (DOUBLE_FP)
 	double d_phi_t = -(dot_product6(score_gradient, step_dir));
-	#else
-	float d_phi_t = -(dot_product6(score_gradient, step_dir));
-	#endif
 	// Calculate psi(alpha_t)
-	#if defined (DOUBLE_FP)
 	double psi_t = auxilaryFunction_PsiMT (a_t, phi_t, phi_0, d_phi_0, mu);
-	#else
-	float psi_t = auxilaryFunction_PsiMT (a_t, phi_t, phi_0, d_phi_0, mu);
-	#endif
 	// Calculate psi'(alpha_t)
-	#if defined (DOUBLE_FP)
 	double d_psi_t = auxilaryFunction_dPsiMT (d_phi_t, d_phi_0, mu);
-	#else
-	float d_psi_t = auxilaryFunction_dPsiMT (d_phi_t, d_phi_0, mu);
-	#endif
 	// Iterate until max number of iterations, interval convergance or a value satisfies the sufficient decrease, Equation 1.1, and curvature condition, Equation 1.2 [More, Thuente 1994]
 	while (!interval_converged && step_iterations < max_step_iterations && !(psi_t <= 0 /*Sufficient Decrease*/ && d_phi_t <= -nu * d_phi_0 /*Curvature Condition*/))
 	{
@@ -1142,6 +948,7 @@ ndt_mapping::computeStepLengthMT (
 			x_t[row] = x[row] + step_dir[row] * a_t;
 
 		buildTransformationMatrix(final_transformation_, x_t); 
+		intermediate_transformations_.push_back(final_transformation_);
 		// New transformed point cloud
 		// Done on final cloud to prevent wasted computation
 		transformPointCloud (*input_cloud, trans_cloud, final_transformation_);
@@ -1200,15 +1007,9 @@ void ndt_mapping::eulerAngles(Matrix4f trans, Vec3 &result)
 	const int j = 1;
 	const int k = 2;
 	res[0] = atan2(trans.data[j][k], trans.data[k][k]);
-	#if defined (DOUBLE_FP)
 	double n1 = trans.data[i][i];
 	double n2 = trans.data[i][j];
 	double c2 = sqrt(n1*n1+n2*n2);
-	#else
-	float n1 = trans.data[i][i];
-	float n2 = trans.data[i][j];
-	float c2 = sqrt(n1*n1+n2*n2);
-	#endif
 	if(res[0]>0.0) {
 		if(res[0] > 0.0) {
 			res[0] -= PI;
@@ -1220,13 +1021,8 @@ void ndt_mapping::eulerAngles(Matrix4f trans, Vec3 &result)
 	}
 	else
 		res[1] = atan2(-trans.data[i][k], c2);
-	 #if defined (DOUBLE_FP)
 	double s1 = sin(res[0]);
 	double c1 = cos(res[0]);
-	#else
-	float s1 = sin(res[0]);
-	float c1 = cos(res[0]);
-	#endif
 	res[2] = atan2(s1*trans.data[k][i]-c1*trans.data[j][i], c1*trans.data[j][j] - s1 * trans.data[k][j]);
 	result[0] = -res[0];
 	result[1] = -res[1];
@@ -1237,11 +1033,7 @@ void ndt_mapping::computeTransformation(PointCloud &output, const Matrix4f &gues
 {
 	nr_iterations_ = 0;
 	converged_ = false;
-	#if defined (DOUBLE_FP)
 	double gauss_c1, gauss_c2, gauss_d3;
-	#else
-	float gauss_c1, gauss_c2, gauss_d3;
-	#endif
 	// Initializes the guassian fitting parameters (eq. 6.8) [Magnusson 2009]
 	gauss_c1 = 10 * (1 - outlier_ratio_);
 	gauss_c2 = outlier_ratio_ / pow (resolution_, 3);
@@ -1253,19 +1045,11 @@ void ndt_mapping::computeTransformation(PointCloud &output, const Matrix4f &gues
 	// Apply guessed transformation prior to search for neighbours
 	transformPointCloud (output, output, guess);
 	// Initialize Point Gradient and Hessian
-	#if defined (DOUBLE_FP)
 	memset(point_gradient_.data, 0, sizeof(double) * 3 * 6);
-	#else
-	memset(point_gradient_.data, 0, sizeof(float) * 3 * 6);
-	#endif
 	point_gradient_.data[0][0] = 1.0;
 	point_gradient_.data[1][1] = 1.0;
 	point_gradient_.data[2][2] = 1.0;
-	#if defined (DOUBLE_FP)
 	memset(point_hessian_.data, 0, sizeof(double) * 18 * 6);
-	#else
-	memset(point_hessian_.data, 0, sizeof(float) * 18 * 6);
-	#endif
 	// Convert initial guess matrix to 6 element transformation vector
 	Vec6 p, delta_p, score_gradient;
 	p[0] = final_transformation_.data[0][4];
@@ -1277,13 +1061,8 @@ void ndt_mapping::computeTransformation(PointCloud &output, const Matrix4f &gues
 	p[4] = ea[1];
 	p[5] = ea[2];
 	Mat66 hessian;
-	#if defined (DOUBLE_FP)
 	double score = 0;
 	double delta_p_norm;
-	#else
-	float score = 0;
-	float delta_p_norm;
-	#endif
 	// Calculate derivates of initial transform vector, subsequent derivative calculations are done in the step length determination.
 	score = computeDerivatives (score_gradient, hessian, output, p);
 	while (!converged_)
@@ -1310,11 +1089,7 @@ void ndt_mapping::computeTransformation(PointCloud &output, const Matrix4f &gues
 		delta_p_norm = 1;
 		if (delta_p_norm == 0 || delta_p_norm != delta_p_norm)
 		{
-			#if defined (DOUBLE_FP)
 			trans_probability_ = score / static_cast<double> (input_cloud->size());
-			#else
-			trans_probability_ = score / static_cast<float> (input_cloud->size());
-			#endif
 			converged_ = delta_p_norm == delta_p_norm;
 			return;
 		}
@@ -1335,6 +1110,7 @@ void ndt_mapping::computeTransformation(PointCloud &output, const Matrix4f &gues
 		delta_p[5] *= delta_p_norm;
 
 		buildTransformationMatrix(transformation_, delta_p);
+		intermediate_transformations_.push_back(transformation_);
 		p[0] = p[0] + delta_p[0];
 		p[1] = p[1] + delta_p[1];
 		p[2] = p[2] + delta_p[2];
@@ -1343,7 +1119,7 @@ void ndt_mapping::computeTransformation(PointCloud &output, const Matrix4f &gues
 		p[5] = p[5] + delta_p[5];		    
 
 		if (nr_iterations_ > max_iterations_ ||
-		(nr_iterations_ && (fabs (delta_p_norm) < transformation_epsilon_)))
+			(nr_iterations_ && (fabs (delta_p_norm) < transformation_epsilon_)))
 		{
 			converged_ = true;
 		}
@@ -1352,11 +1128,7 @@ void ndt_mapping::computeTransformation(PointCloud &output, const Matrix4f &gues
 
 	// Store transformation probability.  The realtive differences within each scan registration are accurate
 	// but the normalization constants need to be modified for it to be globally accurate
-	#if defined (DOUBLE_FP)
 	trans_probability_ = score / static_cast<double> (input_cloud->size());
-	#else
-	trans_probability_ = score / static_cast<float> (input_cloud->size());
-	#endif
 }
 
 /**
@@ -1365,17 +1137,10 @@ void ndt_mapping::computeTransformation(PointCloud &output, const Matrix4f &gues
 void invertMatrix(Mat33 &m)
 {
 	Mat33 temp;
-	#if defined (DOUBLE_FP)
 	double det = m.data[0][0] * (m.data[2][2] * m.data[1][1] - m.data[2][1] * m.data[1][2]) -
 	m.data[1][0] * (m.data[2][2] * m.data[0][1] - m.data[2][1] * m.data[0][2]) +
 	m.data[2][0] * (m.data[1][2] * m.data[0][1] - m.data[1][1] * m.data[0][2]);
 	double invDet = 1.0 / det;
-	#else
-	float det = m.data[0][0] * (m.data[2][2] * m.data[1][1] - m.data[2][1] * m.data[1][2]) -
-	m.data[1][0] * (m.data[2][2] * m.data[0][1] - m.data[2][1] * m.data[0][2]) +
-	m.data[2][0] * (m.data[1][2] * m.data[0][1] - m.data[1][1] * m.data[0][2]);
-	float invDet = 1.0f / det;
-	#endif
 
 	// adjungated matrix of minors
 	temp.data[0][0] = m.data[2][2] * m.data[1][1] - m.data[2][1] * m.data[1][2];
@@ -1541,8 +1306,10 @@ CallbackResult ndt_mapping::partial_points_callback(
 	CallbackResult result;
 	this->input_cloud = &input_cloud;
 	this->target_cloud = &target_cloud;
+	intermediate_transformations_.clear();
 	ndt_align(init_guess);
 	result.final_transformation = final_transformation_;
+	result.intermediate_transformations = intermediate_transformations_;
 	result.converged = converged_;
 	return result;
 }

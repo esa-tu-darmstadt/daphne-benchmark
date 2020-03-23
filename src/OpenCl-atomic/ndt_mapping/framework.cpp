@@ -61,7 +61,7 @@ void  ndt_mapping::parseFilteredScan(std::ifstream& input_file, PointCloud& poin
 			input_file.read((char*)&p.data[3], sizeof(float));
 			pointcloud.push_back(p);
 		}
-	}  catch (std::ifstream::failure) {
+	}  catch (std::ifstream::failure& e) {
 		throw std::ios_base::failure("Error reading filtered scan");
 	}
 }
@@ -72,7 +72,7 @@ void ndt_mapping::parseInitGuess(std::ifstream& input_file, Matrix4f& initGuess)
 	for (int h = 0; h < 4; h++)
 		for (int w = 0; w < 4; w++)
 			input_file.read((char*)&(initGuess.data[h][w]),sizeof(float));
-	}  catch (std::ifstream::failure) {
+	}  catch (std::ifstream::failure& e) {
 		throw std::ios_base::failure("Error reading initial guess");
 	}
 }
@@ -85,30 +85,83 @@ void ndt_mapping::parseResult(std::ifstream& output_file, CallbackResult& result
 		for (int h = 0; h < 4; h++)
 			for (int w = 0; w < 4; w++)
 			{
-				output_file.read((char*)&(result.final_transformation.data[h][w]), sizeof(float));
+				float m;
+				output_file.read((char*)&m, sizeof(float));
+				result.final_transformation.data[h][w] = m;
 			}
-		#if defined (DOUBLE_FP)
-		output_file.read((char*)&(result.fitness_score), sizeof(double));
-		#else
-		double temp;
-		output_file.read((char*)&(temp), sizeof(double));
-		result.fitness_score = temp;
-		#endif
-		output_file.read((char*)&(result.converged), sizeof(bool));
-	}  catch (std::ifstream::failure e) {
+		double fitness;
+		output_file.read((char*)&fitness, sizeof(double));
+		result.fitness_score = fitness;
+		bool converged;
+		output_file.read((char*)&converged, sizeof(bool));
+		result.converged = converged;
+	}  catch (std::ifstream::failure& e) {
 		throw std::ios_base::failure("Error reading result.");
 	}
 }
 
+void ndt_mapping::parseIntermediateResults(std::ifstream& output_file, CallbackResult& result) {
+
+	try {
+		int resultNo;
+		output_file.read((char*)&resultNo, sizeof(int32_t));
+		result.intermediate_transformations.resize(resultNo);
+		for (int i = 0; i < resultNo; i++) {
+			Matrix4f& m = result.intermediate_transformations[i];
+			for (int h = 0; h < 4; h++) {
+				for (int w = 0; w < 4; w++) {
+					output_file.read((char*)&(m.data[h][w]), sizeof(float));
+				}
+			}
+		}
+	} catch (std::ifstream::failure& e) {
+		throw std::ios_base::failure("Error reading voxel grid.");
+	}
+}
+#ifdef EPHOS_DATAGEN
+void ndt_mapping::writeResult(std::ofstream& output_file, CallbackResult& result) {
+	try {
+		Matrix4f& m = result.final_transformation;
+		for (int h = 0; h < 4; h++) {
+			for (int w = 0; w < 4; w++) {
+				output_file.write((char*)&(m.data[h][w]), sizeof(float));
+			}
+		}
+		double fitness = result.fitness_score;
+		output_file.write((char*)&fitness, sizeof(double));
+		bool converged = result.converged;
+		output_file.write((char*)&converged, sizeof(bool));
+	} catch (std::ofstream::failure& e) {
+		throw std::ios_base::failure("Error writeing result.");
+	}
+}
+void ndt_mapping::writeIntermediateResults(std::ofstream& output_file, CallbackResult& result) {
+
+	try {
+		int resultNo = result.intermediate_transformations.size();
+		output_file.write((char*)&resultNo, sizeof(int32_t));
+		for (int i = 0; i < resultNo; i++) {
+			Matrix4f& m = result.intermediate_transformations[i];
+			for (int h = 0; h < 4; h++) {
+				for (int w = 0; w < 4; w++) {
+					output_file.write((char*)&(m.data[h][w]), sizeof(float));
+				}
+			}
+		}
+	} catch (std::ofstream::failure& e) {
+		throw std::ios_base::failure("Error writing voxel grid. ");
+	}
+}
+#endif // EPHOS_DATAGEN
 int ndt_mapping::read_number_testcases(std::ifstream& input_file)
 {
-	int32_t number;
+	int32_t caseNo;
 	try {
-		input_file.read((char*)&(number), sizeof(int32_t));
+		input_file.read((char*)&caseNo, sizeof(int32_t));
 	} catch (std::ifstream::failure) {
 		throw std::ios_base::failure("Error reading number of test cases");
 	}
-	return number;
+	return caseNo;
 }
 
 void ndt_mapping::run(int p) {
@@ -142,6 +195,11 @@ void ndt_mapping::check_next_outputs(int count)
 	{
 		try {
 			parseResult(output_file, reference);
+			parseIntermediateResults(output_file, reference);
+#ifdef EPHOS_DATAGEN
+			writeResult(datagen_file, results[i]);
+			writeIntermediateResults(datagen_file, results[i]);
+#endif
 		} catch (std::ios_base::failure& e) {
 			std::cerr << e.what() << std::endl;
 			exit(-3);

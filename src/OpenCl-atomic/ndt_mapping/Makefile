@@ -37,7 +37,6 @@ endif
 # opencl kernel optimization
 OPENCL_WORK_GROUP_SIZE=256
 CPPFLAGS+= -DEPHOS_KERNEL_WORK_GROUP_SIZE=$(OPENCL_WORK_GROUP_SIZE)
-CPPFLAGS+= -DDOUBLE_FP
 
 # opencl memory optimization
 ifdef DISABLE_OPENCL_ATOMICS
@@ -56,15 +55,18 @@ endif
 
 # other options
 ifdef TESTCASE_LIMIT
-	CPPFLAGS+= -DTESTCASE_LIMIT=$(TESTCASE_LIMIT)
+	CPPFLAGS+= -DEPHOS_TESTCASE_LIMIT=$(TESTCASE_LIMIT)
+endif
+ifdef ENABLE_DATAGEN
+	CPPFLAGS+= -DEPHOS_DATAGEN
 endif
 
-all: ndt_mapping checkdata
+all: benchmark checkdata
 
 kernel/kernel.h:
 	cd kernel && ./stringify_kernels.sh
 
-ndt_mapping: ndt_mapping.o framework.o ../common/main.o ../common/compute_tools.o
+benchmark: ndt_mapping.o framework.o ../common/main.o ../common/compute_tools.o
 	$(CXX) $^ -o $@ $(LDDFLAGS)
 
 %.o: %.cpp
@@ -79,7 +81,7 @@ ifeq ($(wildcard ../../../data/ndt_output.dat),)
 endif
 
 clean:
-	rm -f Makefile.deps ndt_mapping ndt_mapping.o ../common/main.o framework.o \
+	rm -f Makefile.deps benchmark ndt_mapping.o ../common/main.o framework.o \
 	../common/main.o ../common/compute_tools.o kernel/kernel.h
 
 Makefile.deps:
