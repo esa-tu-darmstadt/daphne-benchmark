@@ -3,6 +3,4 @@ data/*
 *.o
 **/Makefile.deps
 **/kernel.h
-**/points2image
-**/euclidean_clustering
-**/ndt_mapping
+**/benchmark

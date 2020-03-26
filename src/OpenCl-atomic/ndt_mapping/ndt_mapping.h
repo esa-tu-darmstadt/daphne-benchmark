@@ -60,26 +60,22 @@
 class ndt_mapping : public benchmark {
 private:
 	// the number of testcases read
-	int read_testcases = 0;
+	int read_testcases;
 	std::ifstream input_file, output_file;
 #ifdef EPHOS_DATAGEN
 	std::ofstream datagen_file;
 #endif
 	// indicates a discrete deviation
-	bool error_so_far = false;
+	bool error_so_far;
 	// continuous deviation from the reference
-	#if defined (DOUBLE_FP)
 	double max_delta;
-	#else
-	float max_delta;
-	#endif
 	// ndt parameters
 	double outlier_ratio_ = 0.55;
 	float  resolution_    = 1.0;
-	double trans_eps      = 0.01; //Transformation epsilon
+	double trans_eps_      = 0.01; //Transformation epsilon
 	double step_size_     = 0.1;  // Step size
 
-	int iter = 30;  // Maximum iterations
+	int iter = 30, max_iterations_; // Maximum iterations
 	Matrix4f final_transformation_, transformation_, previous_transformation_;
 	std::vector<Matrix4f> intermediate_transformations_;
 	bool converged_;
@@ -95,9 +91,8 @@ private:
 	Mat186 point_hessian_;
 
 	double gauss_d1_, gauss_d2_;
-	double trans_probability_;
+	double transformation_probability_;
 	double transformation_epsilon_ = 0.1;
-	int max_iterations_;
 
 	std::vector<PointCloud> filtered_scan;
 	std::vector<PointCloud> maps;
@@ -116,17 +111,20 @@ private:
 	PointXYZI minVoxel, maxVoxel;
 	int voxelDimension[3];
 	// compute members
-	ComputeEnv OCL_objs;
-	cl::Buffer buff_target_cells;
-	cl::Buffer buff_target;
-	cl::Buffer buff_subvoxel;
-	cl::Buffer buff_counter;
+	ComputeEnv computeEnv;
+	cl::Buffer voxelGridBuffer;
+	cl::Buffer pointCloudBuffer;
+	cl::Buffer subvoxelBuffer;
+	cl::Buffer counterBuffer;
 
 	cl::Kernel radiusSearchKernel;
 	cl::Kernel findMinMaxKernel;
 	cl::Kernel initTargetCellsKernel;
 	cl::Kernel firstPassKernel;
 	cl::Kernel secondPassKernel;
+
+	size_t maxComputeGridSize;
+	size_t maxComputeCloudSize;
 
 public:
 	ndt_mapping();
@@ -136,6 +134,7 @@ public:
 	virtual void run(int p = 1);
 	virtual bool check_output();
 private:
+
 	/**
 	 * Reads the next reference matrix.
 	 */
@@ -234,6 +233,10 @@ private:
 		Matrix4f &init_guess,
 		PointCloud& target_cloud
 	);
+	/**
+	 * Initializes compute buffers for the next iteration.
+	 */
+	void prepare_compute_buffers(int cloudSize, int* gridSize);
 };
 
 
