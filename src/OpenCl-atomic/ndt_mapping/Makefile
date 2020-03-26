@@ -37,13 +37,16 @@ endif
 # opencl kernel optimization
 OPENCL_WORK_GROUP_SIZE=256
 CPPFLAGS+= -DEPHOS_KERNEL_WORK_GROUP_SIZE=$(OPENCL_WORK_GROUP_SIZE)
+ifdef ENABLE_OPENCL_CLOUD_MEASURE
+$(info Enabled OpenCL cloud measurements)
+	CPPFLAGS+= -DEPHOS_KERNEL_CLOUD_MEASURE
+endif
+ifdef OPENCL_VOXEL_INTERNAL_POINT_BUFFER
+$(info Enabled voxel internal point buffers of size $(OPENCL_VOXEL_INTERNAL_POINT_BUFFER))
+	CPPFLAGS+= -DEPHOS_KERNEL_VOXEL_INTERNAL_POINTS=$(OPENCL_VOXEL_INTERNAL_POINT_BUFFER)
+endif
 
 # opencl memory optimization
-ifdef DISABLE_OPENCL_ATOMICS
-$(info Disabled OpenCL atomic operations)
-else
-	CPPFLAGS+= -DEPHOS_KERNEL_ATOMICS
-endif
 ifdef ENABLE_OPENCL_ZERO_COPY
 $(info Enabled OpenCL zero copy memory mode)
 	CPPFLAGS+= -DEPHOS_ZERO_COPY
@@ -52,6 +55,8 @@ ifdef ENABLE_OPENCL_PINNED_MEMORY
 $(info Enabled OpenCL page locked memory)
 	CPPFLAGS+= -DEPHOS_PINNED_MEMORY
 endif
+
+
 
 # other options
 ifdef TESTCASE_LIMIT

@@ -1229,39 +1229,21 @@ void ndt_mapping::initCompute()
 	// now resize the grid while other compute operations may still be active
 	prepare_compute_buffers(0, voxelDimension);
 
-	//subvoxelBuffer = cl::Buffer(computeEnv.context,
-	//	CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY, sizeof(PointVoxel)*pointNo);
-	//counterBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_WRITE, sizeof(int));
-
-	//size_t size_single_targetcells = sizeof(Voxel);
-	//size_t nbytes_targetcells      = cellNo * size_single_targetcells;
-	// move voxel grid to device
-	//voxelGridBuffer = cl::Buffer(computeEnv.context,
-	//	CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, nbytes_targetcells);
-
+	// call the grid initialization kernel
 	initTargetCellsKernel.setArg(0, voxelGridBuffer);
 	initTargetCellsKernel.setArg(1, cellNo);
-	size_t local_size2 = EPHOS_KERNEL_WORK_GROUP_SIZE;
-	size_t num_workgroups2 = cellNo / local_size2 + 1;
-	size_t global_size2 = local_size2*num_workgroups2;
-	cl::NDRange ndrange_localsize2(local_size2);
-	cl::NDRange ndrange_globalsize2(global_size2);
-	cl::NDRange ndrange_offset2(0);
+	size_t globalRange2 = cellNo;
+	if (cellNo%EPHOS_KERNEL_WORK_GROUP_SIZE != 0) {
+		size_t workgroupNo = cellNo/EPHOS_KERNEL_WORK_GROUP_SIZE + 1;
+		globalRange2 = workgroupNo*EPHOS_KERNEL_WORK_GROUP_SIZE;
+	}
 	computeEnv.cmdqueue.enqueueNDRangeKernel(
 		initTargetCellsKernel,
-		ndrange_offset2,
-		ndrange_globalsize2,
-		ndrange_localsize2);
+		cl::NDRange(0),
+		cl::NDRange(globalRange2),
+		cl::NDRange(EPHOS_KERNEL_WORK_GROUP_SIZE));
 	
 	// call the kernel that assigns points to cells
-	size_t local_size3     = EPHOS_KERNEL_WORK_GROUP_SIZE;
-	size_t num_workgroups3 = pointNo / local_size3 + 1;
-	size_t global_size3    = local_size3 * num_workgroups3;
-
-	cl::NDRange ndrange_offset3    (0);
-	cl::NDRange ndrange_localsize3 (local_size3);
-	cl::NDRange ndrange_globalsize3(global_size3);
-
 	firstPassKernel.setArg(0, pointCloudBuffer);
 	firstPassKernel.setArg(1, static_cast<int>(pointNo));
 	firstPassKernel.setArg(2, voxelGridBuffer);
@@ -1270,45 +1252,42 @@ void ndt_mapping::initCompute()
 	firstPassKernel.setArg(5, voxelDimension[0]);
 	firstPassKernel.setArg(6, voxelDimension[1]);
 
+	size_t globalRange3 = pointNo;
+	if (pointNo%EPHOS_KERNEL_WORK_GROUP_SIZE != 0) {
+		size_t workgroupNo = pointNo/EPHOS_KERNEL_WORK_GROUP_SIZE + 1;
+		globalRange3 = workgroupNo*EPHOS_KERNEL_WORK_GROUP_SIZE;
+	}
+	computeEnv.cmdqueue.enqueueNDRangeKernel(
+		firstPassKernel,
+		cl::NDRange(0),
+		cl::NDRange(globalRange3),
+		cl::NDRange(EPHOS_KERNEL_WORK_GROUP_SIZE));
+
+	// call the kernel that postprocesses the voxel grid
+	secondPassKernel.setArg(0, voxelGridBuffer);
+	secondPassKernel.setArg(1, pointCloudBuffer);
+	secondPassKernel.setArg(2, static_cast<int>(cellNo));
+	secondPassKernel.setArg(3, static_cast<int>(cellNo-1));
+	// ranges have been computed for the initialization kernel
+	computeEnv.cmdqueue.enqueueNDRangeKernel(
+		secondPassKernel,
+		cl::NDRange(0),
+		cl::NDRange(globalRange2),
+		cl::NDRange(EPHOS_KERNEL_WORK_GROUP_SIZE));
+
+	// the result will be used in the radius search kernel
+	// prepare radius search kernel calls
 	radiusSearchKernel.setArg(0, pointCloudBuffer);
 	radiusSearchKernel.setArg(1, voxelGridBuffer);
 	radiusSearchKernel.setArg(2, subvoxelBuffer);
 	radiusSearchKernel.setArg(3, counterBuffer);
 	radiusSearchKernel.setArg(4, cl::Local(sizeof(int)));
 	radiusSearchKernel.setArg(5, cl::Local(sizeof(int)));
-	// point number set in radius search
+	// missing point number set in radius search
 	radiusSearchKernel.setArg(7, minVoxel);
 	radiusSearchKernel.setArg(8, maxVoxel);
 	radiusSearchKernel.setArg(9, voxelDimension[0]);
 	radiusSearchKernel.setArg(10, voxelDimension[1]);
-
-
-	computeEnv.cmdqueue.enqueueNDRangeKernel(
-		firstPassKernel,
-		ndrange_offset3,
-		ndrange_globalsize3,
-		ndrange_localsize3);
-	
-	// call the kernel that normalizes the voxel grid
-	size_t local_size4     = EPHOS_KERNEL_WORK_GROUP_SIZE;
-	size_t num_workgroups4 = cellNo / local_size4 + 1; // rounded up, se we don't miss one
-	size_t global_size4    = local_size4 * num_workgroups4;        // BEFORE: =cellNo;
-
-	cl::NDRange ndrange_offset4    (0);
-	cl::NDRange ndrange_localsize4 (local_size4);
-	cl::NDRange ndrange_globalsize4(global_size4);
-
-	secondPassKernel.setArg(0, voxelGridBuffer);
-	secondPassKernel.setArg(1, pointCloudBuffer);
-	secondPassKernel.setArg(2, static_cast<int>(cellNo));
-	secondPassKernel.setArg(3, static_cast<int>(cellNo-1));
-
-	computeEnv.cmdqueue.enqueueNDRangeKernel(
-		secondPassKernel,
-		ndrange_offset4,
-		ndrange_globalsize4,
-		ndrange_localsize4);
-	// the result will be used in the radius search kernel
 }
 
 void ndt_mapping::prepare_compute_buffers(int cloudSize, int* gridSize) {
