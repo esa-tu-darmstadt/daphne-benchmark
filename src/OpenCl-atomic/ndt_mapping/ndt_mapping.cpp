@@ -59,6 +59,12 @@ ndt_mapping::ndt_mapping() :
 	pointCloudBuffer(),
 	subvoxelBuffer(),
 	counterBuffer(),
+#ifdef EPHOS_PINNED_MEMORY
+	subvoxelHostBuffer(),
+#elif defined(EPHOS_ZERO_COPY)
+#else
+	subvoxelStorage(nullptr),
+#endif
 	maxComputeGridSize(0),
 	maxComputeCloudSize(0) {
 }
@@ -256,6 +262,18 @@ void ndt_mapping::init() {
 	std::cout << "done" << std::endl;
 }
 void ndt_mapping::quit() {
+#ifdef EPHOS_PINNED_MEMORY
+	if (subvoxelStorage != nullptr) {
+		computeEnv.cmdqueue.enqueueUnmapMemObject(subvoxelHostBuffer, subvoxelStorage);
+		subvoxelStorage = nullptr;
+	}
+#elif defined(EPHOS_ZERO_COPY)
+#else
+	if (subvoxelStorage != nullptr) {
+		delete[] subvoxelStorage;
+		subvoxelStorage = nullptr;
+	}
+#endif
 	input_file.close();
 	output_file.close();
 #ifdef EPHOS_DATAGEN
@@ -529,9 +547,15 @@ double ndt_mapping::computeDerivatives (
 	computeAngleDerivatives (p);
 	// move transformed cloud to device
 	int pointNo = trans_cloud.size();
-	size_t nbytes_cloud = sizeof(PointXYZI)*pointNo;
-	computeEnv.cmdqueue.enqueueWriteBuffer(pointCloudBuffer, CL_FALSE, 0, nbytes_cloud,
-		trans_cloud.data());
+#ifdef EPHOS_ZERO_COPY
+	PointXYZI* pointCloudStorage = (PointXYZI*)computeEnv.cmdqueue.enqueueMapBuffer(pointCloudBuffer,
+		CL_TRUE, CL_MAP_WRITE, 0, sizeof(PointXYZI)*pointNo);
+	std::memcpy(pointCloudStorage, trans_cloud.data(), sizeof(PointXYZI)*pointNo);
+	computeEnv.cmdqueue.enqueueUnmapMemObject(pointCloudBuffer, pointCloudStorage);
+#else
+	computeEnv.cmdqueue.enqueueWriteBuffer(pointCloudBuffer, CL_FALSE,
+		0, sizeof(PointXYZI)*pointNo, trans_cloud.data());
+#endif
 	int nearVoxelNo = 0;
 	computeEnv.cmdqueue.enqueueWriteBuffer(counterBuffer, CL_FALSE, 0, sizeof(int), &nearVoxelNo);
 	// call radius search kernel
@@ -551,12 +575,16 @@ double ndt_mapping::computeDerivatives (
 		std::cout << e.what() << std::endl;
 		exit(-2);
 	}
-	size_t nbytes_subvoxel = sizeof(PointVoxel)*nearVoxelNo;
-	PointVoxel* storage_subvoxel = (PointVoxel*)computeEnv.cmdqueue.enqueueMapBuffer(subvoxelBuffer,
-		CL_TRUE, CL_MAP_READ, 0, nbytes_subvoxel);
+#ifdef EPHOS_ZERO_COPY
+	PointVoxel* subvoxelStorage = (PointVoxel*)computeEnv.cmdqueue.enqueueMapBuffer(subvoxelBuffer,
+		CL_TRUE, CL_MAP_READ, 0, sizeof(PointVoxel)*nearVoxelNo);
+#else
+	computeEnv.cmdqueue.enqueueReadBuffer(subvoxelBuffer, CL_TRUE,
+		0, sizeof(PointVoxel)*nearVoxelNo, subvoxelStorage);
+#endif
 	// process near voxels
 	for (int i = 0; i < nearVoxelNo; i++) {
-		int iPoint = storage_subvoxel[i].point;
+		int iPoint = subvoxelStorage[i].point;
 		PointXYZI& x_pt = input_cloud->at(iPoint);
 		Vec3 x = {
 			x_pt.data[0],
@@ -564,17 +592,19 @@ double ndt_mapping::computeDerivatives (
 			x_pt.data[2]
 		};
 		computePointDerivatives(x);
-		Vec3* mean = &storage_subvoxel[i].mean;
+		Vec3* mean = &subvoxelStorage[i].mean;
 		PointXYZI& x_trans_pt = trans_cloud.at(iPoint);
 		Vec3 x_trans = {
 			x_trans_pt.data[0] - (*mean)[0],
 			x_trans_pt.data[1] - (*mean)[1],
 			x_trans_pt.data[2] - (*mean)[2]
 		};
-		Mat33& c_inv = storage_subvoxel[i].invCovariance;
+		Mat33& c_inv = subvoxelStorage[i].invCovariance;
 		score += updateDerivatives(score_gradient, hessian, x_trans, c_inv, compute_hessian);
 	}
-	computeEnv.cmdqueue.enqueueUnmapMemObject(subvoxelBuffer, storage_subvoxel);
+#ifdef EPHOS_ZERO_COPY
+	computeEnv.cmdqueue.enqueueUnmapMemObject(subvoxelBuffer, subvoxelStorage);
+#endif
 	return score;
 }
 
@@ -1220,11 +1250,18 @@ void ndt_mapping::initCompute()
 	// null argument inhibits grid resize
 	prepare_compute_buffers(pointNo, nullptr);
 	// move point cloud to device
-	//pointCloudBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, nbytes_target);
-	PointXYZI* tmp_target = (PointXYZI*)computeEnv.cmdqueue.enqueueMapBuffer(pointCloudBuffer,
+#ifdef EPHOS_PINNED_MEMORY
+	computeEnv.cmdqueue.enqueueWriteBuffer(pointCloudBuffer, CL_FALSE,
+		0, sizeof(PointXYZI)*pointNo, target_cloud->data());
+#elif defined(EPHOS_ZERO_COPY)
+	PointXYZI* pointCloudStorage = (PointXYZI*)computeEnv.cmdqueue.enqueueMapBuffer(pointCloudBuffer,
 		CL_TRUE, CL_MAP_WRITE_INVALIDATE_REGION, 0, sizeof(PointXYZI)*pointNo);
-	memcpy(tmp_target, target_cloud->data(), sizeof(PointXYZI)*pointNo);
-	computeEnv.cmdqueue.enqueueUnmapMemObject(pointCloudBuffer, tmp_target);
+	memcpy(pointCloudStorage, target_cloud->data(), sizeof(PointXYZI)*pointNo);
+	computeEnv.cmdqueue.enqueueUnmapMemObject(pointCloudBuffer, pointCloudStorage);
+#else
+	computeEnv.cmdqueue.enqueueWriteBuffer(pointCloudBuffer, CL_FALSE,
+		0, sizeof(PointXYZI)*pointNo, target_cloud->data());
+#endif
 
 	// now resize the grid while other compute operations may still be active
 	prepare_compute_buffers(0, voxelDimension);
@@ -1300,11 +1337,32 @@ void ndt_mapping::prepare_compute_buffers(int cloudSize, int* gridSize) {
 	}
 	if (cloudSize > maxComputeCloudSize) {
 		// resize buffers that depend on cloud size
-		pointCloudBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY,
+#ifdef EPHOS_ZERO_COPY
+		cl_mem_flags flags = CL_MEM_ALLOC_HOST_PTR;
+#else
+		cl_mem_flags flags = 0;
+#endif
+		pointCloudBuffer = cl::Buffer(computeEnv.context, flags | CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY,
 			sizeof(PointXYZI)*cloudSize);
-		subvoxelBuffer = cl::Buffer(computeEnv.context, CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY,
+		subvoxelBuffer = cl::Buffer(computeEnv.context, flags | CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY,
 			sizeof(PointVoxel)*cloudSize);
 		maxComputeCloudSize = cloudSize;
+#ifdef EPHOS_PINNED_MEMORY
+		if (subvoxelStorage != nullptr) {
+			computeEnv.cmdqueue.enqueueUnmapMemObject(subvoxelHostBuffer, subvoxelStorage);
+		}
+		// TODO: since we have more operations here pinned memory might be considerably slower with current test data layout
+		subvoxelHostBuffer = cl::Buffer(computeEnv.context,
+			CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY | CL_MEM_ALLOC_HOST_PTR, sizeof(PointVoxel)*cloudSize);
+		subvoxelStorage = (PointVoxel*)computeEnv.cmdqueue.enqueueMapBuffer(subvoxelHostBuffer,
+			CL_TRUE, CL_MAP_READ, 0, sizeof(PointVoxel)*cloudSize);
+#elif defined(EPHOS_ZERO_COPY)
+#else
+		if (subvoxelStorage != nullptr) {
+			delete[] subvoxelStorage;
+		}
+		subvoxelStorage = new PointVoxel[cloudSize];
+#endif
 	}
 	if (gridSize != nullptr) {
 		int voxelNo = gridSize[0]*gridSize[1]*gridSize[2];

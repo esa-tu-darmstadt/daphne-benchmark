@@ -116,6 +116,13 @@ private:
 	cl::Buffer pointCloudBuffer;
 	cl::Buffer subvoxelBuffer;
 	cl::Buffer counterBuffer;
+#ifdef EPHOS_PINNED_MEMORY
+	cl::Buffer subvoxelHostBuffer;
+	PointVoxel* subvoxelStorage;
+#elif defined(EPHOS_ZERO_COPY)
+#else
+	PointVoxel* subvoxelStorage;
+#endif
 
 	cl::Kernel radiusSearchKernel;
 	cl::Kernel findMinMaxKernel;

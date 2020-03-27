@@ -48,7 +48,7 @@ endif
 
 # opencl memory optimization
 ifdef ENABLE_OPENCL_ZERO_COPY
-$(info Enabled OpenCL zero copy memory mode)
+$(info Enabled OpenCL zero copy)
 	CPPFLAGS+= -DEPHOS_ZERO_COPY
 endif
 ifdef ENABLE_OPENCL_PINNED_MEMORY
