@@ -70,6 +70,13 @@ typedef struct PointVoxel {
 	int point;
 } PointVoxel;
 
+typedef struct VoxelGridInfo {
+	int cloudSize;
+	int gridSize;
+	PointXYZI minVoxel;
+	PointXYZI maxVoxel;
+	int gridDimension[3];
+} VoxelGridInfo;
 
 typedef std::vector<Voxel> VoxelGrid;
 

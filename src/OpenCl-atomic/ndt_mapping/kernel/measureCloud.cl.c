@@ -13,6 +13,8 @@
 
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
 
+#define EPHOS_ATOMICS
+
 typedef struct {
   double data[3][3];
 } Mat33;
@@ -31,6 +33,7 @@ typedef struct {
 	int point;
 } PointVoxel;
 
+
 typedef struct {
     float data[4];
 } PointXYZI;
@@ -42,6 +45,82 @@ typedef struct {
 	int iNext;
 } PointQueue;
 
+typedef struct VoxelGridInfo {
+	int cloudSize;
+	int gridSize;
+	PointXYZI minVoxel;
+	PointXYZI maxVoxel;
+	int gridDimension[3];
+} VoxelGridInfo;
+
+#ifdef EPHOS_ATOMICS
+
+void slowAtomicFMin(__global float* fp, float fval) {
+	volatile __global int* ip = (__global int*)fp;
+
+	int ival = *((int*)&fval);
+	int old;
+	int iref;
+	do {
+		iref = atomic_or(ip, 0x0);
+		float fref = *((float*)&iref);
+		if (fval < fref) {
+			old = atomic_cmpxchg(ip, iref, ival);
+		} else {
+			old = atomic_cmpxchg(ip, iref, iref);
+		}
+	} while (old != iref);
+
+}
+void slowAtomicFMax(volatile __global float* fp, float fval) {
+
+	volatile __global int* ip = (__global int*)fp;
+
+	int ival = *((int*)&fval);
+	int old;
+	int iref;
+	do {
+		iref = atomic_or(ip, 0x0);
+		float fref = *((float*)&iref);
+		if (fval > fref) {
+			old = atomic_cmpxchg(ip, iref, ival);
+		} else {
+			old = atomic_cmpxchg(ip, iref, iref);
+		}
+	} while (old != iref);
+}
+
+__kernel void measureCloud(
+	__global VoxelGridInfo* restrict gridInfo,
+	__global const PointXYZI* restrict pointCloud,
+	__local PointXYZI* l_minimum,
+	__local PointXYZI* l_maximum
+) {
+	// initialize local structures
+	if (get_local_id(0) == 0) {
+		*l_minimum = (PointXYZI){{ 0.0f, 0.0f, 0.0f, 1.0f }};
+		*l_maximum = (PointXYZI){{ 0.0f, 0.0f, 0.0f, 1.0f }};
+	}
+	barrier(CLK_LOCAL_MEM_FENCE);
+	int iPoint = get_global_id(0);
+	if (iPoint < gridInfo->cloudSize) {
+		// compare with one point
+		__global PointXYZI* point = &pointCloud[iPoint];
+		for (int i = 0; i < 3; i++) {
+			slowAtomicFMin(&gridInfo->minVoxel.data[i], point->data[i]);
+			slowAtomicFMax(&gridInfo->maxVoxel.data[i], point->data[i]);
+		}
+	}
+	// update global measurement
+	barrier(CLK_GLOBAL_MEM_FENCE);
+	if (get_local_id(0) == 0) {
+
+	}
+
+}
+#else
+
+// atomicless variant
 /**
  * Finds the point cloud extends for each work group.
  * input: point cloud to measure
@@ -49,9 +128,7 @@ typedef struct {
  * gmins: low bounds, one entry for each work group
  * gmaxs: high bounds, one entry for each work group
  */
-__kernel
-void __attribute__ ((reqd_work_group_size(NUMWORKITEMS_PER_WORKGROUP,1,1)))
-findMinMax(
+__kernel void measureCloud(
 	__global const PointXYZI* restrict input,
 	int input_size,
 	__global PointXYZI* restrict gmins,
@@ -137,3 +214,4 @@ findMinMax(
 		gmaxs [wgid] = lmaxs[0];
 	}
 }
+#endif

@@ -116,6 +116,7 @@ private:
 	cl::Buffer pointCloudBuffer;
 	cl::Buffer subvoxelBuffer;
 	cl::Buffer counterBuffer;
+	cl::Buffer gridInfoBuffer;
 #ifdef EPHOS_PINNED_MEMORY
 	cl::Buffer subvoxelHostBuffer;
 	PointVoxel* subvoxelStorage;
@@ -125,7 +126,7 @@ private:
 #endif
 
 	cl::Kernel radiusSearchKernel;
-	cl::Kernel findMinMaxKernel;
+	cl::Kernel measureCloudKernel;
 	cl::Kernel initTargetCellsKernel;
 	cl::Kernel firstPassKernel;
 	cl::Kernel secondPassKernel;

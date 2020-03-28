@@ -59,6 +59,7 @@ ndt_mapping::ndt_mapping() :
 	pointCloudBuffer(),
 	subvoxelBuffer(),
 	counterBuffer(),
+	gridInfoBuffer(),
 #ifdef EPHOS_PINNED_MEMORY
 	subvoxelHostBuffer(),
 #elif defined(EPHOS_ZERO_COPY)
@@ -241,7 +242,7 @@ void ndt_mapping::init() {
 		sBuildOptions << " -DNUMWORKITEMS_PER_WORKGROUP=" << EPHOS_KERNEL_WORK_GROUP_SIZE;
 		sBuildOptions << " -DDOUBLE_FP=1";
 		std::vector<std::string> kernelNames({
-			"findMinMax",
+			"measureCloud",
 			"initTargetCells",
 			"firstPass",
 			"secondPass",
@@ -253,7 +254,7 @@ void ndt_mapping::init() {
 		std::cerr << e.what() << std::endl;
 		exit(EXIT_FAILURE);
 	}
-	findMinMaxKernel = kernels[0];
+	measureCloudKernel = kernels[0];
 	initTargetCellsKernel = kernels[1];
 	firstPassKernel = kernels[2];
 	secondPassKernel = kernels[3];
@@ -1225,29 +1226,6 @@ void ndt_mapping::initCompute()
 	maxVoxel = target_cloud->at(0);
 	int pointNo = target_cloud->size();
 
-	for (int i = 1; i < pointNo; i++)
-	{
-		for (int elem = 0; elem < 3; elem++)
-		{
-			if ( target_cloud->at(i).data[elem] > maxVoxel.data[elem] )
-			maxVoxel.data[elem] = target_cloud->at(i).data[elem];
-			if ( target_cloud->at(i).data[elem] < minVoxel.data[elem] )
-			minVoxel.data[elem] = target_cloud->at(i).data[elem];
-		}
-	}
-	for (int i = 0; i < 3; i++) {
-		minVoxel.data[i] -= transformation_epsilon_;
-		maxVoxel.data[i] += transformation_epsilon_;
-		voxelDimension[i] = (maxVoxel.data[i] - minVoxel.data[i]) / resolution_ + 1;
-	}
-	// init the voxel grid
-	int cellNo = voxelDimension[0] * voxelDimension[1] * voxelDimension[2];
-	size_t size_single_target = sizeof(PointXYZI);
-	//size_t nbytes_target      = pointNo * size_single_target;
-	size_t offset = 0;
-	// move point cloud to
-	// resize buffers
-	// null argument inhibits grid resize
 	prepare_compute_buffers(pointNo, nullptr);
 	// move point cloud to device
 #ifdef EPHOS_PINNED_MEMORY
@@ -1262,6 +1240,65 @@ void ndt_mapping::initCompute()
 	computeEnv.cmdqueue.enqueueWriteBuffer(pointCloudBuffer, CL_FALSE,
 		0, sizeof(PointXYZI)*pointNo, target_cloud->data());
 #endif
+
+
+// 	for (int i = 1; i < pointNo; i++)
+// 	{
+// 		for (int elem = 0; elem < 3; elem++)
+// 		{
+// 			if ( target_cloud->at(i).data[elem] > maxVoxel.data[elem] )
+// 			maxVoxel.data[elem] = target_cloud->at(i).data[elem];
+// 			if ( target_cloud->at(i).data[elem] < minVoxel.data[elem] )
+// 			minVoxel.data[elem] = target_cloud->at(i).data[elem];
+// 		}
+// 	}
+
+	VoxelGridInfo gridInfo = {
+		pointNo, // cloud size
+		0, // grid size
+		{ 0.0f, 0.0f, 0.0f, 1.0f }, // min voxel
+		{ 0.0f, 0.0f, 0.0f, 1.0f }, // max voxel
+		{ 0, 0, 0 } // grid dimension
+	};
+	computeEnv.cmdqueue.enqueueWriteBuffer(gridInfoBuffer, CL_FALSE,
+		0, sizeof(VoxelGridInfo), &gridInfo);
+	measureCloudKernel.setArg(0, gridInfoBuffer);
+	measureCloudKernel.setArg(1, pointCloudBuffer);
+	measureCloudKernel.setArg(2, cl::Local(sizeof(PointXYZI)));
+	measureCloudKernel.setArg(3, cl::Local(sizeof(PointXYZI)));
+//
+	size_t globalRange1 = pointNo;
+	if (pointNo%EPHOS_KERNEL_WORK_GROUP_SIZE != 0) {
+		size_t workgroupNo = pointNo/EPHOS_KERNEL_WORK_GROUP_SIZE + 1;
+		globalRange1 = workgroupNo*EPHOS_KERNEL_WORK_GROUP_SIZE;
+	}
+	computeEnv.cmdqueue.enqueueNDRangeKernel(
+		measureCloudKernel,
+		cl::NDRange(0),
+		cl::NDRange(globalRange1),
+		cl::NDRange(EPHOS_KERNEL_WORK_GROUP_SIZE));
+
+	computeEnv.cmdqueue.enqueueReadBuffer(gridInfoBuffer, CL_TRUE,
+		0, sizeof(VoxelGridInfo), &gridInfo);
+	maxVoxel = gridInfo.maxVoxel;
+	minVoxel = gridInfo.minVoxel;
+	for (int i = 0; i < 3; i++) {
+		minVoxel.data[i] -= transformation_epsilon_;
+		maxVoxel.data[i] += transformation_epsilon_;
+		voxelDimension[i] = (maxVoxel.data[i] - minVoxel.data[i]) / resolution_ + 1;
+	}
+
+
+
+	// init the voxel grid
+	int cellNo = voxelDimension[0] * voxelDimension[1] * voxelDimension[2];
+	//size_t size_single_target = sizeof(PointXYZI);
+	//size_t nbytes_target      = pointNo * size_single_target;
+//	size_t offset = 0;
+	// move point cloud to
+	// resize buffers
+	// null argument inhibits grid resize
+
 
 	// now resize the grid while other compute operations may still be active
 	prepare_compute_buffers(0, voxelDimension);
@@ -1289,15 +1326,15 @@ void ndt_mapping::initCompute()
 	firstPassKernel.setArg(5, voxelDimension[0]);
 	firstPassKernel.setArg(6, voxelDimension[1]);
 
-	size_t globalRange3 = pointNo;
-	if (pointNo%EPHOS_KERNEL_WORK_GROUP_SIZE != 0) {
-		size_t workgroupNo = pointNo/EPHOS_KERNEL_WORK_GROUP_SIZE + 1;
-		globalRange3 = workgroupNo*EPHOS_KERNEL_WORK_GROUP_SIZE;
-	}
+// 	size_t globalRange3 = pointNo;
+// 	if (pointNo%EPHOS_KERNEL_WORK_GROUP_SIZE != 0) {
+// 		size_t workgroupNo = pointNo/EPHOS_KERNEL_WORK_GROUP_SIZE + 1;
+// 		globalRange3 = workgroupNo*EPHOS_KERNEL_WORK_GROUP_SIZE;
+// 	}
 	computeEnv.cmdqueue.enqueueNDRangeKernel(
 		firstPassKernel,
 		cl::NDRange(0),
-		cl::NDRange(globalRange3),
+		cl::NDRange(globalRange1),
 		cl::NDRange(EPHOS_KERNEL_WORK_GROUP_SIZE));
 
 	// call the kernel that postprocesses the voxel grid
@@ -1334,6 +1371,8 @@ void ndt_mapping::prepare_compute_buffers(int cloudSize, int* gridSize) {
 		// create constant size buffers only once
 		counterBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_WRITE,
 			sizeof(int));
+		gridInfoBuffer = cl::Buffer(computeEnv.context, CL_MEM_READ_WRITE,
+			sizeof(VoxelGridInfo));
 	}
 	if (cloudSize > maxComputeCloudSize) {
 		// resize buffers that depend on cloud size

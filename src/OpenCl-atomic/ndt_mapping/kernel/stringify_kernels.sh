@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # kernel files
-KERNEL1_SOURCE=findMinMax.cl.c
+KERNEL1_SOURCE=measureCloud.cl.c
 KERNEL2_SOURCE=initTargetCells.cl.c
 KERNEL3_SOURCE=firstPass.cl.c
 KERNEL4_SOURCE=secondPass.cl.c
