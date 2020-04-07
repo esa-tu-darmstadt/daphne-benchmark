@@ -53,6 +53,23 @@ typedef struct VoxelGridInfo {
 	int gridDimension[3];
 } VoxelGridInfo;
 
+typedef struct PackedGridCorner{
+	int data[4];
+} PackedGridCorner;
+
+typedef struct PackedVoxelGridInfo {
+	int cloudSize;
+	int gridSize;
+	PackedGridCorner minVoxel;
+	PackedGridCorner maxVoxel;
+	int gridDimension[3];
+} PackedVoxelGridInfo;
+
+
+typedef struct GridCorner {
+	float data[3];
+} GridCorner;
+
 #ifdef EPHOS_ATOMICS
 
 void slowAtomicFMin(__global float* fp, float fval) {
@@ -71,6 +88,33 @@ void slowAtomicFMin(__global float* fp, float fval) {
 		}
 	} while (old != iref);
 
+}
+
+inline int fcomppack(float val) {
+	int ival = as_int(val);
+	return (-(ival & ~(0x1<<31)))*(ival>>31) + (ival*((ival>>31) ^ 0x1));
+}
+inline float fcompunpack(int val) {
+	int ival = (-val | (0x1<<31))*(val>>31) + (val*((val>>31) ^ 0x1));
+	return as_float(ival);
+}
+inline void atomic_gfmin(__global float* fp, float fval) {
+	int ival = fcomppack(fval);
+	__global int* ip = (__global int*)fp;
+	atomic_min(ip, ival);
+}
+inline void atomic_gfmax(__global float* fp, float fval) {
+	int ival = fcomppack(fval);
+	__global int* ip = (__global int*)fp;
+	atomic_max(ip, ival);
+}
+inline int pack_minmaxf(float val) {
+	int ival = as_int(val);
+	return (-(ival & ~(0x1<<31)))*(ival>>31) + (ival*((ival>>31) ^ 0x1));
+}
+inline float unpack_minmaxf(int val) {
+	int ival = (-val | (0x1<<31))*(val>>31) + (val*((val>>31) ^ 0x1));
+	return as_float(ival);
 }
 void slowAtomicFMax(volatile __global float* fp, float fval) {
 
@@ -91,15 +135,15 @@ void slowAtomicFMax(volatile __global float* fp, float fval) {
 }
 
 __kernel void measureCloud(
-	__global VoxelGridInfo* restrict gridInfo,
+	__global PackedVoxelGridInfo* restrict gridInfo,
 	__global const PointXYZI* restrict pointCloud,
-	__local PointXYZI* l_minimum,
-	__local PointXYZI* l_maximum
+	__local PackedGridCorner* l_minimum,
+	__local PackedGridCorner* l_maximum
 ) {
 	// initialize local structures
 	if (get_local_id(0) == 0) {
-		*l_minimum = (PointXYZI){{ 0.0f, 0.0f, 0.0f, 1.0f }};
-		*l_maximum = (PointXYZI){{ 0.0f, 0.0f, 0.0f, 1.0f }};
+		*l_minimum = (PackedGridCorner){{ 0, 0, 0, 0 }};
+		*l_maximum = (PackedGridCorner){{ 0, 0, 0, 0 }};
 	}
 	barrier(CLK_LOCAL_MEM_FENCE);
 	int iPoint = get_global_id(0);
@@ -107,8 +151,11 @@ __kernel void measureCloud(
 		// compare with one point
 		__global PointXYZI* point = &pointCloud[iPoint];
 		for (int i = 0; i < 3; i++) {
-			slowAtomicFMin(&gridInfo->minVoxel.data[i], point->data[i]);
-			slowAtomicFMax(&gridInfo->maxVoxel.data[i], point->data[i]);
+			int packed = pack_minmaxf(point->data[i]);
+			atomic_min(&gridInfo->minVoxel.data[i], packed);
+			atomic_max(&gridInfo->maxVoxel.data[i], packed);
+			//atomic_gfmin(&gridInfo->minVoxel.data[i], point->data[i]);
+			//atomic_gfmax(&gridInfo->maxVoxel.data[i], point->data[i]);
 		}
 	}
 	// update global measurement

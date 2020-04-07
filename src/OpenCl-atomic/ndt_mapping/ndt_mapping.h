@@ -245,6 +245,10 @@ private:
 	 * Initializes compute buffers for the next iteration.
 	 */
 	void prepare_compute_buffers(int cloudSize, int* gridSize);
+
+	int pack_minmaxf(float val);
+
+	float unpack_minmaxf(int val);
 };
 
 

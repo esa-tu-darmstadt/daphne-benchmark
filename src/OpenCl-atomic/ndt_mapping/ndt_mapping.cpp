@@ -1218,6 +1218,31 @@ void invertMatrix(Mat33 &m)
 		m.data[row][col] = temp.data[row][col] * invDet;
 
 }
+inline float fcompunpack(int val) {
+	int& ival = val;
+	if (val>>31) {
+		ival = -val;
+		ival |= 0x1<<31;
+	}
+	return reinterpret_cast<float&>(ival);
+}
+inline int fcomppack(float val) {
+	int& ival = reinterpret_cast<int&>(val);
+	if ((ival>>31)) {
+		return -(ival & (~(0x1<<31)));
+	} else {
+		return ival;
+	}
+
+}
+int ndt_mapping::pack_minmaxf(float val) {
+	int& ival = reinterpret_cast<int&>(val);
+	return (-(ival & ~(0x1<<31)))*(ival>>31) + (ival*((ival>>31) ^ 0x1));
+}
+float ndt_mapping::unpack_minmaxf(int val) {
+	int ival = (-val | (0x1<<31))*(val>>31) + (val*((val>>31) ^ 0x1));
+	return reinterpret_cast<float&>(ival);
+}
 
 void ndt_mapping::initCompute()
 {
@@ -1247,17 +1272,19 @@ void ndt_mapping::initCompute()
 // 		for (int elem = 0; elem < 3; elem++)
 // 		{
 // 			if ( target_cloud->at(i).data[elem] > maxVoxel.data[elem] )
-// 			maxVoxel.data[elem] = target_cloud->at(i).data[elem];
+// 				maxVoxel.data[elem] = target_cloud->at(i).data[elem];
 // 			if ( target_cloud->at(i).data[elem] < minVoxel.data[elem] )
-// 			minVoxel.data[elem] = target_cloud->at(i).data[elem];
+// 				minVoxel.data[elem] = target_cloud->at(i).data[elem];
 // 		}
 // 	}
 
+	int izero = pack_minmaxf(0.0f);
+	float fzero = reinterpret_cast<float&>(izero);
 	VoxelGridInfo gridInfo = {
 		pointNo, // cloud size
 		0, // grid size
-		{ 0.0f, 0.0f, 0.0f, 1.0f }, // min voxel
-		{ 0.0f, 0.0f, 0.0f, 1.0f }, // max voxel
+		{ fzero, fzero, fzero, 1.0f }, // min voxel
+		{ fzero, fzero, fzero, 1.0f }, // max voxel
 		{ 0, 0, 0 } // grid dimension
 	};
 	computeEnv.cmdqueue.enqueueWriteBuffer(gridInfoBuffer, CL_FALSE,
@@ -1280,25 +1307,17 @@ void ndt_mapping::initCompute()
 
 	computeEnv.cmdqueue.enqueueReadBuffer(gridInfoBuffer, CL_TRUE,
 		0, sizeof(VoxelGridInfo), &gridInfo);
-	maxVoxel = gridInfo.maxVoxel;
-	minVoxel = gridInfo.minVoxel;
+
 	for (int i = 0; i < 3; i++) {
-		minVoxel.data[i] -= transformation_epsilon_;
-		maxVoxel.data[i] += transformation_epsilon_;
+		minVoxel.data[i] = unpack_minmaxf(reinterpret_cast<int&>(gridInfo.minVoxel.data[i]));
+		maxVoxel.data[i] = unpack_minmaxf(reinterpret_cast<int&>(gridInfo.maxVoxel.data[i]));
+
+		minVoxel.data[i] = minVoxel.data[i] - transformation_epsilon_;
+		maxVoxel.data[i] = maxVoxel.data[i] + transformation_epsilon_;
 		voxelDimension[i] = (maxVoxel.data[i] - minVoxel.data[i]) / resolution_ + 1;
 	}
-
-
-
 	// init the voxel grid
 	int cellNo = voxelDimension[0] * voxelDimension[1] * voxelDimension[2];
-	//size_t size_single_target = sizeof(PointXYZI);
-	//size_t nbytes_target      = pointNo * size_single_target;
-//	size_t offset = 0;
-	// move point cloud to
-	// resize buffers
-	// null argument inhibits grid resize
-
 
 	// now resize the grid while other compute operations may still be active
 	prepare_compute_buffers(0, voxelDimension);
@@ -1326,11 +1345,6 @@ void ndt_mapping::initCompute()
 	firstPassKernel.setArg(5, voxelDimension[0]);
 	firstPassKernel.setArg(6, voxelDimension[1]);
 
-// 	size_t globalRange3 = pointNo;
-// 	if (pointNo%EPHOS_KERNEL_WORK_GROUP_SIZE != 0) {
-// 		size_t workgroupNo = pointNo/EPHOS_KERNEL_WORK_GROUP_SIZE + 1;
-// 		globalRange3 = workgroupNo*EPHOS_KERNEL_WORK_GROUP_SIZE;
-// 	}
 	computeEnv.cmdqueue.enqueueNDRangeKernel(
 		firstPassKernel,
 		cl::NDRange(0),
@@ -1365,7 +1379,7 @@ void ndt_mapping::initCompute()
 }
 
 void ndt_mapping::prepare_compute_buffers(int cloudSize, int* gridSize) {
-	// TODO: think about ways to increase sizes artificially as these increase with later test cases
+	// TODO: think about ways to increase sizes artificially as these increase with later test cases anyway
 	// create buffers of satisfactory size
 	if (maxComputeCloudSize == 0 && maxComputeGridSize == 0) {
 		// create constant size buffers only once
