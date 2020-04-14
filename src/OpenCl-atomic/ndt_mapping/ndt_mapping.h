@@ -125,11 +125,11 @@ private:
 	PointVoxel* subvoxelStorage;
 #endif
 
-	cl::Kernel radiusSearchKernel;
 	cl::Kernel measureCloudKernel;
 	cl::Kernel initTargetCellsKernel;
 	cl::Kernel firstPassKernel;
 	cl::Kernel secondPassKernel;
+	cl::Kernel radiusSearchKernel;
 
 	size_t maxComputeGridSize;
 	size_t maxComputeCloudSize;

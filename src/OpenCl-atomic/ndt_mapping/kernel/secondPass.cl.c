@@ -33,19 +33,34 @@ void invertMatrix(Mat33* m)
  * targetcells_size: number of cells in the voxel grid
  * targetcells_size_minus_1: modified number of cells in the voxel grid
  */
-__kernel
-void __attribute__ ((reqd_work_group_size(NUMWORKITEMS_PER_WORKGROUP,1,1)))
-secondPass(
+//__kernel
+//void __attribute__ ((reqd_work_group_size(NUMWORKITEMS_PER_WORKGROUP,1,1)))
+//secondPass(
+__kernel void secondPass(
 	__global Voxel* restrict targetcells,
 	__global const PointXYZI* input,
 	int targetcells_size,
 	int targetcells_size_minus_1)
 {
-	int gid = get_global_id(0);
-	if (gid < targetcells_size) {
-		Voxel temp_tc = targetcells[gid];
+	int iVoxel = get_global_id(0);
+	if (iVoxel < targetcells_size) {
+		Voxel temp_tc = targetcells[iVoxel];
 		int pointNo = 0;
-		int iNext = temp_tc.first;
+#ifdef EPHOS_VOXEL_POINT_STORAGE
+		// collect points from the point storage
+		for (int i = 0; i < EPHOS_VOXEL_POINT_STORAGE && i < temp_tc.pointStorageLevel; i++) {
+			for (char row = 0; row < 3; row++) {
+				//float r = temp_tc.pointStorage[i].data[row];
+				temp_tc.mean[row] += temp_tc.pointStorage[i].data[row];
+				for (char col = 0; col < 3; col++) {
+					temp_tc.invCovariance.data[row][col] += temp_tc.pointStorage[i].data[row]*temp_tc.pointStorage[i].data[col];
+				}
+			}
+			pointNo += 1;
+		}
+#endif // EPHOS_VOXEL_POINT_STORAGE
+		// collect points from the point list
+		int iNext = temp_tc.pointListBegin;
 		while (iNext > -1) {
 			PointXYZI temp_target = input[iNext];
 			for (char row = 0; row < 3; row ++) {
@@ -55,15 +70,16 @@ secondPass(
 				}
 			}
 			// next queue item, interpret last component as int
-			iNext = *((int*)&temp_target.data[3]);
+			iNext = as_int(temp_target.data[3]);//*((int*)&temp_target.data[3]);
 			pointNo += 1;
  		}
-
+		// average the point sum
 		Vec3 pointSum;
 		for (char k = 0; k < 3; k++) {
 			pointSum[k] = temp_tc.mean[k];
 			temp_tc.mean[k] /= pointNo;
 		}
+		// postprocess the matrix
 		double tmp;
 		for (char row = 0; row < 3; row++) {
 			for (char col = 0; col < 3; col++) {
@@ -75,6 +91,6 @@ secondPass(
 			}
 		}
 		invertMatrix(&temp_tc.invCovariance);
-		targetcells[gid] = temp_tc;
+		targetcells[iVoxel] = temp_tc;
 	}
 }

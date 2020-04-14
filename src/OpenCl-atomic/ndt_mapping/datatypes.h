@@ -61,7 +61,11 @@ typedef struct CallbackResult {
 typedef struct Voxel {
 	Mat33 invCovariance;
 	Vec3 mean;
-	int first;
+	int pointListBegin;
+#ifdef EPHOS_KERNEL_VOXEL_POINT_STORAGE
+	int pointStorageLevel;
+	PointXYZI pointStorage[EPHOS_KERNEL_VOXEL_POINT_STORAGE];
+#endif
 } Voxel;
 
 typedef struct PointVoxel {

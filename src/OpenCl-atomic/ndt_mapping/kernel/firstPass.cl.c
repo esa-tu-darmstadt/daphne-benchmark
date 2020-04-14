@@ -29,9 +29,10 @@ inline int linearizeCoord(
  * minVoxel: voxel grid starting coordinates
  * voxelDimension: multi dimensional voxel grid size
  */
-__kernel
-void __attribute__ ((reqd_work_group_size(NUMWORKITEMS_PER_WORKGROUP,1,1)))
-firstPass(
+//__kernel
+//void __attribute__ ((reqd_work_group_size(NUMWORKITEMS_PER_WORKGROUP,1,1)))
+//firstPass(
+__kernel void firstPass(
 	__global PointXYZI* restrict input,
 	int input_size,
 	__global Voxel* restrict targetcells,
@@ -41,19 +42,33 @@ firstPass(
 	int voxelDimension_1)
 {
 	// Indices
-	int gid = get_global_id(0);
-	if (gid < input_size) {
+	int iPoint = get_global_id(0);
+	if (iPoint < input_size) {
 		// Each work-item gets a different input target_ data element from global memory
-		PointXYZI temp_target = input[gid];
+		PointXYZI point = input[iPoint];
 		// index of the cell the point belongs to
 		int voxelIndex = linearizeCoord (
-			temp_target.data[0], temp_target.data[1], temp_target.data[2],
+			point.data[0], point.data[1], point.data[2],
 			minVoxel,
 			voxelDimension_0, voxelDimension_1
 		);
-		// append point to queue front
-		int next = atomic_xchg(&targetcells[voxelIndex].first, gid);
-		// write next element to last vector component (int bits written to float datum)
-		input[gid].data[3] = *((float*)&next);
+#ifdef EPHOS_VOXEL_POINT_STORAGE
+		// insert into point storage if possible
+		int iStorage = atomic_inc(&targetcells[voxelIndex].pointStorageLevel);
+		if (iStorage < EPHOS_VOXEL_POINT_STORAGE) {
+			targetcells[voxelIndex].pointStorage[iStorage] = point;
+		} else {
+			// append point as first element to list otherwise
+			int next = atomic_xchg(&targetcells[voxelIndex].pointListBegin, iPoint);
+			// write next element to last vector component which is never used in kernels otherwise
+			input[iPoint].data[3] = as_float(next);//*((float*)&next);
+			//input[iPoint].data[3] = (&next);
+		}
+#else // !EPHOS_VOXEL_POINT_STORAGE
+		// append as first element to the list
+		int next = atomic_xchg(&targetcells[voxelIndex].pointListBegin, iPoint);
+		// write next element to unused last vector component
+		input[iPoint].data[3] = as_float(next);//*((float*)&next);
+#endif // !EPHSO_VOXEL_POINT_STORAGE
 	}
 } 
