@@ -243,12 +243,13 @@ void ndt_mapping::init() {
 	cl::Program::Sources sourcesCL;
 	std::vector<cl::Kernel> kernels;
 	try {
-		std::ostringstream sBuildOptions;
-		sBuildOptions << " -DNUMWORKITEMS_PER_WORKGROUP=" << EPHOS_KERNEL_WORK_GROUP_SIZE;
-		sBuildOptions << " -DDOUBLE_FP=1";
+		std::string sOptions =
 #ifdef EPHOS_KERNEL_VOXEL_POINT_STORAGE
-		sBuildOptions << " -DEPHOS_VOXEL_POINT_STORAGE=" << EPHOS_KERNEL_VOXEL_POINT_STORAGE;
+			" -DEPHOS_VOXEL_POINT_STORAGE=" STRINGIFY(EPHOS_KERNEL_VOXEL_POINT_STORAGE)
+#else
+			""
 #endif
+		;
 		std::vector<std::string> kernelNames({
 			"measureCloud",
 			"initTargetCells",
@@ -256,7 +257,7 @@ void ndt_mapping::init() {
 			"secondPass",
 			"radiusSearch"
 		});
-		cl::Program program = ComputeTools::build_program(computeEnv, sourceCode, sBuildOptions.str(),
+		cl::Program program = ComputeTools::build_program(computeEnv, sourceCode, sOptions,
 			kernelNames, kernels);
 	} catch (std::logic_error& e) {
 		std::cerr << e.what() << std::endl;
@@ -482,12 +483,12 @@ void ndt_mapping::computeHessian(
 			x_pt.data[2]
 		};
 		computePointDerivatives(x);
-		Vec3* mean = &storage_subvoxel[i].mean;
+		VoxelMean* mean = &storage_subvoxel[i].mean;
 		PointXYZI& x_trans_pt = trans_cloud.at(iPoint);
 		Vec3 x_trans = {
-			x_trans_pt.data[0] - (*mean)[0],
-			x_trans_pt.data[1] - (*mean)[1],
-			x_trans_pt.data[2] - (*mean)[2]
+			x_trans_pt.data[0] - mean->data[0],
+			x_trans_pt.data[1] - mean->data[1],
+			x_trans_pt.data[2] - mean->data[2]
 		};
 		Mat33& c_inv = storage_subvoxel[i].invCovariance;
 		updateHessian(hessian, x_trans, c_inv);
@@ -601,12 +602,12 @@ double ndt_mapping::computeDerivatives (
 			x_pt.data[2]
 		};
 		computePointDerivatives(x);
-		Vec3* mean = &subvoxelStorage[i].mean;
+		VoxelMean* mean = &subvoxelStorage[i].mean;
 		PointXYZI& x_trans_pt = trans_cloud.at(iPoint);
 		Vec3 x_trans = {
-			x_trans_pt.data[0] - (*mean)[0],
-			x_trans_pt.data[1] - (*mean)[1],
-			x_trans_pt.data[2] - (*mean)[2]
+			x_trans_pt.data[0] - mean->data[0],
+			x_trans_pt.data[1] - mean->data[1],
+			x_trans_pt.data[2] - mean->data[2]
 		};
 		Mat33& c_inv = subvoxelStorage[i].invCovariance;
 		score += updateDerivatives(score_gradient, hessian, x_trans, c_inv, compute_hessian);
@@ -1281,16 +1282,14 @@ void ndt_mapping::initCompute()
 	}
 #ifdef EPHOS_KERNEL_CLOUD_MEASURE
 	int izero = pack_minmaxf(0.0f);
-	float fzero = reinterpret_cast<float&>(izero);
-	VoxelGridInfo gridInfo = {
+	PackedVoxelGridInfo gridInfo1 = {
 		pointNo, // cloud size
 		0, // grid size
-		{ fzero, fzero, fzero, 1.0f }, // min voxel
-		{ fzero, fzero, fzero, 1.0f }, // max voxel
-		{ 0, 0, 0 } // grid dimension
+		{ izero, izero, izero }, // min corner
+		{ izero, izero, izero }, // max corner
 	};
 	computeEnv.cmdqueue.enqueueWriteBuffer(gridInfoBuffer, CL_FALSE,
-		0, sizeof(VoxelGridInfo), &gridInfo);
+		0, sizeof(PackedVoxelGridInfo), &gridInfo1);
 	measureCloudKernel.setArg(0, gridInfoBuffer);
 	measureCloudKernel.setArg(1, pointCloudBuffer);
 	measureCloudKernel.setArg(2, cl::Local(sizeof(PointXYZI)));
@@ -1303,14 +1302,15 @@ void ndt_mapping::initCompute()
 		cl::NDRange(globalRange1),
 		cl::NDRange(EPHOS_KERNEL_WORK_GROUP_SIZE));
 
+	// read back grid info and update host data
 	computeEnv.cmdqueue.enqueueReadBuffer(gridInfoBuffer, CL_TRUE,
-		0, sizeof(VoxelGridInfo), &gridInfo);
-
+		0, sizeof(PackedVoxelGridInfo), &gridInfo1);
 	for (int i = 0; i < 3; i++) {
-		minVoxel.data[i] = unpack_minmaxf(reinterpret_cast<int&>(gridInfo.minVoxel.data[i])) - transformation_epsilon_;
-		maxVoxel.data[i] = unpack_minmaxf(reinterpret_cast<int&>(gridInfo.maxVoxel.data[i])) + transformation_epsilon_;
+		minVoxel.data[i] = unpack_minmaxf(gridInfo1.minCorner.data[i]) - transformation_epsilon_;
+		maxVoxel.data[i] = unpack_minmaxf(gridInfo1.maxCorner.data[i]) + transformation_epsilon_;
 		voxelDimension[i] = (maxVoxel.data[i] - minVoxel.data[i]) / resolution_ + 1;
 	}
+
 #else // !EPHOS_KERNEL_CLOUD_MEASURE
 	for (int i = 1; i < pointNo; i++)
 	{
@@ -1331,11 +1331,22 @@ void ndt_mapping::initCompute()
 #endif // !EPHOS_KERNEL_CLOUD_MEASURE
 	// now resize the grid while other compute operations may still be active
 	int cellNo = voxelDimension[0] * voxelDimension[1] * voxelDimension[2];
+	VoxelGridInfo gridInfo2 = {
+		pointNo, // cloudSize
+		cellNo, // gridSize
+		{ minVoxel.data[0], minVoxel.data[1], minVoxel.data[2] }, // min corner
+		{ maxVoxel.data[0], maxVoxel.data[1], maxVoxel.data[2] }, // max corner
+		{ voxelDimension[0], voxelDimension[1] } // grid dimension
+	};
+	// move updated grid info to device
+	computeEnv.cmdqueue.enqueueWriteBuffer(gridInfoBuffer, CL_FALSE,
+		0, sizeof(VoxelGridInfo), &gridInfo2);
 	prepare_compute_buffers(0, voxelDimension);
 
 	// call the grid initialization kernel
-	initTargetCellsKernel.setArg(0, voxelGridBuffer);
-	initTargetCellsKernel.setArg(1, cellNo);
+	initTargetCellsKernel.setArg(0, gridInfoBuffer);
+	initTargetCellsKernel.setArg(1, voxelGridBuffer);
+	//initTargetCellsKernel.setArg(1, cellNo);
 	size_t globalRange2 = cellNo;
 	if (cellNo%EPHOS_KERNEL_WORK_GROUP_SIZE != 0) {
 		size_t workgroupNo = cellNo/EPHOS_KERNEL_WORK_GROUP_SIZE + 1;
@@ -1348,13 +1359,13 @@ void ndt_mapping::initCompute()
 		cl::NDRange(EPHOS_KERNEL_WORK_GROUP_SIZE));
 	
 	// call the kernel that assigns points to cells
-	firstPassKernel.setArg(0, pointCloudBuffer);
-	firstPassKernel.setArg(1, static_cast<int>(pointNo));
+	firstPassKernel.setArg(0, gridInfoBuffer);
+	firstPassKernel.setArg(1, pointCloudBuffer);
 	firstPassKernel.setArg(2, voxelGridBuffer);
-	firstPassKernel.setArg(3, static_cast<int>(cellNo));
-	firstPassKernel.setArg(4, minVoxel);
-	firstPassKernel.setArg(5, voxelDimension[0]);
-	firstPassKernel.setArg(6, voxelDimension[1]);
+// 	firstPassKernel.setArg(3, static_cast<int>(cellNo));
+// 	firstPassKernel.setArg(4, minVoxel);
+// 	firstPassKernel.setArg(5, voxelDimension[0]);
+// 	firstPassKernel.setArg(6, voxelDimension[1]);
 
 	computeEnv.cmdqueue.enqueueNDRangeKernel(
 		firstPassKernel,
@@ -1363,10 +1374,11 @@ void ndt_mapping::initCompute()
 		cl::NDRange(EPHOS_KERNEL_WORK_GROUP_SIZE));
 
 	// call the kernel that postprocesses the voxel grid
-	secondPassKernel.setArg(0, voxelGridBuffer);
-	secondPassKernel.setArg(1, pointCloudBuffer);
-	secondPassKernel.setArg(2, static_cast<int>(cellNo));
-	secondPassKernel.setArg(3, static_cast<int>(cellNo-1));
+	secondPassKernel.setArg(0, gridInfoBuffer);
+	secondPassKernel.setArg(1, voxelGridBuffer);
+	secondPassKernel.setArg(2, pointCloudBuffer);
+	//secondPassKernel.setArg(2, static_cast<int>(cellNo));
+	//secondPassKernel.setArg(3, static_cast<int>(cellNo-1));
 	// ranges have been computed for the initialization kernel
 	computeEnv.cmdqueue.enqueueNDRangeKernel(
 		secondPassKernel,

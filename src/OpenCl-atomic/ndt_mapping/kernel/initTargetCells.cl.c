@@ -1,27 +1,25 @@
 /**
  * Initializes a voxel grid.
- * targetcells: voxel grid
+ * voxelGrid: voxel grid to initialize
  * targetcells_size: number of cells in the voxel grid
  */
 //__kernel
 //void __attribute__ ((reqd_work_group_size(NUMWORKITEMS_PER_WORKGROUP,1,1)))
 //initTargetCells(
 __kernel void initTargetCells(
-	__global Voxel* restrict targetcells,
-	int targetcells_size)
+	__global VoxelGridInfo* restrict gridInfo,
+	__global Voxel* restrict voxelGrid)
 {
     int iVoxel = get_global_id(0);
-	if (iVoxel < targetcells_size) {
+	if (iVoxel < gridInfo->gridSize) {
 		// initialize all members to standard values
 		Voxel voxel;
-		voxel.invCovariance = (Mat33){{
+		voxel.invCovariance = (VoxelCovariance){{
 			{ 0.0, 0.0, 1.0 },
 			{ 0.0, 1.0, 0.0 },
 			{ 1.0, 0.0, 0.0 }
 		}};
-		voxel.mean[0] = 0;
-		voxel.mean[1] = 0;
-		voxel.mean[2] = 0;
+		voxel.mean = (VoxelMean){{ 0.0f, 0.0f, 0.0f }};
 		voxel.pointListBegin = -1;
 #ifdef EPHOS_VOXEL_POINT_STORAGE
 		voxel.pointStorageLevel = 0;
@@ -36,6 +34,6 @@ __kernel void initTargetCells(
 // 			{0.0, 0.0, 0.0},
 // 			-1
 // 		};
-		targetcells[iVoxel] = voxel;
+		voxelGrid[iVoxel] = voxel;
     }
 }

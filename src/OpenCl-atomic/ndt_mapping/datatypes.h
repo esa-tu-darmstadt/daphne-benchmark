@@ -58,9 +58,25 @@ typedef struct CallbackResult {
 	double fitness_score;
 } CallbackResult;
 
+typedef struct VoxelMean {
+	double data[3];
+} VoxelMean;
+
+typedef struct VoxelGridCorner {
+	float data[3];
+} VoxelGridCorner;
+
+typedef struct PackedVoxelGridCorner {
+	int data[3];
+} PackedVoxelGridCorner;
+
+typedef struct VoxelGridDimension {
+	int data[2];
+} VoxelGridDimension;
+
 typedef struct Voxel {
 	Mat33 invCovariance;
-	Vec3 mean;
+	VoxelMean mean;
 	int pointListBegin;
 #ifdef EPHOS_KERNEL_VOXEL_POINT_STORAGE
 	int pointStorageLevel;
@@ -70,17 +86,24 @@ typedef struct Voxel {
 
 typedef struct PointVoxel {
 	Mat33 invCovariance;
-	Vec3 mean;
+	VoxelMean mean;
 	int point;
 } PointVoxel;
 
 typedef struct VoxelGridInfo {
 	int cloudSize;
 	int gridSize;
-	PointXYZI minVoxel;
-	PointXYZI maxVoxel;
-	int gridDimension[3];
+	VoxelGridCorner minCorner;
+	VoxelGridCorner maxCorner;
+	VoxelGridDimension gridDimension;
 } VoxelGridInfo;
+
+typedef struct PackedVoxelGridInfo {
+	int cloudSize;
+	int gridSize;
+	PackedVoxelGridCorner minCorner;
+	PackedVoxelGridCorner maxCorner;
+} PackedVoxelGridInfo;
 
 typedef std::vector<Voxel> VoxelGrid;
 

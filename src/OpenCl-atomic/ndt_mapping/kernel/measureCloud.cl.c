@@ -1,12 +1,15 @@
 #ifndef RESOUTION
-#define RESOLUTION 1
+#define RESOLUTION 1.0f
 #endif
+
 #ifndef INV_RESOLUTION
-#define INV_RESOLUTION 1
+#define INV_RESOLUTION 1.0f/RESOLUTION
 #endif
+
 #ifndef RADIUS
-#define RADIUS 1
+#define RADIUS 1.0f
 #endif
+
 #ifndef RADIUS_FINAL
 #define RADIUS_FINAL 1.001f
 #endif
@@ -15,19 +18,29 @@
 
 #define EPHOS_ATOMICS
 
-typedef struct {
+typedef struct Mat33 {
   double data[3][3];
 } Mat33;
 
-typedef double Vec3[3];
+typedef struct Vec3 {
+	double data[3];
+} Vec3;
+
+typedef struct VoxelCovariance {
+	double data[3][3];
+} VoxelCovariance;
+
+typedef struct VoxelMean {
+	double data[3];
+} VoxelMean;
 
 typedef struct {
     float data[4];
 } PointXYZI;
 
 typedef struct {
-    Mat33 invCovariance;
-    Vec3 mean;
+    VoxelCovariance invCovariance;
+    VoxelMean mean;
 	int pointListBegin;
 #ifdef EPHOS_VOXEL_POINT_STORAGE
 	int pointStorageLevel;
@@ -36,13 +49,10 @@ typedef struct {
 } Voxel;
 
 typedef struct {
-	Mat33 invCovariance;
-	Vec3 mean;
+	VoxelCovariance invCovariance;
+	VoxelMean mean;
 	int point;
 } PointVoxel;
-
-
-
 
 typedef struct {
 	float x;
@@ -51,30 +61,32 @@ typedef struct {
 	int iNext;
 } PointQueue;
 
+typedef struct VoxelGridCorner {
+	float data[3];
+} VoxelGridCorner;
+
+typedef struct PackedVoxelGridCorner{
+	int data[4];
+} PackedVoxelGridCorner;
+
+typedef struct VoxelGridDimension {
+	int data[2];
+} VoxelGridDimension;
+
 typedef struct VoxelGridInfo {
 	int cloudSize;
 	int gridSize;
-	PointXYZI minVoxel;
-	PointXYZI maxVoxel;
-	int gridDimension[3];
+	VoxelGridCorner minCorner;
+	VoxelGridCorner maxCorner;
+	VoxelGridDimension gridDimension;
 } VoxelGridInfo;
-
-typedef struct PackedGridCorner{
-	int data[4];
-} PackedGridCorner;
 
 typedef struct PackedVoxelGridInfo {
 	int cloudSize;
 	int gridSize;
-	PackedGridCorner minVoxel;
-	PackedGridCorner maxVoxel;
-	int gridDimension[3];
+	PackedVoxelGridCorner minCorner;
+	PackedVoxelGridCorner maxCorner;
 } PackedVoxelGridInfo;
-
-
-typedef struct GridCorner {
-	float data[3];
-} GridCorner;
 
 #ifdef EPHOS_ATOMICS
 // void slowAtomicFMin(__global float* fp, float fval) {
@@ -142,13 +154,13 @@ inline float unpack_minmaxf(int val) {
 __kernel void measureCloud(
 	__global PackedVoxelGridInfo* restrict gridInfo,
 	__global const PointXYZI* restrict pointCloud,
-	__local PackedGridCorner* l_minimum,
-	__local PackedGridCorner* l_maximum
+	__local PackedVoxelGridCorner* l_minimum,
+	__local PackedVoxelGridCorner* l_maximum
 ) {
 	// initialize local structures
 	if (get_local_id(0) == 0) {
-		*l_minimum = (PackedGridCorner){{ 0, 0, 0, 0 }};
-		*l_maximum = (PackedGridCorner){{ 0, 0, 0, 0 }};
+		*l_minimum = (PackedVoxelGridCorner){{ 0.0f, 0.0f, 0.0f }};
+		*l_maximum = (PackedVoxelGridCorner){{ 0.0f, 0.0f, 0.0f }};
 	}
 	barrier(CLK_LOCAL_MEM_FENCE);
 	int iPoint = get_global_id(0);
@@ -171,13 +183,13 @@ __kernel void measureCloud(
 	barrier(CLK_GLOBAL_MEM_FENCE);
 	if (get_local_id(0) == 0) {
 		// build global corners with one element of the work group
-		atomic_min(&gridInfo->minVoxel.data[0], (*l_minimum).data[0]);
-		atomic_min(&gridInfo->minVoxel.data[1], (*l_minimum).data[1]);
-		atomic_min(&gridInfo->minVoxel.data[2], (*l_minimum).data[2]);
+		atomic_min(&gridInfo->minCorner.data[0], (*l_minimum).data[0]);
+		atomic_min(&gridInfo->minCorner.data[1], (*l_minimum).data[1]);
+		atomic_min(&gridInfo->minCorner.data[2], (*l_minimum).data[2]);
 
-		atomic_max(&gridInfo->maxVoxel.data[0], (*l_maximum).data[0]);
-		atomic_max(&gridInfo->maxVoxel.data[1], (*l_maximum).data[1]);
-		atomic_max(&gridInfo->maxVoxel.data[2], (*l_maximum).data[2]);
+		atomic_max(&gridInfo->maxCorner.data[0], (*l_maximum).data[0]);
+		atomic_max(&gridInfo->maxCorner.data[1], (*l_maximum).data[1]);
+		atomic_max(&gridInfo->maxCorner.data[2], (*l_maximum).data[2]);
 	}
 
 }

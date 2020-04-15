@@ -22,53 +22,49 @@ inline int linearizeCoord(
 
 /**
  * Assigns each point to its cell in a voxel grid.
- * input: point cloud
- * input_size: number of points in the cloud
- * targetcells: voxel grid
- * targetcells_size: number of cells in the voxel grid
- * minVoxel: voxel grid starting coordinates
- * voxelDimension: multi dimensional voxel grid size
+ * gridInfo: voxel grid info
+ * voxelGrid: point cloud
+ * voxelGrid: voxel grid
  */
 //__kernel
 //void __attribute__ ((reqd_work_group_size(NUMWORKITEMS_PER_WORKGROUP,1,1)))
 //firstPass(
 __kernel void firstPass(
-	__global PointXYZI* restrict input,
-	int input_size,
-	__global Voxel* restrict targetcells,
-	int targetcells_size,
-	PointXYZI minVoxel,
-	int voxelDimension_0,
-	int voxelDimension_1)
+	__global VoxelGridInfo* restrict gridInfo,
+	__global PointXYZI* restrict pointCloud,
+	__global Voxel* restrict voxelGrid)
 {
 	// Indices
 	int iPoint = get_global_id(0);
-	if (iPoint < input_size) {
+	if (iPoint < gridInfo->cloudSize) {
 		// Each work-item gets a different input target_ data element from global memory
-		PointXYZI point = input[iPoint];
+		PointXYZI point = pointCloud[iPoint];
 		// index of the cell the point belongs to
-		int voxelIndex = linearizeCoord (
-			point.data[0], point.data[1], point.data[2],
-			minVoxel,
-			voxelDimension_0, voxelDimension_1
-		);
+		int iVoxel0 = (point.data[0] - gridInfo->minCorner.data[0])*INV_RESOLUTION;
+		int iVoxel1 = (point.data[1] - gridInfo->minCorner.data[1])*INV_RESOLUTION;
+		int iVoxel2 = (point.data[2] - gridInfo->minCorner.data[2])*INV_RESOLUTION;
+		int iVoxel = iVoxel0 + gridInfo->gridDimension.data[0]*(iVoxel1 + gridInfo->gridDimension.data[1]*iVoxel2);
+// 		int iVoxel = linearizeCoord (
+// 			point.data[0], point.data[1], point.data[2],
+// 			minVoxel,
+// 			voxelDimension_0, voxelDimension_1
+// 		);
 #ifdef EPHOS_VOXEL_POINT_STORAGE
 		// insert into point storage if possible
-		int iStorage = atomic_inc(&targetcells[voxelIndex].pointStorageLevel);
+		int iStorage = atomic_inc(&voxelGrid[iVoxel].pointStorageLevel);
 		if (iStorage < EPHOS_VOXEL_POINT_STORAGE) {
-			targetcells[voxelIndex].pointStorage[iStorage] = point;
+			voxelGrid[iVoxel].pointStorage[iStorage] = point;
 		} else {
 			// append point as first element to list otherwise
-			int next = atomic_xchg(&targetcells[voxelIndex].pointListBegin, iPoint);
+			int next = atomic_xchg(&voxelGrid[iVoxel].pointListBegin, iPoint);
 			// write next element to last vector component which is never used in kernels otherwise
-			input[iPoint].data[3] = as_float(next);//*((float*)&next);
-			//input[iPoint].data[3] = (&next);
+			pointCloud[iPoint].data[3] = as_float(next);//*((float*)&next);
 		}
 #else // !EPHOS_VOXEL_POINT_STORAGE
 		// append as first element to the list
-		int next = atomic_xchg(&targetcells[voxelIndex].pointListBegin, iPoint);
+		int next = atomic_xchg(&voxelGrid[iVoxel].pointListBegin, iPoint);
 		// write next element to unused last vector component
-		input[iPoint].data[3] = as_float(next);//*((float*)&next);
+		pointCloud[iPoint].data[3] = as_float(next);//*((float*)&next);
 #endif // !EPHSO_VOXEL_POINT_STORAGE
 	}
 } 

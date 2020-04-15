@@ -1,9 +1,9 @@
 /**
  * Simple matrix inversion using the determinant
  */
-void invertMatrix(Mat33* m)
+void invertCovariance(VoxelCovariance* m)
 {
-	Mat33 temp;
+	VoxelCovariance tmp;
 	double det = 
 		m->data[0][0] * (m->data[2][2] * m->data[1][1] - m->data[2][1] * m->data[1][2]) -
 		m->data[1][0] * (m->data[2][2] * m->data[0][1] - m->data[2][1] * m->data[0][2]) +
@@ -11,86 +11,84 @@ void invertMatrix(Mat33* m)
 	double invDet = 1.0 / det;
 
 	// adjungated matrix of minors
-	temp.data[0][0] = m->data[2][2] * m->data[1][1] - m->data[2][1] * m->data[1][2];
-	temp.data[0][1] = -( m->data[2][2] * m->data[0][1] - m->data[2][1] * m->data[0][2]);
-	temp.data[0][2] = m->data[1][2] * m->data[0][1] - m->data[1][1] * m->data[0][2];
+	tmp.data[0][0] = m->data[2][2] * m->data[1][1] - m->data[2][1] * m->data[1][2];
+	tmp.data[0][1] = -( m->data[2][2] * m->data[0][1] - m->data[2][1] * m->data[0][2]);
+	tmp.data[0][2] = m->data[1][2] * m->data[0][1] - m->data[1][1] * m->data[0][2];
 
-	temp.data[1][0] = -( m->data[2][2] * m->data[0][1] - m->data[2][0] * m->data[1][2]);
-	temp.data[1][1] = m->data[2][2] * m->data[0][0] - m->data[2][1] * m->data[0][2];
-	temp.data[1][2] = -( m->data[1][2] * m->data[0][0] - m->data[1][0] * m->data[0][2]);
+	tmp.data[1][0] = -( m->data[2][2] * m->data[0][1] - m->data[2][0] * m->data[1][2]);
+	tmp.data[1][1] = m->data[2][2] * m->data[0][0] - m->data[2][1] * m->data[0][2];
+	tmp.data[1][2] = -( m->data[1][2] * m->data[0][0] - m->data[1][0] * m->data[0][2]);
 
-	temp.data[2][0] = m->data[2][1] * m->data[1][0] - m->data[2][0] * m->data[1][1];
-	temp.data[2][1] = -( m->data[2][1] * m->data[0][0] - m->data[2][0] * m->data[0][1]);
-	temp.data[2][2] = m->data[1][1] * m->data[0][0] - m->data[1][0] * m->data[0][1];
+	tmp.data[2][0] = m->data[2][1] * m->data[1][0] - m->data[2][0] * m->data[1][1];
+	tmp.data[2][1] = -( m->data[2][1] * m->data[0][0] - m->data[2][0] * m->data[0][1]);
+	tmp.data[2][2] = m->data[1][1] * m->data[0][0] - m->data[1][0] * m->data[0][1];
 
 	for (char row = 0; row < 3; row++)
 		for (char col = 0; col < 3; col++)
-			m->data[row][col] = temp.data[row][col] * invDet;
+			m->data[row][col] = tmp.data[row][col] * invDet;
 }
 /**
  * Normalizes a voxel grid after point assignment.
- * targetcells: voxel grid
- * targetcells_size: number of cells in the voxel grid
- * targetcells_size_minus_1: modified number of cells in the voxel grid
+ * gridInfo: voxel grid info
+ * voxelGrid: voxel grid
+ * pointCloud: previously assigned points
  */
 //__kernel
 //void __attribute__ ((reqd_work_group_size(NUMWORKITEMS_PER_WORKGROUP,1,1)))
 //secondPass(
 __kernel void secondPass(
-	__global Voxel* restrict targetcells,
-	__global const PointXYZI* input,
-	int targetcells_size,
-	int targetcells_size_minus_1)
+	__global VoxelGridInfo* restrict gridInfo,
+	__global Voxel* restrict voxelGrid,
+	__global const PointXYZI* pointCloud)
 {
 	int iVoxel = get_global_id(0);
-	if (iVoxel < targetcells_size) {
-		Voxel temp_tc = targetcells[iVoxel];
+	if (iVoxel < gridInfo->gridSize) {
+		Voxel voxel = voxelGrid[iVoxel];
 		int pointNo = 0;
 #ifdef EPHOS_VOXEL_POINT_STORAGE
 		// collect points from the point storage
-		for (int i = 0; i < EPHOS_VOXEL_POINT_STORAGE && i < temp_tc.pointStorageLevel; i++) {
+		for (int i = 0; i < EPHOS_VOXEL_POINT_STORAGE && i < voxel.pointStorageLevel; i++) {
 			for (char row = 0; row < 3; row++) {
-				//float r = temp_tc.pointStorage[i].data[row];
-				temp_tc.mean[row] += temp_tc.pointStorage[i].data[row];
+				//float r = voxel.pointStorage[i].data[row];
+				voxel.mean.data[row] += voxel.pointStorage[i].data[row];
 				for (char col = 0; col < 3; col++) {
-					temp_tc.invCovariance.data[row][col] += temp_tc.pointStorage[i].data[row]*temp_tc.pointStorage[i].data[col];
+					voxel.invCovariance.data[row][col] += voxel.pointStorage[i].data[row]*voxel.pointStorage[i].data[col];
 				}
 			}
 			pointNo += 1;
 		}
 #endif // EPHOS_VOXEL_POINT_STORAGE
 		// collect points from the point list
-		int iNext = temp_tc.pointListBegin;
+		int iNext = voxel.pointListBegin;
 		while (iNext > -1) {
-			PointXYZI temp_target = input[iNext];
+			PointXYZI point = pointCloud[iNext];
 			for (char row = 0; row < 3; row ++) {
-				temp_tc.mean[row] += temp_target.data[row];
+				voxel.mean.data[row] += point.data[row];
 				for (char col = 0; col < 3; col ++) {
-					temp_tc.invCovariance.data[row][col] += temp_target.data[row]*temp_target.data[col];
+					voxel.invCovariance.data[row][col] += point.data[row]*point.data[col];
 				}
 			}
 			// next queue item, interpret last component as int
-			iNext = as_int(temp_target.data[3]);//*((int*)&temp_target.data[3]);
+			iNext = as_int(point.data[3]);//*((int*)&point.data[3]);
 			pointNo += 1;
  		}
 		// average the point sum
-		Vec3 pointSum;
+		double pointSum[3];
 		for (char k = 0; k < 3; k++) {
-			pointSum[k] = temp_tc.mean[k];
-			temp_tc.mean[k] /= pointNo;
+			pointSum[k] = voxel.mean.data[k];
+			voxel.mean.data[k] /= pointNo;
 		}
 		// postprocess the matrix
-		double tmp;
 		for (char row = 0; row < 3; row++) {
 			for (char col = 0; col < 3; col++) {
-				tmp = (temp_tc.invCovariance.data[row][col] - 2 * 
-					(pointSum[row] * temp_tc.mean[col])) 
-					/ targetcells_size + temp_tc.mean[row]*temp_tc.mean[col];
-				temp_tc.invCovariance.data[row][col] = 
-					tmp * (targetcells_size_minus_1) / pointNo;
+				double tmp = (voxel.invCovariance.data[row][col] - 2 *
+					(pointSum[row] * voxel.mean.data[col])) /
+ 					gridInfo->gridSize + voxel.mean.data[row]*voxel.mean.data[col];
+				voxel.invCovariance.data[row][col] =
+					tmp * (gridInfo->gridSize - 1) / pointNo;
 			}
 		}
-		invertMatrix(&temp_tc.invCovariance);
-		targetcells[iVoxel] = temp_tc;
+		invertCovariance(&voxel.invCovariance);
+		voxelGrid[iVoxel] = voxel;
 	}
 }
