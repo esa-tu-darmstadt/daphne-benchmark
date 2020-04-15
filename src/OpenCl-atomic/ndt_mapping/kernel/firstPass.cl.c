@@ -26,9 +26,6 @@ inline int linearizeCoord(
  * voxelGrid: point cloud
  * voxelGrid: voxel grid
  */
-//__kernel
-//void __attribute__ ((reqd_work_group_size(NUMWORKITEMS_PER_WORKGROUP,1,1)))
-//firstPass(
 __kernel void firstPass(
 	__global VoxelGridInfo* restrict gridInfo,
 	__global PointXYZI* restrict pointCloud,
@@ -44,11 +41,6 @@ __kernel void firstPass(
 		int iVoxel1 = (point.data[1] - gridInfo->minCorner.data[1])*INV_RESOLUTION;
 		int iVoxel2 = (point.data[2] - gridInfo->minCorner.data[2])*INV_RESOLUTION;
 		int iVoxel = iVoxel0 + gridInfo->gridDimension.data[0]*(iVoxel1 + gridInfo->gridDimension.data[1]*iVoxel2);
-// 		int iVoxel = linearizeCoord (
-// 			point.data[0], point.data[1], point.data[2],
-// 			minVoxel,
-// 			voxelDimension_0, voxelDimension_1
-// 		);
 #ifdef EPHOS_VOXEL_POINT_STORAGE
 		// insert into point storage if possible
 		int iStorage = atomic_inc(&voxelGrid[iVoxel].pointStorageLevel);

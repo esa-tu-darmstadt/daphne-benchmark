@@ -33,9 +33,6 @@ void invertCovariance(VoxelCovariance* m)
  * voxelGrid: voxel grid
  * pointCloud: previously assigned points
  */
-//__kernel
-//void __attribute__ ((reqd_work_group_size(NUMWORKITEMS_PER_WORKGROUP,1,1)))
-//secondPass(
 __kernel void secondPass(
 	__global VoxelGridInfo* restrict gridInfo,
 	__global Voxel* restrict voxelGrid,

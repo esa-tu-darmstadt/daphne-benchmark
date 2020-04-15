@@ -3,9 +3,6 @@
  * voxelGrid: voxel grid to initialize
  * targetcells_size: number of cells in the voxel grid
  */
-//__kernel
-//void __attribute__ ((reqd_work_group_size(NUMWORKITEMS_PER_WORKGROUP,1,1)))
-//initTargetCells(
 __kernel void initTargetCells(
 	__global VoxelGridInfo* restrict gridInfo,
 	__global Voxel* restrict voxelGrid)
@@ -25,15 +22,6 @@ __kernel void initTargetCells(
 		voxel.pointStorageLevel = 0;
 		// point storage content may remain uninitialized
 #endif
-// 		= {
-// 			{{
-// 				{0.0, 0.0, 1.0},
-// 				{0.0, 1.0, 0.0},
-// 				{1.0, 0.0, 0.0}
-// 			}},
-// 			{0.0, 0.0, 0.0},
-// 			-1
-// 		};
 		voxelGrid[iVoxel] = voxel;
     }
 }

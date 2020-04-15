@@ -458,8 +458,8 @@ void ndt_mapping::computeHessian(
 		trans_cloud.data());
 	int nearVoxelNo = 0;
 	computeEnv.cmdqueue.enqueueWriteBuffer(counterBuffer, CL_FALSE, 0, sizeof(int), &nearVoxelNo);
+	computeEnv.cmdqueue.enqueueWriteBuffer(gridInfoBuffer, CL_FALSE, 0, sizeof(int), &pointNo);
 	// call radius search kernel
-	radiusSearchKernel.setArg(6, pointNo);
 	size_t local_size = EPHOS_KERNEL_WORK_GROUP_SIZE;
 	size_t num_workgroups = pointNo/local_size + 1;
 	size_t global_size = local_size*num_workgroups;
@@ -568,8 +568,9 @@ double ndt_mapping::computeDerivatives (
 #endif
 	int nearVoxelNo = 0;
 	computeEnv.cmdqueue.enqueueWriteBuffer(counterBuffer, CL_FALSE, 0, sizeof(int), &nearVoxelNo);
+	computeEnv.cmdqueue.enqueueWriteBuffer(gridInfoBuffer, CL_FALSE, 0, sizeof(int), &pointNo);
 	// call radius search kernel
-	radiusSearchKernel.setArg(6, pointNo);
+	//radiusSearchKernel.setArg(7, pointNo);
 	size_t local_size = EPHOS_KERNEL_WORK_GROUP_SIZE;
 	size_t num_workgroups = pointNo/local_size + 1;
 	size_t global_size = local_size*num_workgroups;
@@ -1362,10 +1363,6 @@ void ndt_mapping::initCompute()
 	firstPassKernel.setArg(0, gridInfoBuffer);
 	firstPassKernel.setArg(1, pointCloudBuffer);
 	firstPassKernel.setArg(2, voxelGridBuffer);
-// 	firstPassKernel.setArg(3, static_cast<int>(cellNo));
-// 	firstPassKernel.setArg(4, minVoxel);
-// 	firstPassKernel.setArg(5, voxelDimension[0]);
-// 	firstPassKernel.setArg(6, voxelDimension[1]);
 
 	computeEnv.cmdqueue.enqueueNDRangeKernel(
 		firstPassKernel,
@@ -1377,8 +1374,6 @@ void ndt_mapping::initCompute()
 	secondPassKernel.setArg(0, gridInfoBuffer);
 	secondPassKernel.setArg(1, voxelGridBuffer);
 	secondPassKernel.setArg(2, pointCloudBuffer);
-	//secondPassKernel.setArg(2, static_cast<int>(cellNo));
-	//secondPassKernel.setArg(3, static_cast<int>(cellNo-1));
 	// ranges have been computed for the initialization kernel
 	computeEnv.cmdqueue.enqueueNDRangeKernel(
 		secondPassKernel,
@@ -1388,17 +1383,13 @@ void ndt_mapping::initCompute()
 
 	// the result will be used in the radius search kernel
 	// prepare radius search kernel calls
-	radiusSearchKernel.setArg(0, pointCloudBuffer);
-	radiusSearchKernel.setArg(1, voxelGridBuffer);
-	radiusSearchKernel.setArg(2, subvoxelBuffer);
-	radiusSearchKernel.setArg(3, counterBuffer);
-	radiusSearchKernel.setArg(4, cl::Local(sizeof(int)));
+	radiusSearchKernel.setArg(0, gridInfoBuffer);
+	radiusSearchKernel.setArg(1, pointCloudBuffer);
+	radiusSearchKernel.setArg(2, voxelGridBuffer);
+	radiusSearchKernel.setArg(3, subvoxelBuffer);
+	radiusSearchKernel.setArg(4, counterBuffer);
 	radiusSearchKernel.setArg(5, cl::Local(sizeof(int)));
-	// missing point number set in radius search
-	radiusSearchKernel.setArg(7, minVoxel);
-	radiusSearchKernel.setArg(8, maxVoxel);
-	radiusSearchKernel.setArg(9, voxelDimension[0]);
-	radiusSearchKernel.setArg(10, voxelDimension[1]);
+	radiusSearchKernel.setArg(6, cl::Local(sizeof(int)));
 }
 
 void ndt_mapping::prepare_compute_buffers(int cloudSize, int* gridSize) {
