@@ -1,24 +1,32 @@
 /**
+ * Author:  Leonardo Solis, Technische Universität Darmstadt,
+ * Embedded Systems & Applications Group 2018
+ * Author:  Thilo Gabel, Technische Universität Darmstadt,
+ * Embedded Systems & Applications Group 2020
+ * License: Apache 2.0 (see attachached File)
+ */
+
+/**
  * Reduces a multi dimensional voxel index to one dimension.
  */
-inline int linearizeAddr(
-	const int x, const int y, const int z,
-	const int voxelDimension_0, const int voxelDimension_1)
-{
-	return  (x + voxelDimension_0 * (y + voxelDimension_1 * z));
-}
+// inline int linearizeAddr(
+// 	const int x, const int y, const int z,
+// 	const int voxelDimension_0, const int voxelDimension_1)
+// {
+// 	return  (x + voxelDimension_0 * (y + voxelDimension_1 * z));
+// }
 /**
  * Reduces a continuous, multi dimensional coordinate inside a voxel grid to one dimension.
  */
-inline int linearizeCoord(
-	const float x, const float y, const float z, const PointXYZI minVoxel,
-	const int voxelDimension_0, const int voxelDimension_1)
-{
-	int idx_x = (x - minVoxel.data[0]) * INV_RESOLUTION;
-	int idx_y = (y - minVoxel.data[1]) * INV_RESOLUTION;
-	int idx_z = (z - minVoxel.data[2]) * INV_RESOLUTION;
-	return linearizeAddr(idx_x, idx_y, idx_z, voxelDimension_0, voxelDimension_1);
-}
+// inline int linearizeCoord(
+// 	const float x, const float y, const float z, const PointXYZI minVoxel,
+// 	const int voxelDimension_0, const int voxelDimension_1)
+// {
+// 	int idx_x = (x - minVoxel.data[0]) * INV_RESOLUTION;
+// 	int idx_y = (y - minVoxel.data[1]) * INV_RESOLUTION;
+// 	int idx_z = (z - minVoxel.data[2]) * INV_RESOLUTION;
+// 	return linearizeAddr(idx_x, idx_y, idx_z, voxelDimension_0, voxelDimension_1);
+// }
 
 /**
  * Assigns each point to its cell in a voxel grid.

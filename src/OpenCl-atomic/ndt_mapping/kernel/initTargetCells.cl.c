@@ -1,5 +1,13 @@
 /**
- * Initializes a voxel grid.
+ * Author:  Leonardo Solis, Technische Universität Darmstadt,
+ * Embedded Systems & Applications Group 2018
+ * Author:  Thilo Gabel, Technische Universität Darmstadt,
+ * Embedded Systems & Applications Group 2020
+ * License: Apache 2.0 (see attachached File)
+ */
+
+/**
+ * Initializes a voxel grid with default values.
  * voxelGrid: voxel grid to initialize
  * targetcells_size: number of cells in the voxel grid
  */

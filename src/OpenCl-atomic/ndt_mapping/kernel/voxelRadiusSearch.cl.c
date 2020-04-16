@@ -1,4 +1,10 @@
 /**
+ * Author:  Thilo Gabel, Technische Universität Darmstadt,
+ * Embedded Systems & Applications Group 2020
+ * License: Apache 2.0 (see attachached File)
+ */
+
+/**
  * Performs radius search on a voxel grid and multiple points at once.
  * In that each work item determines the near voxels of one point.
  * pointCloud: point cloud

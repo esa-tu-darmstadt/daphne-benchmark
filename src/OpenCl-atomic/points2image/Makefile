@@ -1,8 +1,15 @@
 .DEFAULT_GOAL := all
-.PHONY: all clean checkdata kernel/kernel.cpp
+.PHONY: all clean checkdata kernel/kernel.h
 
-CXXFLAGS=-O3
+-include Makefile.deps
+
+ifdef DEBUG
+	CXXFLAGS= -g
+else
+	CXXFLAGS= -O3
+endif
 CXXFLAGS+= -std=c++11
+CPPFLAGS+= -I./ -I../
 
 # opencl library
 ifdef OPENCL_INCLUDE_PATH
@@ -13,6 +20,7 @@ ifdef OPENCL_LIBRARY_PATH
 $(info Custom OpenCL library path: $(OPENCL_LIBRARY_PATH))
 	LDDFLAGS+= -L$(OPENCL_LIBRARY_PATH)
 endif
+LDDFLAGS += -lOpenCL
 
 # opencl platform
 ifdef OPENCL_PLATFORM_ID
@@ -60,17 +68,13 @@ ifdef TESTCASE_LIMIT
 endif
 # whether to use a sparse reference image representation for improved read speeds
 ifdef TESTCASE_SPARSE
+$(info Indicated sparse reference data)
 	CPPFLAGS+= -DEPHOS_TESTCASE_SPARSE=1
 endif
 
-CPPFLAGS+= -I./ -I../
-LDDFLAGS += -lOpenCL
+all: benchmark checkdata
 
--include Makefile.deps
-
-all: points2image checkdata
-
-points2image: ../common/main.o ../common/compute_tools.o points2image.o framework.o
+benchmark: ../common/main.o ../common/compute_tools.o points2image.o framework.o
 	$(CXX) $^ -o $@ $(LDDFLAGS)
 
 %.o: %.cpp
@@ -88,7 +92,7 @@ ifeq ($(wildcard ../../../data/p2i_output.dat),)
 endif
 
 clean:
-	rm -f points2image points2image.o framework.o kernel/kernel.h \
+	rm -f benchmark points2image.o framework.o kernel/kernel.h \
 	../common/main.o ../common/compute_tools.o Makefile.deps
 
 Makefile.deps:

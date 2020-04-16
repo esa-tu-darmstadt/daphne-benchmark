@@ -1,102 +1,36 @@
-#ifndef RESOUTION
-#define RESOLUTION 1.0f
-#endif
+/**
+ * Author:  Thilo Gabel, Technische Universität Darmstadt,
+ * Embedded Systems & Applications Group 2020
+ * License: Apache 2.0 (see attachached File)
+ */
 
-#ifndef INV_RESOLUTION
-#define INV_RESOLUTION 1.0f/RESOLUTION
-#endif
-
-#ifndef RADIUS
-#define RADIUS 1.0f
-#endif
-
-#ifndef RADIUS_FINAL
-#define RADIUS_FINAL 1.001f
-#endif
-
-#pragma OPENCL EXTENSION cl_khr_fp64 : enable
-
-#define EPHOS_ATOMICS
-
-typedef struct Mat33 {
-  double data[3][3];
-} Mat33;
-
-typedef struct Vec3 {
-	double data[3];
-} Vec3;
-
-typedef struct VoxelCovariance {
-	double data[3][3];
-} VoxelCovariance;
-
-typedef struct VoxelMean {
-	double data[3];
-} VoxelMean;
-
-typedef struct {
-    float data[4];
-} PointXYZI;
-
-typedef struct {
-    VoxelCovariance invCovariance;
-    VoxelMean mean;
-	int pointListBegin;
-#ifdef EPHOS_VOXEL_POINT_STORAGE
-	int pointStorageLevel;
-	PointXYZI pointStorage[EPHOS_VOXEL_POINT_STORAGE];
-#endif
-} Voxel;
-
-typedef struct {
-	VoxelCovariance invCovariance;
-	VoxelMean mean;
-	int point;
-} PointVoxel;
-
-typedef struct {
-	float x;
-	float y;
-	float z;
-	int iNext;
-} PointQueue;
-
-typedef struct VoxelGridCorner {
-	float data[3];
-} VoxelGridCorner;
-
-typedef struct PackedVoxelGridCorner{
-	int data[4];
-} PackedVoxelGridCorner;
-
-typedef struct VoxelGridDimension {
-	int data[2];
-} VoxelGridDimension;
-
-typedef struct VoxelGridInfo {
-	int cloudSize;
-	int gridSize;
-	VoxelGridCorner minCorner;
-	VoxelGridCorner maxCorner;
-	VoxelGridDimension gridDimension;
-} VoxelGridInfo;
-
-typedef struct PackedVoxelGridInfo {
-	int cloudSize;
-	int gridSize;
-	PackedVoxelGridCorner minCorner;
-	PackedVoxelGridCorner maxCorner;
-} PackedVoxelGridInfo;
-
+/**
+ * Packs a floating point value to an integer representation
+ * that has the same comparison semantics as the original float.
+ * val: value to pack
+ * return: packed value
+ */
 inline int pack_minmaxf(float val) {
 	int ival = as_int(val);
 	return (-(ival & ~(0x1<<31)))*(ival>>31) + (ival*((ival>>31) ^ 0x1));
 }
+/**
+ * Brings a packed floating point value into floating point representation.
+ * val: value to unpack
+ * return: unpacked value
+ */
 inline float unpack_minmaxf(int val) {
 	int ival = (-val | (0x1<<31))*(val>>31) + (val*((val>>31) ^ 0x1));
 	return as_float(ival);
 }
-
+/**
+ * Determines the two significant rectangular corners of a point cloud.
+ * Utilizes packed positional data.
+ * gridInfo: preliminarily filled point cloud info
+ * pointCloud: the points to measure
+ * l_minimum: local lower value corner
+ * l_maximum: local higher value corner
+ */
 __kernel void measureCloud(
 	__global PackedVoxelGridInfo* restrict gridInfo,
 	__global const PointXYZI* restrict pointCloud,

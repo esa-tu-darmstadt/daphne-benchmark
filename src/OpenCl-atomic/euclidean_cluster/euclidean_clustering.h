@@ -7,6 +7,10 @@
  * Embedded Systems & Applications Group 2019
  * License: Apache 2.0 (see attachached File)
  */
+#ifndef EPHOS_EUCLIDEAN_CLUSTERING_H
+#define EPHOS_EUCLIDEAN_CLUSTERING_H
+
+
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -191,19 +195,4 @@ protected:
 	 */
 	void check_next_outputs(int count);
 };
-
-/**
- * Extension for for point comparison
- */
-// struct CHullCmpPoints
-// {
-// 	/**
-// 	 * Compares two points.
-// 	 * Performs a primary test for the x component
-// 	 * and a secondary test for the y component.
-// 	 */
-// 	bool operator()(const Point2D* p1, const Point2D* p2) const
-// 	{
-// 		return p1->x < p2->x || (p1->x == p2->x && p1->y < p2->y);
-// 	}
-// };
+#endif // EPHOS_EUCLIDEAN_CLUSTERING_H

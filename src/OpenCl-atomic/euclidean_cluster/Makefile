@@ -38,6 +38,7 @@ endif
 # opencl kernel optimization
 OPENCL_WORK_GROUP_SIZE=256
 CPPFLAGS+= -DEPHOS_KERNEL_WORK_GROUP_SIZE=$(OPENCL_WORK_GROUP_SIZE)
+
 ifdef DISABLE_OPENCL_LINE_PROCESSING
 $(info Disabled line based processing in kernel)
 else
@@ -75,9 +76,9 @@ ifdef TESTCASE_LIMIT
 	CPPFLAGS+= -DTESTCASE_LIMIT=$(TESTCASE_LIMIT)
 endif
 
-all: euclidean_clustering checkdata
+all: benchmark checkdata
 
-euclidean_clustering: euclidean_clustering.o framework.o ../common/main.o ../common/compute_tools.o
+benchmark: euclidean_clustering.o framework.o ../common/main.o ../common/compute_tools.o
 	$(CXX) $^ -o $@ $(LDDFLAGS)
 
 kernel/kernel.h:
@@ -96,7 +97,7 @@ ifeq ($(wildcard ../../../data/ec_output.dat),)
 endif
 
 clean:
-	rm -f Makefile.deps euclidean_clustering euclidean_clustering.o framework.o \
+	rm -f Makefile.deps benchmark euclidean_clustering.o framework.o \
 	../common/main.o ../common/compute_tools.o kernel/kernel.h
 
 Makefile.deps:

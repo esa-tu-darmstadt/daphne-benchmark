@@ -110,6 +110,8 @@ void points2image::init() {
 #endif
 #ifdef EPHOS_KERNEL_TRANSFORMS_PER_ITEM
 			" -DEPHOS_KERNEL_TRANSFORMS_PER_ITEM=" STRINGIZE(EPHOS_KERNEL_TRANSFORMS_PER_ITEM)
+#else
+			""
 #endif
 			;
 		std::string sSource(points2image_kernel_source_code);
