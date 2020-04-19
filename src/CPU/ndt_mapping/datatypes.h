@@ -49,9 +49,10 @@ typedef std::vector<PointXYZI> PointCloudSource;
 typedef PointCloudSource PointCloud;
 
 typedef struct CallbackResult {
-    bool converged;
-    Matrix4f final_transformation;
-    double fitness_score;
+	bool converged;
+	std::vector<Matrix4f> intermediate_transformations;
+	Matrix4f final_transformation;
+	double fitness_score;
 } CallbackResult;
 
 typedef struct Voxel {
@@ -63,6 +64,6 @@ typedef struct Voxel {
 
 typedef std::vector<Voxel> VoxelGrid;
 
-extern Matrix4f Matrix4f_Identity;
+#define PI 3.1415926535897932384626433832795
 
 #endif // EPHOS_DATATYPES_H
