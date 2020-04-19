@@ -412,11 +412,11 @@ void ndt_mapping::computeHessian(
 	// temporary data structures
 	memset(&(hessian.data[0][0]), 0, sizeof(double) * 6 * 6);
 	// Update hessian for each point, line 17 in Algorithm 2 [Magnusson 2009]
-	int pointNo = target_cloud->size();
+	int pointNo = input_cloud->size();
 	for (size_t i = 0; i < pointNo; i++)
 	{
 		PointXYZI& x_trans_pt = trans_cloud[i];
-		PointXYZI& x_pt = target_cloud->at(i);
+		PointXYZI& x_pt = input_cloud->at(i);
 		// Find neighbors
 		std::vector<Voxel*> neighborhood;
 		voxelRadiusSearch (target_grid, x_trans_pt, resolution_, neighborhood);
@@ -504,17 +504,17 @@ double ndt_mapping::computeDerivatives (
 	// Precompute Angular Derivatives (eq. 6.19 and 6.21)[Magnusson 2009]
 	computeAngleDerivatives (p);
 	// Update gradient and hessian for each point, line 17 in Algorithm 2 [Magnusson 2009]
-	for (size_t idx = 0; idx < target_cloud->size (); idx++)
+	for (size_t idx = 0; idx < input_cloud->size (); idx++)
 	{
 		PointXYZI& x_trans_pt = trans_cloud[idx];
-		PointXYZI& x_pt = target_cloud->at(idx);
+		PointXYZI& x_pt = input_cloud->at(idx);
 
 		// Find nieghbors (Radius search has been experimentally faster than direct neighbor checking.
 		std::vector<Voxel*> neighborhood;
 		voxelRadiusSearch (target_grid, x_trans_pt, resolution_, neighborhood);
 
 		for (Voxel* cell : neighborhood) {
-			PointXYZI& x_pt = target_cloud->at(idx);
+			PointXYZI& x_pt = input_cloud->at(idx);
 			Vec3 x = {
 				x_pt.data[0],
 				x_pt.data[1],

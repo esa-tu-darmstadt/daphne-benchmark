@@ -69,9 +69,9 @@ void  ndt_mapping::parseFilteredScan(std::ifstream& input_file, PointCloud& poin
 
 void ndt_mapping::parseInitGuess(std::ifstream& input_file, Matrix4f& initGuess) {
 	try {
-	for (int h = 0; h < 4; h++)
-		for (int w = 0; w < 4; w++)
-			input_file.read((char*)&(initGuess.data[h][w]),sizeof(float));
+		for (int h = 0; h < 4; h++)
+			for (int w = 0; w < 4; w++)
+				input_file.read((char*)&(initGuess.data[h][w]),sizeof(float));
 	}  catch (std::ifstream::failure& e) {
 		throw std::ios_base::failure("Error reading initial guess");
 	}
@@ -195,10 +195,10 @@ void ndt_mapping::check_next_outputs(int count)
 	{
 		try {
 			parseResult(output_file, reference);
-			parseIntermediateResults(output_file, reference);
+			//parseIntermediateResults(output_file, reference);
 #ifdef EPHOS_DATAGEN
 			writeResult(datagen_file, results[i]);
-			writeIntermediateResults(datagen_file, results[i]);
+			//writeIntermediateResults(datagen_file, results[i]);
 #endif
 		} catch (std::ios_base::failure& e) {
 			std::cerr << e.what() << std::endl;
