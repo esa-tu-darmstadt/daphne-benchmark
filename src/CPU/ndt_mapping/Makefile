@@ -14,12 +14,13 @@ CPPFLAGS+= -I./ -I../
 
 # other options
 ifdef TESTCASE_LIMIT
+$(info Testcase limit set to $(TESTCASE_LIMIT))
 	CPPFLAGS+= -DEPHOS_TESTCASE_LIMIT=$(TESTCASE_LIMIT)
 endif
 ifdef ENABLE_DATAGEN
+$(info Enabled result data generation)
 	CPPFLAGS+= -DEPHOS_DATAGEN
 endif
-
 all: benchmark checkdata
 
 benchmark: ndt_mapping.o framework.o ../common/main.o

@@ -195,10 +195,10 @@ void ndt_mapping::check_next_outputs(int count)
 	{
 		try {
 			parseResult(output_file, reference);
-			//parseIntermediateResults(output_file, reference);
+			parseIntermediateResults(output_file, reference);
 #ifdef EPHOS_DATAGEN
 			writeResult(datagen_file, results[i]);
-			//writeIntermediateResults(datagen_file, results[i]);
+			writeIntermediateResults(datagen_file, results[i]);
 #endif
 		} catch (std::ios_base::failure& e) {
 			std::cerr << e.what() << std::endl;
@@ -251,6 +251,26 @@ void ndt_mapping::check_next_outputs(int count)
 					error_so_far = true;
 				}
 			}
+		}
+		std::ostringstream sError;
+		int caseErrorNo = 0;
+		for (int w = 0; w < 4; w++) {
+			float delta = std::fabs(resPoint.data[w] - refPoint.data[w]);
+			if (delta > max_delta) {
+				max_delta = delta;
+				if (delta > MAX_ROTATION_EPS) {
+					error_so_far = true;
+				}
+			}
+			if (delta > MAX_ROTATION_EPS) {
+				sError << " mismatch vector[" << w << "]: ";
+				sError << refPoint.data[w] << " should be " << resPoint.data[w] << std::endl;
+				caseErrorNo += 1;
+			}
+		}
+		if (caseErrorNo > 0) {
+			std::cout << "Errors for test case " << read_testcases - count + i;
+			std::cout << sError.str() << std::endl;
 		}
 	}
 }
