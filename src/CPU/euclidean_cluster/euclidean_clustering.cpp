@@ -1,6 +1,11 @@
+
 /**
  * Author:  Florian Stock, Technische Universität Darmstadt,
  * Embedded Systems & Applications Group 2018
+ * Author:  Leonardo Solis, Technische Universität Darmstadt,
+ * Embedded Systems & Applications Group 2018
+ * Author:  Thilo Gabel, Technische Universität Darmstadt,
+ * Embedded Systems & Applications Group 2019
  * License: Apache 2.0 (see attachached File)
  */
 #include <iostream>
@@ -10,41 +15,49 @@
 #include <limits>
 #include <cmath>
 #include <algorithm>
+#include <cstring>
+#include <cfloat>
 
-#include "benchmark.h"
+#include "common/benchmark.h"
 #include "datatypes.h"
-#include "kernel.h"
+#include "euclidean_clustering.h"
 
+euclidean_clustering::euclidean_clustering() :
+	plainPointCloud(),
+	colorPointCloud(),
+	clusterBoundingBoxes(),
+	clusterCentroids(),
+	//plainCloudSize(),
+	read_testcases(0),
+	input_file(),
+	output_file(),
+	error_so_far(false),
+	max_delta(0)
+{}
 
+euclidean_clustering::~euclidean_clustering() {}
 
-/**
- * Helper function for calculating the enclosing rectangle with minimum area.
- */
-static void rotatingCalipers(const Point2D* points, int n, float* out)
+void euclidean_clustering::rotatingCalipers( const Point2D* points, int n, float* out )
 {
 	float minarea = std::numeric_limits<float>::max();
 	float max_dist = 0;
 	char buffer[32] = {};
 	int i, k;
-	
 	float* abuf = (float*)alloca(n * 3 * sizeof(float));
 	float* inv_vect_length = abuf;
 	Point2D* vect = (Point2D*)(inv_vect_length + n);
 	int left = 0, bottom = 0, right = 0, top = 0;
 	int seq[4] = { -1, -1, -1, -1 };
-
 	float orientation = 0;
 	float base_a;
 	float base_b = 0;
 
 	float left_x, right_x, top_y, bottom_y;
 	Point2D pt0 = points[0];
-
 	left_x = right_x = pt0.x;
 	top_y = bottom_y = pt0.y;
-	
-	// select i suitable points
-	for(i = 0; i < n; i++)
+
+	for( i = 0; i < n; i++ )
 	{
 		double dx, dy;
 		if( pt0.x < left_x )
@@ -56,14 +69,11 @@ static void rotatingCalipers(const Point2D* points, int n, float* out)
 		if( pt0.y < bottom_y )
 			bottom_y = pt0.y, bottom = i;
 		Point2D pt = points[(i+1) & (i+1 < n ? -1 : 0)];
-
 		dx = pt.x - pt0.x;
 		dy = pt.y - pt0.y;
-
 		vect[i].x = (float)dx;
 		vect[i].y = (float)dy;
 		inv_vect_length[i] = (float)(1./std::sqrt(dx*dx + dy*dy));
-
 		pt0 = pt;
 	}
 
@@ -71,12 +81,12 @@ static void rotatingCalipers(const Point2D* points, int n, float* out)
 	{
 		double ax = vect[n-1].x;
 		double ay = vect[n-1].y;
-
 		for( i = 0; i < n; i++ )
 		{
 			double bx = vect[i].x;
 			double by = vect[i].y;
 			double convexity = ax * by - ay * bx;
+
 			if( convexity != 0 )
 			{
 				orientation = (convexity > 0) ? 1.f : (-1.f);
@@ -93,7 +103,6 @@ static void rotatingCalipers(const Point2D* points, int n, float* out)
 	seq[1] = right;
 	seq[2] = top;
 	seq[3] = left;
-	
 	// main loop
 	// evaluate angles and rotate calipers
 	// all of edges will be checked while rotating calipers by 90 degrees
@@ -122,7 +131,7 @@ static void rotatingCalipers(const Point2D* points, int n, float* out)
 		}
 		// rotate calipers
 		{
-			// get next base
+			//get next base
 			int pindex = seq[main_element];
 			float lead_x = vect[pindex].x*inv_vect_length[pindex];
 			float lead_y = vect[pindex].y*inv_vect_length[pindex];
@@ -145,12 +154,13 @@ static void rotatingCalipers(const Point2D* points, int n, float* out)
 				base_b = lead_x;
 				break;
 			default:
-				throw std::logic_error("Error in rotatingCalipers(): main_element should be 0, 1, 2 or 3");
+				throw std::logic_error("main_element should be 0, 1, 2 or 3");
 			}
 		}
 		// change base point of main edge
 		seq[main_element] += 1;
 		seq[main_element] = (seq[main_element] == n) ? 0 : seq[main_element];
+
 		// find area of rectangle
 		{
 			float height;
@@ -170,6 +180,7 @@ static void rotatingCalipers(const Point2D* points, int n, float* out)
 			if( area <= minarea )
 			{
 				float *buf = (float *) buffer;
+		
 				minarea = area;
 				// leftmost point
 				((int *) buf)[0] = seq[3];
@@ -210,10 +221,7 @@ static void rotatingCalipers(const Point2D* points, int n, float* out)
 	out[5] = B2 * buf[4];
 }
 
-/**
- * Helper function for convex hull calculation
- */
-static int sklansky(Point2D** array, int start, int end, int* stack, int nsign, int sign2)
+int euclidean_clustering::sklansky(Point2D** array, int start, int end, int* stack, int nsign, int sign2)
 {
 	int incr = end > start ? 1 : -1;
 	// prepare first triangle
@@ -283,12 +291,14 @@ static int sklansky(Point2D** array, int start, int end, int* stack, int nsign, 
 }
 
 
-
-
 /**
- * Helper function that computes the convex hull.
+ * Helper function for point comparison
  */
-void convexHull(
+bool comparePoint2D(const Point2D* p1, const Point2D* p2) {
+	return p1->x < p2->x || (p1->x == p2->x && p1->y < p2->y);
+}
+
+void euclidean_clustering::convexHull(
 	std::vector<Point2D> _points, std::vector<Point2D>&  _hull, bool clockwise, bool returnPoints )
 {
 	int i, total = _points.size(), nout = 0;
@@ -313,7 +323,7 @@ void convexHull(
 		pointer[i] = &data0[i];
 
 	// sort the point set by x-coordinate, find min and max y
-	std::sort(pointerf, pointerf + total, compareConvexHullPoints);
+	std::sort(pointerf, pointerf + total, comparePoint2D);
 	for( i = 1; i < total; i++ )
 		{
 			float y = pointerf[i]->y;
@@ -387,21 +397,14 @@ void convexHull(
 		_hull.push_back(data0[hullbuf[i]]);
 }
 
-/**
- * Computes the rotation angle of the rectangle with minimum area.
- * return: the rotation angle in degrees
- */
-float minAreaRectAngle(std::vector<Point2D>& points)
+float euclidean_clustering::minAreaRectAngle(std::vector<Point2D>& points)
 {
 	float angle = 0.0f;
 	std::vector<Point2D> hull;
 	Point2D out[3];
-
 	convexHull(points, hull, true, true);
-
 	int n = points.size();
 	const Point2D* hpoints = hull.data();
-
 	if( n > 2 )
 	{
 		rotatingCalipers( hpoints, n, (float*)out );
@@ -415,16 +418,7 @@ float minAreaRectAngle(std::vector<Point2D>& points)
 	} // angle 0 otherwise
 	return (float)(angle*180.0/PI);
 }
-
-/**
- * Computes the pairwise squared distances. Results are stored in a matrix.
- * An entry of that matrix indicates whether the distance of the two described points 
- * is less or equal to the reference distance.
- * points: points for which we need pairwise distances with size N
- * sqr_distances: resulting distance matrix of size N*N
- * radius: reference distance
- */
-void initRadiusSearch(const std::vector<Point> &points, bool**  sqr_distances, float radius)
+void euclidean_clustering::initRadiusSearch(const PlainPointCloud& points, bool**  sqr_distances, float radius)
 {
 	int n = points.size();
 	float radius_sqr = radius * radius;
@@ -439,18 +433,8 @@ void initRadiusSearch(const std::vector<Point> &points, bool**  sqr_distances, f
 			(*sqr_distances)[j*n+i] = sqr_distance <= radius_sqr;
 		}
 }
-
-
-/**
- * Performs radius search for a single point using a precomputed distance matrix.
- * point_index: reference point
- * indices: indices of near points
- * sqr_distances: distance matrix
- * total_points: number of points in the cloud
- * return: the number of near points
- */
-int radiusSearch(
-	const int point_index, std::vector<int> & indices, const bool* sqr_distances, int total_points)
+int euclidean_clustering::radiusSearch(
+	const int point_index, std::vector<int>& indices, const bool* sqr_distances, int total_points)
 {
 	indices.clear();
 	for (int i = 0; i < point_index; i++) {
@@ -467,23 +451,25 @@ int radiusSearch(
 }
 
 void euclidean_clustering::extractEuclideanClusters (
-	const PointCloud &cloud, 
-	float tolerance, std::vector<PointIndices> &clusters,
+	const PlainPointCloud& plainPointCloud,
+	float tolerance,
+	std::vector<PointIndices> &clusters,
 	unsigned int min_pts_per_cluster, 
 	unsigned int max_pts_per_cluster)
 {
 	int nn_start_idx = 0;
+	int cloudSize = plainPointCloud.size();
 
 	// indicates the processed status for each point
-	std::vector<bool> processed (cloud.size(), false);
+	std::vector<bool> processed (cloudSize, false);
 	// temporary radius search results
 	std::vector<int> nn_indices;
 	// precompute the distance matrix
 	bool *sqr_distances;
-	initRadiusSearch(cloud, &sqr_distances, tolerance);
+	initRadiusSearch(plainPointCloud, &sqr_distances, tolerance);
 
 	// iterate for all points in the cloud
-	for (int i = 0; i < cloud.size(); ++i)
+	for (int i = 0; i < cloudSize; ++i)
 	{
 		// ignore if already tested
 		if (processed[i])
@@ -493,11 +479,11 @@ void euclidean_clustering::extractEuclideanClusters (
 		int sq_idx = 0;
 		seed_queue.push_back(i);
 		processed[i] = true;
-		
+
 		// grow the cluster candidate until all items have been searched through
 		while (sq_idx < seed_queue.size())
 		{
-			int ret = radiusSearch(seed_queue[sq_idx], nn_indices, sqr_distances, cloud.size());
+			int ret = radiusSearch(seed_queue[sq_idx], nn_indices, sqr_distances, cloudSize);
 			if (!ret)
 			{
 				sq_idx++;
@@ -528,81 +514,93 @@ void euclidean_clustering::extractEuclideanClusters (
 	free(sqr_distances);
 }
 
-
-void euclidean_clustering::extract (const PointCloud *input_, std::vector<PointIndices> &clusters, double cluster_tolerance_)
+/**
+ * Helper function that compares cluster sizes.
+ */
+inline bool comparePointClusters (const PointIndices &a, const PointIndices &b)
 {
-	if (input_->empty())
+	return (a.indices.size () < b.indices.size ());
+}
+
+/**
+ * Computes euclidean clustering and sorts the resulting clusters.
+ */
+void euclidean_clustering::extract(
+	const PlainPointCloud& plainPointCloud,
+	std::vector<PointIndices> &clusters, 
+	double tolerance)
+{
+	if (plainPointCloud.size() == 0)
 	{
-		clusters.clear ();
-		return;
+	    clusters.clear ();
+	    return;
 	}
-	// Send the input dataset to the spatial locator
-	extractEuclideanClusters (*input_, static_cast<float> (cluster_tolerance_), clusters,
-		_cluster_size_min, _cluster_size_max );
-	// Sort the clusters based on their size (largest one first)
+	extractEuclideanClusters (
+		plainPointCloud, static_cast<float>(tolerance),
+		clusters, _cluster_size_min, _cluster_size_max);
+	// sort by number of elements
 	std::sort (clusters.rbegin (), clusters.rend (), comparePointClusters);
 }
 
 void euclidean_clustering::clusterAndColor(
-	const PointCloud *in_cloud_ptr,
-	PointCloudRGB *out_cloud_ptr,
-	BoundingboxArray* in_out_boundingbox_array,
-	Centroid* in_out_centroids,
-	double in_max_cluster_distance=0.5)
+	const PlainPointCloud& plainPointCloud,
+	ColorPointCloud& colorPointCloud,
+	BoundingboxArray& clusterBoundingBoxes,
+	Centroid& clusterCentroids,
+	double max_cluster_distance=0.5)
 {
 	std::vector<PointIndices> cluster_indices;
-	
-	// perform expensive radius search
-	extract (in_cloud_ptr, cluster_indices, in_max_cluster_distance);
+	extract (plainPointCloud,
+		cluster_indices,
+		max_cluster_distance);
 
-	// color the clusters
+	// assign colors
 	int j = 0;
 	unsigned int k = 0;
 	for (auto it = cluster_indices.begin(); it != cluster_indices.end(); ++it)
 	{
-		PointCloudRGB *current_cluster = new PointCloudRGB;//coord + color cluster
-		//assign color to each cluster
+		//ColorPointCloud* current_cluster = new ColorPointCloud;//coord + color cluster
+		ColorPointCloud current_cluster;
+		// assign color to each cluster
 		PointDouble centroid = {0.0, 0.0, 0.0};
 		for (auto pit = it->indices.begin(); pit != it->indices.end(); ++pit)
 		{
 			// fill new colored cluster point by point
 			PointRGB p;
-			p.x = (*in_cloud_ptr)[*pit].x;
-			p.y = (*in_cloud_ptr)[*pit].y;
-			p.z = (*in_cloud_ptr)[*pit].z;
+			p.x = (plainPointCloud)[*pit].x;
+			p.y = (plainPointCloud)[*pit].y;
+			p.z = (plainPointCloud)[*pit].z;
 			p.r = 10;
 			p.g = 20;
 			p.b = 30;
+			centroid.x += (plainPointCloud)[*pit].x;
+			centroid.y += (plainPointCloud)[*pit].y;
+			centroid.z += (plainPointCloud)[*pit].z;
 
-			centroid.x += (*in_cloud_ptr)[*pit].x;
-			centroid.y += (*in_cloud_ptr)[*pit].y;
-			centroid.z += (*in_cloud_ptr)[*pit].z;
-
-			current_cluster->push_back(p);
+			current_cluster.push_back(p);
 		}
-		// centroid from mean
+
 		centroid.x /= it->indices.size();
 		centroid.y /= it->indices.size();
 		centroid.z /= it->indices.size();
 
-		// minimum and maximum extends
+		// get extends
 		float min_x=std::numeric_limits<float>::max();float max_x=-std::numeric_limits<float>::max();
 		float min_y=std::numeric_limits<float>::max();float max_y=-std::numeric_limits<float>::max();
 		float min_z=std::numeric_limits<float>::max();float max_z=-std::numeric_limits<float>::max();
-		for(unsigned int i=0; i<current_cluster->size();i++)
+		for(unsigned int i=0; i<current_cluster.size();i++)
 		{
-			if((*current_cluster)[i].x<min_x)  min_x = (*current_cluster)[i].x;
-			if((*current_cluster)[i].y<min_y)  min_y = (*current_cluster)[i].y;
-			if((*current_cluster)[i].z<min_z)  min_z = (*current_cluster)[i].z;
-			if((*current_cluster)[i].x>max_x)  max_x = (*current_cluster)[i].x;
-			if((*current_cluster)[i].y>max_y)  max_y = (*current_cluster)[i].y;
-			if((*current_cluster)[i].z>max_z)  max_z = (*current_cluster)[i].z;
+			if(current_cluster[i].x<min_x)  min_x = current_cluster[i].x;
+			if(current_cluster[i].y<min_y)  min_y = current_cluster[i].y;
+			if(current_cluster[i].z<min_z)  min_z = current_cluster[i].z;
+			if(current_cluster[i].x>max_x)  max_x = current_cluster[i].x;
+			if(current_cluster[i].y>max_y)  max_y = current_cluster[i].y;
+			if(current_cluster[i].z>max_z)  max_z = current_cluster[i].z;
 		}
 		float l = max_x - min_x;
 		float w = max_y - min_y;
 		float h = max_z - min_z;
-		
-		// create bounding box from cluster extends
+		// create a bounding box from cluster extends
 		Boundingbox bounding_box;
 		bounding_box.position.x = min_x + l/2;
 		bounding_box.position.y = min_y + w/2;
@@ -616,13 +614,14 @@ void euclidean_clustering::clusterAndColor(
 		if (_pose_estimation) 
 		{
 			std::vector<Point2D> inner_points;
-			for (unsigned int i=0; i<current_cluster->size(); i++)
+			for (unsigned int i=0; i < current_cluster.size(); i++)
 			{
 				Point2D ip;
-				ip.x = ((*current_cluster)[i].x + fabs(min_x))*8;
-				ip.y = ((*current_cluster)[i].y + fabs(min_y))*8;
+				ip.x = (current_cluster[i].x + fabs(min_x))*8;
+				ip.y = (current_cluster[i].y + fabs(min_y))*8;
 				inner_points.push_back(ip);
 			}
+
 			if (inner_points.size() > 0)
 			{
 				rz = minAreaRectAngle(inner_points) * PI / 180.0;
@@ -633,68 +632,97 @@ void euclidean_clustering::clusterAndColor(
 		double halfYaw = rz * 0.5;  
 		double cosYaw = cos(halfYaw);
 		double sinYaw = sin(halfYaw);
-		bounding_box.orientation.x = 0.0; //x
-		bounding_box.orientation.y = 0.0; //y
-		bounding_box.orientation.z = sinYaw; //z
-		bounding_box.orientation.w = cosYaw; //w, formerly yzx
+		bounding_box.orientation.x = 0.0;
+		bounding_box.orientation.y = 0.0;
+		bounding_box.orientation.z = sinYaw;
+		bounding_box.orientation.w = cosYaw;
 
 		if (bounding_box.dimensions.x >0 && bounding_box.dimensions.y >0 && bounding_box.dimensions.z > 0 &&
 			bounding_box.dimensions.x < 15 && bounding_box.dimensions.y >0 && bounding_box.dimensions.y < 15 &&
 			max_z > -1.5 && min_z > -1.5 && min_z < 1.0 )
 		{
-			in_out_boundingbox_array->boxes.push_back(bounding_box);
-			in_out_centroids->points.push_back(centroid);
+			clusterBoundingBoxes.boxes.push_back(bounding_box);
+			clusterCentroids.points.push_back(centroid);
 		}
-		out_cloud_ptr->insert(out_cloud_ptr->end(), current_cluster->begin(), current_cluster->end());
+		colorPointCloud.insert(colorPointCloud.end(), current_cluster.begin(), current_cluster.end());
 		j++; k++;
 	}
+
 }
 
 void euclidean_clustering::segmentByDistance(
-	const PointCloud *in_cloud_ptr,
-	PointCloudRGB *out_cloud_ptr,
-	BoundingboxArray *out_boundingbox_array,
-	Centroid *in_out_centroids,
-	double in_max_cluster_distance=0.5)
+	const PlainPointCloud& plainPointCloud,
+	ColorPointCloud& colorPointCloud,
+	BoundingboxArray& clusterBoundingBoxes,
+	Centroid& clusterCentroids)
 {
-	PointCloud*   cloud_segments_array[5];
+	PlainPointCloud cloud_segments_array[5];
 	double thresholds[5] = {0.5, 1.1, 1.6, 2.3, 2.6f};
 
-	for(unsigned int i=0; i<5; i++)
-	{
-		PointCloud *tmp_cloud = new PointCloud;
-		cloud_segments_array[i] = tmp_cloud;
-	}
-	for (unsigned int i=0; i<in_cloud_ptr->size(); i++)
-	{
-		Point current_point;
-		current_point.x = (*in_cloud_ptr)[i].x;
-		current_point.y = (*in_cloud_ptr)[i].y;
-		current_point.z = (*in_cloud_ptr)[i].z;
-		
+	for (const Point& p : plainPointCloud) {
+
 		// categorize by distance from origin
-		float origin_distance = sqrt(current_point.x*current_point.x + current_point.y*current_point.y);
-		if (origin_distance < 15 ) { 
-			cloud_segments_array[0]->push_back (current_point);
+		float origin_distance = p.x*p.x + p.y*p.y;
+		if (origin_distance < 15*15 ) {
+			cloud_segments_array[0].push_back(p);
 		}
-		else if(origin_distance < 30) {
-			cloud_segments_array[1]->push_back (current_point);
+		else if(origin_distance < 30*30) {
+			cloud_segments_array[1].push_back(p);
 		}
-		else if(origin_distance < 45) {
-			cloud_segments_array[2]->push_back (current_point);
+		else if(origin_distance < 45*45) {
+			cloud_segments_array[2].push_back(p);
 		}
-		else if(origin_distance < 60) {
-			cloud_segments_array[3]->push_back (current_point);
+		else if(origin_distance < 60*60) {
+			cloud_segments_array[3].push_back(p);
 		} else {
-			cloud_segments_array[4]->push_back (current_point);
+			cloud_segments_array[4].push_back(p);
 		}
 	}
 	// perform clustering and coloring on the individual categories
 	for(unsigned int i=0; i<5; i++)
 	{
-		clusterAndColor(cloud_segments_array[i], out_cloud_ptr, out_boundingbox_array, in_out_centroids, thresholds[i]);
+		clusterAndColor(cloud_segments_array[i], colorPointCloud, clusterBoundingBoxes, clusterCentroids, thresholds[i]);
 	}
+// 	PlainPointCloud* cloud_segments_array[5];
+// 	double thresholds[5] = {0.5, 1.1, 1.6, 2.3, 2.6f};
+//
+// 	for(unsigned int i=0; i<5; i++)
+// 	{
+// 		PlainPointCloud *tmp_cloud = new PlainPointCloud();
+// 		cloud_segments_array[i] = tmp_cloud;
+// 	}
+// 	for (unsigned int i = 0; i < plainPointCloud.size(); i++)
+// 	{
+// 		Point current_point;
+// 		current_point.x = plainPointCloud[i].x;
+// 		current_point.y = plainPointCloud[i].y;
+// 		current_point.z = plainPointCloud[i].z;
+//
+// 		// categorize by distance from origin
+// 		float origin_distance = sqrt(current_point.x*current_point.x + current_point.y*current_point.y);
+// 		if (origin_distance < 15 ) {
+// 			cloud_segments_array[0]->push_back (current_point);
+// 		}
+// 		else if(origin_distance < 30) {
+// 			cloud_segments_array[1]->push_back (current_point);
+// 		}
+// 		else if(origin_distance < 45) {
+// 			cloud_segments_array[2]->push_back (current_point);
+// 		}
+// 		else if(origin_distance < 60) {
+// 			cloud_segments_array[3]->push_back (current_point);
+// 		} else {
+// 			cloud_segments_array[4]->push_back (current_point);
+// 		}
+// 	}
+// 	// perform clustering and coloring on the individual categories
+// 	for(unsigned int i=0; i<5; i++)
+// 	{
+// 		clusterAndColor(*cloud_segments_array[i], cloud_segments_array[i]->size(), colorPointCloud, in_clusterBoundingBoxes, in_clusterCentroids, thresholds[i]);
+// 	}
 }
+
+
 
 
 
@@ -722,84 +750,29 @@ void euclidean_clustering::init() {
 		std::cerr << e.what() << std::endl;
 		exit(-3);
 	}
+#ifdef TESTCASE_LIMIT
+	if (TESTCASE_LIMIT < testcases) {
+		testcases = TESTCASE_LIMIT;
+	}
+#endif // TESTCASE_LIMIT
 	// prepare for the first iteration
 	error_so_far = false;
 	max_delta = 0.0;
-	in_cloud_ptr = nullptr;
-	out_cloud_ptr = nullptr;
-	out_boundingbox_array = nullptr;
-	out_centroids = nullptr;
-
-	std::cout << "done\n" << std::endl;
+	plainPointCloud.clear();
+	colorPointCloud.clear();
+	clusterBoundingBoxes.clear();
+	clusterCentroids.clear();
+	std::cout << "done" << std::endl;
 }
-
-void euclidean_clustering::run(int p) {
-	// prepare reading the first testcases
-	pause_func();
-	
-	while (read_testcases < testcases)
-	{
-		// read the next input data
-		int count = read_next_testcases(p);
-		// execute the algorithm
-		unpause_func();
-		for (int i = 0; i < count; i++)
-		{
-			// actual kernel invocation
-			segmentByDistance(&in_cloud_ptr[i],
-					&out_cloud_ptr[i],
-					&out_boundingbox_array[i],
-					&out_centroids[i]);
-		}
-		// pause the timer, then read and compare with the reference data
-		pause_func();
-		check_next_outputs(count);
+void euclidean_clustering::quit() {
+	// close data streams
+	try {
+		input_file.close();
+	} catch (std::ifstream::failure& e) {
 	}
+	try {
+		output_file.close();
+	} catch (std::ifstream::failure& e) {
+	}
+
 }
-
-bool compareRGBPoints (const PointRGB &a, const PointRGB &b)
-{
-	if (a.x != b.x)
-		return (a.x < b.x);
-	else
-		if (a.y != b.y)
-			return (a.y < b.y);
-		else
-			return (a.z < b.z);
-}
-
-bool comparePoints (const PointDouble &a, const PointDouble &b)
-{
-	if (a.x != b.x)
-		return (a.x < b.x);
-	else
-	if (a.y != b.y)
-		return (a.y < b.y);
-	else
-		return (a.z < b.z);
-}
-
-bool compareBBs (const Boundingbox &a, const Boundingbox &b)
-{
-	if (a.position.x != b.position.x)
-		return (a.position.x < b.position.x);
-	else
-	if (a.position.y != b.position.y)
-		return (a.position.y < b.position.y);
-	else
-		if (a.dimensions.x != b.dimensions.x)
-			return (a.dimensions.x < b.dimensions.x);
-		else
-			return (a.dimensions.y < b.dimensions.y);
-}
-
-bool comparePointClusters (const PointIndices &a, const PointIndices &b)
-{
-	return (a.indices.size () < b.indices.size ());
-}
-
-bool compareConvexHullPoints(const Point2D* p1, const Point2D* p2) {
-	return p1->x < p2->x || (p1->x == p2->x && p1->y < p2->y);
-}
-
-

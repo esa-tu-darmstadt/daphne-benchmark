@@ -9,21 +9,20 @@
 #include <vector>
 
 typedef struct  {
-	float x,y,z;
+    float x,y,z;
 } Point;
 
 typedef struct  {
-	double x,y,z;
+    double x,y,z;
 } PointDouble;
 
-
 typedef struct {
-	float x,y;
+    float x,y;
 } Point2D;
 
 
 typedef struct {
-	double x,y,z,w;
+    double x,y,z,w;
 } Orientation;
 
 typedef struct {
@@ -38,14 +37,14 @@ typedef struct {
 } Boundingbox;
 
 typedef struct{
-    Point2D center; // mass center
-    Point2D size;    // width and height
-    float angle;    //rotation angle
+    Point2D center;
+    Point2D size;
+    float angle;
 } RotatedRect;
 
-typedef std::vector<Point> PointCloud;
-typedef std::vector<PointRGB> PointCloudRGB;
-    
+typedef std::vector<Point> PlainPointCloud;
+typedef std::vector<PointRGB> ColorPointCloud;
+
 typedef struct {
     std::vector<PointDouble> points;
 } Centroid;
@@ -57,6 +56,29 @@ typedef struct {
 typedef struct PointIndices {
     std::vector<int> indices;
 } PointIndices;
+
+// TODO: evaluate
+typedef int8_t Processed;
+
+#ifndef EPHOS_KERNEL_DISTANCE_PACKETS_PER_ITEM
+#define EPHOS_KERNEL_DISTANCE_PACKETS_PER_ITEM 1
+#endif
+
+#ifndef EPHOS_KERNEL_DISTANCES_PER_PACKET
+#define EPHOS_KERNEL_DISTANCES_PER_PACKET 8
+#endif
+
+#if EPHOS_KERNEL_DISTANCES_PER_PACKET == 1 || EPHOS_KERNEL_DISTANCES_PER_PACKET == 8
+typedef uint8_t DistancePacket;
+#elif EPHOS_KERNEL_DISTANCES_PER_PACKET == 16
+typedef uint16_t DistancePacket;
+#elif EPHOS_KERNEL_DISTANCES_PER_PACKET == 32
+typedef uint32_t DistancePacket;
+#elif EPHOS_KERNEL_DISTANCES_PER_PACKET == 64
+typedef uint64_t DistancePacket;
+#else
+#error "Invalid distance packet size"
+#endif
 
 #define PI 3.1415926535897932384626433832795
 

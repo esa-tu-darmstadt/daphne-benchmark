@@ -1,16 +1,33 @@
 /**
  * Author:  Florian Stock, Technische Universität Darmstadt,
  * Embedded Systems & Applications Group 2018
- * License: Apache 2.0 (see attachached File)
+ * Author:  Thilo Gabel, Technische Universität Darmstadt,
+ * Embedded Systems & Applications Group 2019
+ * License: Apache 2.0 (see attached files)
  */
-#include "benchmark.h"
-#include "datatypes.h"
-#include "kernel.h"
 #include <cmath>
 #include <iostream>
 #include <fstream>
+#include <sstream>
+#include <cstdint>
 #include <cstring>
-#include <ios>
+#include <string>
+
+#include "points2image.h"
+#include "datatypes.h"
+
+points2image::points2image() :
+	error_so_far(false),
+	max_delta(0.0),
+	pointcloud(),
+	cameraExtrinsicMat(),
+	cameraMat(),
+	distCoeff(),
+	imageSize(),
+	results()
+	{}
+
+points2image::~points2image() {}
 
 void points2image::init() {
 	std::cout << "init\n";
@@ -30,6 +47,12 @@ void points2image::init() {
 		std::cerr << "Error opening the output data file" << std::endl;
 		exit(-2);
 	}
+// 	try {
+// 		datagen_file.open("../../../data/p2i_output.dat.gen", std::ios::binary);
+// 	} catch (std::ofstream::failure) {
+// 		std::cerr << "Error opening datagen file" << std::endl;
+// 		exit(-2);
+// 	}
 	try {
 	// consume the total number of testcases
 		testcases = read_number_testcases(input_file);
@@ -37,36 +60,46 @@ void points2image::init() {
 		std::cerr << e.what() << std::endl;
 		exit(-3);
 	}
-	
+#ifdef EPHOS_TESTCASE_LIMIT
+	testcases = std::min(testcases, (uint32_t)EPHOS_TESTCASE_LIMIT);
+#endif
 	// prepare the first iteration
 	error_so_far = false;
 	max_delta = 0.0;
-	pointcloud2 = nullptr;
+
+	/*pointcloud = nullptr;
 	cameraExtrinsicMat = nullptr;
 	cameraMat = nullptr;
 	distCoeff = nullptr;
 	imageSize = nullptr;
-	results = nullptr;
-
-	std::cout << "done\n" << std::endl;
+	results = nullptr;*/
+	std::cout << "done" << std::endl;
 }
-/**
- * This code is extracted from Autoware, file:
- * ~/Autoware/ros/src/sensing/fusion/packages/points2image/lib/points_image/points_image.cpp
- * It uses the test data that has been read before and applies the linked algorithm.
- * pointcloud2: cloud of points to transform
- * cameraExtrinsicMat: camera matrix used for transformation
- * cameraMat: camera matrix used for transformation
- * distCoeff: distance coefficients for cloud transformation
- * imageSize: the size of the resulting image
- * returns: the two dimensional image of transformed points
- */
-PointsImage pointcloud2_to_image(
-	const PointCloud2& pointcloud2,
-	const Mat44& cameraExtrinsicMat,
-	const Mat33& cameraMat, const Vec5& distCoeff,
-	const ImageSize& imageSize)
-{
+
+void points2image::quit() {
+	// close files
+	try {
+		input_file.close();
+	} catch (std::ifstream::failure& e) {
+	}
+	try {
+		output_file.close();
+
+	} catch (std::ofstream::failure& e) {
+	}
+	try {
+		datagen_file.close();
+	} catch (std::ofstream::failure& e) {
+	}
+}
+
+PointsImage points2image::cloud2Image(
+	PointCloud& pointcloud,
+	Mat44& cameraExtrinsicMat,
+	Mat33& cameraMat,
+	Vec5& distCoeff,
+	ImageSize& imageSize) {
+
 	// initialize the resulting image data structure
 	int w = imageSize.width;
 	int h = imageSize.height;
@@ -83,10 +116,10 @@ PointsImage pointcloud2_to_image(
 	msg.min_y = h;
 	msg.image_height = imageSize.height;
 	msg.image_width = imageSize.width;
-	
+
 	// prepare cloud data pointer to read the data correctly
-	uintptr_t cp = (uintptr_t)pointcloud2.data;
-	
+	uintptr_t cp = (uintptr_t)pointcloud.data;
+
 	// preprocess the given matrices
 	// transposed 3x3 camera extrinsic matrix
 	Mat33 invR;
@@ -101,22 +134,22 @@ PointsImage pointcloud2_to_image(
 			invT.data[row] -= invR.data[row][col] * cameraExtrinsicMat.data[col][3];
 	}
 	// apply the algorithm for each point in the cloud
-	for (uint32_t y = 0; y < pointcloud2.height; ++y) {
-		for (uint32_t x = 0; x < pointcloud2.width; ++x) {
+	for (uint32_t y = 0; y < pointcloud.height; ++y) {
+		for (uint32_t x = 0; x < pointcloud.width; ++x) {
 			// the start of the current point in the cloud to process
-			float* fp = (float *)(cp + (x + y*pointcloud2.width) * pointcloud2.point_step);
+			float* fp = (float *)(cp + (x + y*pointcloud.width) * pointcloud.point_step);
 			double intensity = fp[4];
 
 			Mat13 point, point2;
 			point2.data[0] = double(fp[0]);
 			point2.data[1] = double(fp[1]);
 			point2.data[2] = double(fp[2]);
-			
+
 			// start the the predetermined translation
 			for (int row = 0; row < 3; row++) {
 				point.data[row] = invT.data[row];
 			// add the transformed cloud point
-			for (int col = 0; col < 3; col++) 
+			for (int col = 0; col < 3; col++)
 				point.data[row] += point2.data[col] * invR.data[row][col];
 			}
 			// discard points with small depth values
@@ -139,13 +172,13 @@ PointsImage pointcloud2_to_image(
 			imagepoint.y = tmpy * tmpdist
 			+ distCoeff.data[2] * (r2 + 2 * tmpy * tmpy)
 			+ 2 * distCoeff.data[3] * tmpx * tmpy;
-			
+
 			// apply the camera matrix (camera intrinsics) and end up with a two dimensional point
 			imagepoint.x = cameraMat.data[0][0] * imagepoint.x + cameraMat.data[0][2];
 			imagepoint.y = cameraMat.data[1][1] * imagepoint.y + cameraMat.data[1][2];
 			int px = int(imagepoint.x + 0.5);
 			int py = int(imagepoint.y + 0.5);
-			
+
 			// continue with points that landed inside image bounds
 			if(0 <= px && px < w && 0 <= py && py < h)
 			{
@@ -159,7 +192,7 @@ PointsImage pointcloud2_to_image(
 					// in case two points get the same distance, take the one with higher intensity
 					if (((msg.distance[pid] == float(point.data[2] * 100.0)) &&  msg.intensity[pid] < float(intensity)) ||
 						(msg.distance[pid] > float(point.data[2] * 100.0)) ||
-						msg.distance[pid] == 0) 
+						msg.distance[pid] == 0)
 					{
 						msg.intensity[pid] = float(intensity);
 					}
@@ -174,27 +207,4 @@ PointsImage pointcloud2_to_image(
 		}
 	}
 	return msg;
-}
-
-
-void points2image::run(int p) {
-	// pause while reading and comparing data
-	// only run the timer when the algorithm is active
-	pause_func();
-	while (read_testcases < testcases)
-	{
-		int count = read_next_testcases(p);
-		unpause_func();
-		// run the algorithm for each input data set
-		for (int i = 0; i < count; i++)
-		{
-			results[i] = pointcloud2_to_image(pointcloud2[i],
-								cameraExtrinsicMat[i],
-								cameraMat[i], distCoeff[i],
-								imageSize[i]);
-		}
-		pause_func();
-		// compare with the reference data
-		check_next_outputs(count);
-	}
 }
