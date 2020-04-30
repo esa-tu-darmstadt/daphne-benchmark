@@ -2,5 +2,5 @@ data/*
 *.dat
 *.o
 **/Makefile.deps
-**/kernel.h
+**/kernel/kernel.h
 **/benchmark
