@@ -1,11 +1,9 @@
 /**
  * Author:  Florian Stock, Technische Universität Darmstadt,
  * Embedded Systems & Applications Group 2018
- * Author:  Leonardo Solis, Technische Universität Darmstadt,
- * Embedded Systems & Applications Group 2018
  * Author:  Thilo Gabel, Technische Universität Darmstadt,
  * Embedded Systems & Applications Group 2019
- * License: Apache 2.0 (see attachached File)
+ * License: Apache 2.0 (see attached files)
  */
 #ifndef EPHOS_NDT_MAPPING_H
 #define EPHOS_NDT_MAPPING_H
@@ -24,12 +22,6 @@
 #include "datatypes.h"
 
 #include "common/benchmark.h"
-
-
-#define STRINGIFY2(s) #s
-#define STRINGIFY(s) STRINGIFY2(s)
-
-#define EPHOS_KERNEL_WORK_GROUP_SIZE_S STRINGIFY(EPHOS_KERNEL_WORK_GROUP_SIZE)
 
 // maximum allowed deviation from reference
 #define MAX_TRANSLATION_EPS 0.001
