@@ -16,13 +16,13 @@ ifdef TESTCASE_LIMIT
 	CPPFLAGS+= -DEPHOS_TESTCASE_LIMIT=$(TESTCASE_LIMIT)
 endif
 # whether to use a sparse reference image representation for improved read speeds
-ifdef TESTCASE_SPARSE
-$(info Indicated sparse reference data)
-	CPPFLAGS+= -DEPHOS_TESTCASE_SPARSE=1
+ifdef ENABLE_LEGACY_TESTDATA
+$(info Indicated legacy reference data)
+	CPPFLAGS+= -DEPHOS_TESTDATA_LEGACY
 endif
-ifdef ENABLE_DATAGEN
+ifdef ENABLE_TESTDATA_GEN
 $(info Enabled result data generation)
-	CPPFLAGS+= -DEPHOS_DATAGEN
+	CPPFLAGS+= -DEPHOS_TESTDATA_GEN
 endif
 
 all: benchmark checkdata

@@ -116,7 +116,7 @@ private:
 	/**
 	 * Outputs a sparse image representation to the given stream.
 	 */
-	void writeSparsePointsImage(std::ofstream& output_file, PointsImage& image);
+	void writePointsImage(std::ofstream& output_file, PointsImage& image);
 
 	};
 

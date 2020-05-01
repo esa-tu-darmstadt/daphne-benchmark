@@ -72,7 +72,46 @@ void  points2image::parseImageSize(std::ifstream& input_file, ImageSize& imageSi
 	}
 }
 
-#ifdef EPHOS_TESTCASE_SPARSE
+#ifdef EPHOS_TESTDATA_LEGACY
+void points2image::parsePointsImage(std::ifstream& output_file, PointsImage& image) {
+	try {
+		int32_t width;
+		output_file.read((char*)&width, sizeof(int32_t));
+		int32_t height;
+		output_file.read((char*)&height, sizeof(int32_t));
+		int32_t maxY;
+		output_file.read((char*)&maxY, sizeof(int32_t));
+		int32_t minY;
+		output_file.read((char*)&minY, sizeof(int32_t));
+		int pixelNo = width*height;
+		image.intensity = new float[pixelNo];
+		image.distance = new float[pixelNo];
+		image.min_height = new float[pixelNo];
+		image.max_height = new float[pixelNo];
+		image.image_width = width;
+		image.image_height = height;
+		image.max_y = maxY;
+		image.min_y = minY;
+		// read all pixels
+		for (int i = 0; i < pixelNo; i++) {
+			float intensity;
+			output_file.read((char*)&intensity, sizeof(float));
+			float depth;
+			output_file.read((char*)&depth, sizeof(float));
+			float minHeight;
+			output_file.read((char*)&minHeight, sizeof(float));
+			float maxHeight;
+			output_file.read((char*)&maxHeight, sizeof(float));
+			image.distance[i] = depth;
+			image.intensity[i] = intensity;
+			image.min_height[i] = minHeight;
+			image.max_height[i] = maxHeight;
+		}
+	} catch (std::ios_base::failure) {
+		throw std::ios_base::failure("Error reading the next reference image.");
+	}
+}
+#else // !EPHOS_TESTDATA_LEGACY
 void points2image::parsePointsImage(std::ifstream& output_file, PointsImage& image) {
 	try {
 		// read data of static size
@@ -114,7 +153,8 @@ void points2image::parsePointsImage(std::ifstream& output_file, PointsImage& ima
 		throw std::ios_base::failure("Error reading the next reference image.");
 	}
 }
-void points2image::writeSparsePointsImage(std::ofstream& output_file, PointsImage& image) {
+#endif // !EPHOS_TESTDATA_LEGACY
+void points2image::writePointsImage(std::ofstream& output_file, PointsImage& image) {
 	try {
 		// read data of static size
 		int32_t width = image.image_width;
@@ -154,46 +194,7 @@ void points2image::writeSparsePointsImage(std::ofstream& output_file, PointsImag
 		throw std::ios_base::failure("Error writing the next reference image.");
 	}
 }
-#else // !EPHOS_TESTCASE_SPARSE
-void points2image::parsePointsImage(std::ifstream& output_file, PointsImage& image) {
-	try {
-		int32_t width;
-		output_file.read((char*)&width, sizeof(int32_t));
-		int32_t height;
-		output_file.read((char*)&height, sizeof(int32_t));
-		int32_t maxY;
-		output_file.read((char*)&maxY, sizeof(int32_t));
-		int32_t minY;
-		output_file.read((char*)&minY, sizeof(int32_t));
-		int pixelNo = width*height;
-		image.intensity = new float[pixelNo];
-		image.distance = new float[pixelNo];
-		image.min_height = new float[pixelNo];
-		image.max_height = new float[pixelNo];
-		image.image_width = width;
-		image.image_height = height;
-		image.max_y = maxY;
-		image.min_y = minY;
-		// read all pixels
-		for (int i = 0; i < pixelNo; i++) {
-			float intensity;
-			output_file.read((char*)&intensity, sizeof(float));
-			float depth;
-			output_file.read((char*)&depth, sizeof(float));
-			float minHeight;
-			output_file.read((char*)&minHeight, sizeof(float));
-			float maxHeight;
-			output_file.read((char*)&maxHeight, sizeof(float));
-			image.distance[i] = depth;
-			image.intensity[i] = intensity;
-			image.min_height[i] = minHeight;
-			image.max_height[i] = maxHeight;
-		}
-	} catch (std::ios_base::failure) {
-		throw std::ios_base::failure("Error reading the next reference image.");
-	}
-}
-#endif // !EPHOS_TESTCASE_SPARSE
+
 
 int points2image::read_next_testcases(int count)
 {
@@ -254,7 +255,9 @@ void points2image::check_next_outputs(int count)
 		int caseErrorNo = 0;
 		try {
 			parsePointsImage(output_file, reference);
-			//writeSparsePointsImage(datagen_file, &reference);
+#ifdef EPHOS_TESTDATA_GEN
+			writePointsImage(datagen_file, &reference);
+#endif
 		} catch (std::ios_base::failure& e) {
 			std::cerr << e.what() << std::endl;
 			exit(-3);
