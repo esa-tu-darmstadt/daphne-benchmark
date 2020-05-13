@@ -52,5 +52,13 @@ typedef struct PointsImage {
   int32_t image_width;
 } PointsImage;
 
+typedef struct FullPixelData {
+	int position[2];
+	float depth;
+	float intensity;
+	float min_height;
+	float max_height;
+} FullPixelData;
+
 #endif
 

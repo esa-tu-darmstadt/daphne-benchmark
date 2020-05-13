@@ -1,7 +1,7 @@
 /**
  * Author:  Florian Stock, Technische Universität Darmstadt,
  * Embedded Systems & Applications Group 2018
- * License: Apache 2.0 (see attachached File)
+ * License: Apache 2.0 (see attached files)
  */
 #include <chrono>
 #include <iostream>
@@ -9,90 +9,28 @@
 #include <stdlib.h>
 #include "benchmark.h"
 
-std::chrono::high_resolution_clock::time_point start,end;
-std::chrono::duration<double> elapsed;
-std::chrono::high_resolution_clock timer;
-bool pause = false;
+extern benchmark& myKernel;
 
-// how many testcases should be executed in sequence (before checking for correctness)
-int pipelined = 1;
-
-extern kernel& myKernel;
-
-
-void pause_timer()
-{
-  end = timer.now();
-  elapsed += (end-start);
-  pause = true;
-}  
-
-void unpause_timer() 
-{
-  pause = false;
-  start = timer.now();
-}
-
-void usage(char *exec)
-{
-  std::cout << "Usage: \n" << exec << " [-p N]\nOptions:\n  -p N   executes N invocations in sequence,";
-  std::cout << "before taking time and check the result.\n";
-  std::cout << "         Default: N=1\n";
-}
 int main(int argc, char **argv) {
+	myKernel.init();
+	// execute the kernel
+	int pipelined = 1;
+	myKernel.run(pipelined);
+	// measure the runtime of the kernel
+	myKernel.quit();
+	double secondsElapsed = myKernel.get_runtime();
+	int testcaseNo = myKernel.get_testcase_no();
+	std::cout <<  "elapsed time: "<< secondsElapsed << " seconds";
+	std::cout <<  ", average time per testcase (#"<< testcaseNo << "): ";
+	std::cout << secondsElapsed/(double)testcaseNo << " seconds" << std::endl;
 
-  if ((argc != 1) && (argc !=  3))
-    {
-      usage(argv[0]);
-      exit(2);
-    }
-  if (argc == 3)
-    {
-      if (strcmp(argv[1], "-p") != 0)
-	{
-	  usage(argv[0]);
-	  exit(3);
+	// read the desired output  and compare
+	if (myKernel.check_output()) {
+		std::cout << "result ok\n";
+		return 0;
+	} else {
+		std::cout << "error: wrong result\n";
+		return 1;
 	}
-      errno = 0;
-      pipelined = strtol(argv[2], NULL, 10);
-      if (errno || (pipelined < 1) )
-	{
-	  usage(argv[0]);
-	  exit(4);
-	}
-      std::cout << "Invoking kernel " << pipelined << " time(s) per measure/checking step\n";
-      
-    }
-    // read input data
-    myKernel.set_timer_functions(pause_timer, unpause_timer);
-    myKernel.init();
-    
-    // measure the runtime of the kernel
-    start = timer.now();
-
-    // execute the kernel
-    myKernel.run(pipelined);
-    
-    // measure the runtime of the kernel
-    if (!pause) 
-    {
-	end = timer.now();
-    	elapsed += end-start;
-    }
-    std::cout <<  "elapsed time: "<< elapsed.count() << " seconds, average time per testcase (#"
-	      << myKernel.testcases << "): " << elapsed.count() / (double) myKernel.testcases
-	      << " seconds" << std::endl;
-
-    // read the desired output  and compare
-    if (myKernel.check_output())
-      {
-	std::cout << "result ok\n";
-	return 0;
-      } else
-      {
-	std::cout << "error: wrong result\n";
 	return 1;
-      }
-    return 1;
-
 }
