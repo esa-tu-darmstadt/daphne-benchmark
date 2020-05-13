@@ -52,6 +52,7 @@ typedef PointXYZI *PointCloudArray;
 
 typedef struct CallbackResult {
     bool converged;
+	std::vector<Matrix4f> intermediate_transformations;
     Matrix4f final_transformation;
     double fitness_score;
 } CallbackResult;

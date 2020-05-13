@@ -64,8 +64,39 @@ public:
     virtual void init();
     virtual void run(int p = 1);
     virtual bool check_output();
-    
-protected:    
+protected:
+	/**
+	 * Reads the next reference matrix.
+	 */
+	void parseResult(std::ifstream& output_file, CallbackResult& result);
+	/**
+	 * Reads the next voxel grid.
+	 */
+	void parseIntermediateResults(std::ifstream& output_file, CallbackResult& result);
+#ifdef EPHOS_DATAGEN
+	/**
+	 * Writes the next reference matrix.
+	 */
+	void writeResult(std::ofstream& output_file, CallbackResult& result);
+	/**
+	 * Writes the next voxel grid.
+	 */
+	void writeIntermediateResults(std::ofstream& output_file, CallbackResult& result);
+#endif // EPHOS_DATAGEN
+	/**
+	 * Reads the next point cloud.
+	 */
+	void  parseFilteredScan(std::ifstream& input_file, PointCloud& pointcloud);
+
+	void parseMaps(std::ifstream& input_file, PointCloudArray* pointcloud, int* size);
+	/**
+	 * Reads the next initilization matrix.
+	 */
+	void parseInitGuess(std::ifstream& input_file, Matrix4f& initGuess);
+	/**
+	 * Reads the number of testcases in the data file
+	 */
+	int read_number_testcases(std::ifstream& input_file);
 	/**
 	 * Reads the next testcases.
 	 * count: number of datasets to read
@@ -120,7 +151,6 @@ protected:
 	 */
 	void deinitCompute();
 	void buildTransformationMatrix(Matrix4f &matrix, Vec6 transform);
-	int read_number_testcases(std::ifstream& input_file);
 	inline double ndt_getFitnessScore ();
 	void eulerAngles(Matrix4f transform, Vec3 &result);
 	CallbackResult partial_points_callback(PointCloud &input_cloud, Matrix4f &init_guess, PointCloudArray target_cloud, int target_cloud_size);
@@ -166,11 +196,11 @@ int ndt_mapping::read_number_testcases(std::ifstream& input_file)
 /**
  * Reads the next point cloud.
  */
-void  parseFilteredScan(std::ifstream& input_file, PointCloud* pointcloud) {
+void ndt_mapping::parseFilteredScan(std::ifstream& input_file, PointCloud& pointcloud) {
 	int32_t size;
 	try {
 		input_file.read((char*)&(size), sizeof(int32_t));
-		pointcloud->clear();
+		pointcloud.clear();
 		for (int i = 0; i < size; i++)
 		{
 			PointXYZI p;
@@ -178,7 +208,7 @@ void  parseFilteredScan(std::ifstream& input_file, PointCloud* pointcloud) {
 			input_file.read((char*)&p.data[1], sizeof(float));
 			input_file.read((char*)&p.data[2], sizeof(float));
 			input_file.read((char*)&p.data[3], sizeof(float));
-			pointcloud->push_back(p);
+			pointcloud.push_back(p);
 		}
 	} catch (std::ifstream::failure) {
 		throw std::ios_base::failure("Error reading filtered scan");
@@ -188,7 +218,7 @@ void  parseFilteredScan(std::ifstream& input_file, PointCloud* pointcloud) {
 /**
  * Reads the next point cloud.
  */
-void  parseMaps(std::ifstream& input_file, PointCloudArray *pointcloud, int *size) {
+void  ndt_mapping::parseMaps(std::ifstream& input_file, PointCloudArray* pointcloud, int* size) {
 	try {
 		input_file.read((char*)size, sizeof(int));
 		cudaMallocManaged(pointcloud, sizeof(PointXYZI) **size);
@@ -209,12 +239,12 @@ void  parseMaps(std::ifstream& input_file, PointCloudArray *pointcloud, int *siz
 /**
  * Reads the next initilization matrix.
  */
-void  parseInitGuess(std::ifstream& input_file, Matrix4f* initGuess) {
+void  ndt_mapping::parseInitGuess(std::ifstream& input_file, Matrix4f& initGuess) {
 	try {
-	for (int h = 0; h < 4; h++)
-		for (int w = 0; w < 4; w++)
-			input_file.read((char*)&(initGuess->data[h][w]),sizeof(float));
-	}  catch (std::ifstream::failure) {
+		for (int h = 0; h < 4; h++)
+			for (int w = 0; w < 4; w++)
+				input_file.read((char*)&(initGuess.data[h][w]),sizeof(float));
+	}  catch (std::ifstream::failure& e) {
 		throw std::ios_base::failure("Error reading initial guess");
 	}
 }
@@ -222,20 +252,42 @@ void  parseInitGuess(std::ifstream& input_file, Matrix4f* initGuess) {
 /**
  * Reads the next reference matrix.
  */
-void parseResult(std::ifstream& output_file, CallbackResult* goldenResult) {
+void ndt_mapping::parseResult(std::ifstream& output_file, CallbackResult& result) {
 	try {
 		for (int h = 0; h < 4; h++)
 			for (int w = 0; w < 4; w++)
 			{
-				output_file.read((char*)&(goldenResult->final_transformation.data[h][w]), sizeof(float));
+				float m;
+				output_file.read((char*)&m, sizeof(float));
+				result.final_transformation.data[h][w] = m;
 			}
-		output_file.read((char*)&(goldenResult->fitness_score), sizeof(double));
-		output_file.read((char*)&(goldenResult->converged), sizeof(bool));
-	}  catch (std::ifstream::failure) {
-		throw std::ios_base::failure("Error reading reference result");		
+		double fitness;
+		output_file.read((char*)&fitness, sizeof(double));
+		result.fitness_score = fitness;
+		bool converged;
+		output_file.read((char*)&converged, sizeof(bool));
+		result.converged = converged;
+	}  catch (std::ifstream::failure& e) {
+		throw std::ios_base::failure("Error reading result.");
 	}
 }
-
+void ndt_mapping::parseIntermediateResults(std::ifstream& output_file, CallbackResult& result) {
+	try {
+		int resultNo;
+		output_file.read((char*)&resultNo, sizeof(int32_t));
+		result.intermediate_transformations.resize(resultNo);
+		for (int i = 0; i < resultNo; i++) {
+			Matrix4f& m = result.intermediate_transformations[i];
+			for (int h = 0; h < 4; h++) {
+				for (int w = 0; w < 4; w++) {
+					output_file.read((char*)&(m.data[h][w]), sizeof(float));
+				}
+			}
+		}
+	} catch (std::ifstream::failure& e) {
+		throw std::ios_base::failure("Error reading voxel grid.");
+	}
+}
 // return how many could be read
 int ndt_mapping::read_next_testcases(int count)
 {
@@ -257,9 +309,9 @@ int ndt_mapping::read_next_testcases(int count)
 	// read the testcase data
 	for (i = 0; (i < count) && (read_testcases < testcases); i++,read_testcases++)
 	{
-		parseInitGuess(input_file, init_guess + i);
-		parseFilteredScan(input_file, filtered_scan_ptr + i);
-		parseMaps(input_file, maps + i, maps_size_ + i);
+		parseInitGuess(input_file, init_guess[i]);
+		parseFilteredScan(input_file, filtered_scan_ptr[i]);
+		parseMaps(input_file, &maps[i], &maps_size_[i]);
 	}
 	return i;
 }
@@ -1524,7 +1576,7 @@ void ndt_mapping::check_next_outputs(int count)
 	for (int i = 0; i < count; i++)
 	{
 		try {
-			parseResult(output_file, &reference);
+			parseResult(output_file, reference);
 		} catch (std::ios_base::failure& e) {
 			std::cerr << e.what() << std::endl;
 			exit(-3);
