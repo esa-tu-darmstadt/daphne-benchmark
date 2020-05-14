@@ -1577,6 +1577,7 @@ void ndt_mapping::check_next_outputs(int count)
 	{
 		try {
 			parseResult(output_file, reference);
+			parseIntermediateResults(output_file, reference);
 		} catch (std::ios_base::failure& e) {
 			std::cerr << e.what() << std::endl;
 			exit(-3);
