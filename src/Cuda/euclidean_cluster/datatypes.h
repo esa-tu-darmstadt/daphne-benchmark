@@ -1,7 +1,7 @@
 /**
  * Author:  Florian Stock, Technische Universität Darmstadt,
  * Embedded Systems & Applications Group 2018
- * License: Apache 2.0 (see attachached File)
+ * License: Apache 2.0 (see attached files)
  */
 #ifndef datatypes_h
 #define datatypes_h

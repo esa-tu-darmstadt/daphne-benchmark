@@ -3,7 +3,7 @@
  * Embedded Systems & Applications Group 2018
  * Author:  Thilo Gabel, Technische Universität Darmstadt,
  * Embedded Systems & Applications Group 2019
- * License: Apache 2.0 (see attachached File)
+ * License: Apache 2.0 (see attached files)
  */
 #include "benchmark.h"
 #include "datatypes.h"
