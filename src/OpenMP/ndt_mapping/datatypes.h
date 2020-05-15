@@ -1,10 +1,10 @@
 /**
  * Author:  Florian Stock, Technische Universität Darmstadt,
  * Embedded Systems & Applications Group 2018
- * License: Apache 2.0 (see attachached File)
+ * License: Apache 2.0 (see attached files)
  */
-#ifndef DATATYPES_H
-#define DATATXPES_H
+#ifndef EPHOS_DATATYPES_H
+#define EPHOS_DATATYPES_H
 
 #include <vector>
 
@@ -49,30 +49,21 @@ typedef std::vector<PointXYZI> PointCloudSource;
 typedef PointCloudSource PointCloud;
 
 typedef struct CallbackResult {
-    bool converged;
-    Matrix4f final_transformation;
-    double fitness_score;
+	bool converged;
+	std::vector<Matrix4f> intermediate_transformations;
+	Matrix4f final_transformation;
+	double fitness_score;
 } CallbackResult;
 
 typedef struct Voxel {
     Mat33 invCovariance;
     Vec3 mean;
     int numberPoints;
-    int voxel_x;
-    int voxel_y;
-    int voxel_z;
 } Voxel;
+
 
 typedef std::vector<Voxel> VoxelGrid;
 
-Matrix4f Matrix4f_Identity = {
-	{{1.0, 0.0, 0.0, 0.0}, 
-	 {0.0, 1.0, 0.0, 0.0}, 
-	 {0.0, 0.0, 1.0, 0.0},
-	 {0.0, 0.0, 0.0, 1.0}}
-};
-
 #define PI 3.1415926535897932384626433832795
 
-#endif
-
+#endif // EPHOS_DATATYPES_H
