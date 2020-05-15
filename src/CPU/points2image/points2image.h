@@ -118,6 +118,6 @@ private:
 	 */
 	void writePointsImage(std::ofstream& output_file, PointsImage& image);
 
-	};
+};
 
 #endif //EPHOS_KERNEL_H

@@ -25,10 +25,10 @@ euclidean_clustering::euclidean_clustering() :
 	colorPointCloud(),
 	clusterBoundingBoxes(),
 	clusterCentroids(),
-	//plainCloudSize(),
 	read_testcases(0),
 	input_file(),
 	output_file(),
+	datagen_file(),
 	error_so_far(false),
 	max_delta(0)
 {}
@@ -741,6 +741,14 @@ void euclidean_clustering::init() {
 		std::cerr << "Error opening the output data file" << std::endl;
 		exit(-3);
 	}
+#ifdef EPHOS_TESTDATA_GEN
+	try {
+		datagen_file.open("../../../data/ec_output_gen.dat", std::ios::binary);
+	} catch (std::ofstream::failure) {
+		std::cerr << "Error opening the generated data file" << std::endl;
+		exit(-3);
+	}
+#endif
 	// consume the number of testcases from the input file
 	try {
 		testcases = read_number_testcases(input_file);
@@ -748,9 +756,9 @@ void euclidean_clustering::init() {
 		std::cerr << e.what() << std::endl;
 		exit(-3);
 	}
-#ifdef TESTCASE_LIMIT
-	if (TESTCASE_LIMIT < testcases) {
-		testcases = TESTCASE_LIMIT;
+#ifdef EPHOS_TESTCASE_LIMIT
+	if (EPHOS_TESTCASE_LIMIT < testcases) {
+		testcases = EPHOS_TESTCASE_LIMIT;
 	}
 #endif // TESTCASE_LIMIT
 	// prepare for the first iteration

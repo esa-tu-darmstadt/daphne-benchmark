@@ -45,6 +45,7 @@ private:
 	int read_testcases = 0;
 	// testcase and reference data streams
 	std::ifstream input_file, output_file;
+	std::ofstream datagen_file;
 	// indicates an size related error
 	bool error_so_far = false;
 	// the measured maximum deviation from the reference data
@@ -140,6 +141,12 @@ protected:
 	void parseBoundingboxArray(std::ifstream& input_file, BoundingboxArray& bb_array);
 
 	void parseCentroids(std::ifstream& input_file, Centroid& centroids);
+
+	void writeColorPointCloud(std::ofstream& datagen_file, ColorPointCloud& cloud);
+
+	void writeBoundingboxArray(std::ofstream& datagen_file, BoundingboxArray& bb_array);
+
+	void writeCentroids(std::ofstream& datagen_file, Centroid& centroids);
 
 
 	/**

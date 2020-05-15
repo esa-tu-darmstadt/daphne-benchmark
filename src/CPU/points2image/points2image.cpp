@@ -47,12 +47,14 @@ void points2image::init() {
 		std::cerr << "Error opening the output data file" << std::endl;
 		exit(-2);
 	}
-// 	try {
-// 		datagen_file.open("../../../data/p2i_output.dat.gen", std::ios::binary);
-// 	} catch (std::ofstream::failure) {
-// 		std::cerr << "Error opening datagen file" << std::endl;
-// 		exit(-2);
-// 	}
+#ifdef EPHOS_TESTDATA_GEN
+ 	try {
+ 		datagen_file.open("../../../data/p2i_output.dat.gen", std::ios::binary);
+ 	} catch (std::ofstream::failure) {
+ 		std::cerr << "Error opening datagen file" << std::endl;
+ 		exit(-2);
+ 	}
+#endif
 	try {
 	// consume the total number of testcases
 		testcases = read_number_testcases(input_file);
@@ -67,12 +69,12 @@ void points2image::init() {
 	error_so_far = false;
 	max_delta = 0.0;
 
-	/*pointcloud = nullptr;
-	cameraExtrinsicMat = nullptr;
-	cameraMat = nullptr;
-	distCoeff = nullptr;
-	imageSize = nullptr;
-	results = nullptr;*/
+	pointcloud.clear();
+	cameraExtrinsicMat.clear();
+	cameraMat.clear();
+	distCoeff.clear();
+	imageSize.clear();
+	results.clear();
 	std::cout << "done" << std::endl;
 }
 

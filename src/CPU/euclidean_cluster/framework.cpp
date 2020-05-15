@@ -35,7 +35,7 @@ void euclidean_clustering::parsePlainPointCloud(std::ifstream& input_file, Plain
 			input_file.read((char*)&(point.z), sizeof(float));
 			cloud.push_back(point);
 		}
-	} catch (std::ifstream::failure e) {
+	} catch (std::ifstream::failure& e) {
 		throw std::ios_base::failure("Error reading point cloud");
 	}
 }
@@ -59,7 +59,7 @@ void euclidean_clustering::parseColorPointCloud(std::ifstream& input_file, Color
 		input_file.read((char*)&p.b, sizeof(uint8_t));
 		cloud.push_back(p);
 	    }
-    }  catch (std::ifstream::failure) {
+    }  catch (std::ifstream::failure&) {
 		throw std::ios_base::failure("Error reading reference cloud");
     }
 }
@@ -83,7 +83,7 @@ void euclidean_clustering::parseBoundingboxArray(std::ifstream& input_file, Boun
 			input_file.read((char*)&bba.dimensions.y, sizeof(double));
 			bb_array.boxes.push_back(bba);
 		}
-	}  catch (std::ifstream::failure e) {
+	}  catch (std::ifstream::failure& e) {
 		throw std::ios_base::failure("Error reading reference bounding boxes");
 	}
 }
@@ -104,17 +104,70 @@ void euclidean_clustering::parseCentroids(std::ifstream& input_file, Centroid& c
 			input_file.read((char*)&p.z, sizeof(double));
 			centroids.points.push_back(p);
 		}
-    } catch (std::ifstream::failure e) {
+    } catch (std::ifstream::failure& e) {
 		throw std::ios_base::failure("Error reading reference centroids");
     }
 }
+
+void euclidean_clustering::writeColorPointCloud(std::ofstream& datagen_file, ColorPointCloud& cloud) {
+	try {
+		int pointNo = cloud.size();
+		datagen_file.write((char*)&pointNo, sizeof(int));
+		for (PointRGB p : cloud) {
+			datagen_file.write((char*)&p.x, sizeof(float));
+			datagen_file.write((char*)&p.y, sizeof(float));
+			datagen_file.write((char*)&p.z, sizeof(float));
+			datagen_file.write((char*)&p.r, sizeof(uint8_t));
+			datagen_file.write((char*)&p.g, sizeof(uint8_t));
+			datagen_file.write((char*)&p.b, sizeof(uint8_t));
+		}
+	} catch (std::ofstream::failure& e) {
+		throw std::ios_base::failure("Error writing reference cloud");
+	}
+}
+
+void euclidean_clustering::writeBoundingboxArray(std::ofstream& datagen_file, BoundingboxArray& bb_array) {
+	try {
+		int boundingBoxNo = bb_array.boxes.size();
+		datagen_file.write((char*)&boundingBoxNo, sizeof(int));
+		for (Boundingbox b : bb_array.boxes) {
+			datagen_file.write((char*)&b.position.x, sizeof(double));
+			datagen_file.write((char*)&b.position.y, sizeof(double));
+			datagen_file.write((char*)&b.orientation.x, sizeof(double));
+			datagen_file.write((char*)&b.orientation.y, sizeof(double));
+			datagen_file.write((char*)&b.orientation.z, sizeof(double));
+			datagen_file.write((char*)&b.orientation.w, sizeof(double));
+			datagen_file.write((char*)&b.dimensions.x, sizeof(double));
+			datagen_file.write((char*)&b.dimensions.y, sizeof(double));
+		}
+	} catch (std::ofstream::failure& e) {
+		throw std::ios_base::failure("Error writing reference bounding boxes");
+	}
+
+}
+
+void euclidean_clustering::writeCentroids(std::ofstream& datagen_file, Centroid& centroids) {
+	try {
+		int centroidNo = centroids.points.size();
+		datagen_file.write((char*)&centroidNo, sizeof(int));
+		for (PointDouble p : centroids.points) {
+			datagen_file.write((char*)&p.x, sizeof(double));
+			datagen_file.write((char*)&p.y, sizeof(double));
+			datagen_file.write((char*)&p.z, sizeof(double));
+		}
+	} catch (std::ofstream::failure& e) {
+		throw std::ios_base::failure("Error writing reference centroids");
+	}
+
+}
+
 
 int euclidean_clustering::read_number_testcases(std::ifstream& input_file)
 {
 	int32_t number;
 	try {
 		input_file.read((char*)&(number), sizeof(int32_t));
-	} catch (std::ifstream::failure) {
+	} catch (std::ifstream::failure&) {
 		throw std::ios_base::failure("Error reading the number of testcases");
 	}
 	return number;
@@ -202,6 +255,11 @@ void euclidean_clustering::check_next_outputs(int count)
 			parseColorPointCloud(output_file, refPointCloud);
 			parseBoundingboxArray(output_file, refBoundingBoxes);
 			parseCentroids(output_file, refClusterCentroids);
+#ifdef EPHOS_TESTDATA_GEN
+			writeColorPointCloud(datagen_file, colorPointCloud[i]);
+			writeBoundingboxArray(datagen_file, clusterBoundingBoxes[i]);
+			writeCentroids(datagen_file, clusterCentroids[i]);
+#endif
 		} catch (std::ios_base::failure& e) {
 			std::cerr << e.what() << std::endl;
 			exit(-3);
