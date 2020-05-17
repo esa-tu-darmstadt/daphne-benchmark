@@ -1,7 +1,6 @@
+data/*
 *.dat
 *.o
 **/Makefile.deps
-**/kernel
-**/stringify.h
-**/ocl_kernel_tmp
-**/ocl_kernel.h
+**/kernel/kernel.h
+**/benchmark

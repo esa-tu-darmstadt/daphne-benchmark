@@ -1,57 +1,87 @@
 .DEFAULT_GOAL := all
-.PHONY: all clean ocl/device/ocl_kernel.h checkdata
+.PHONY: all clean checkdata kernel/kernel.h
 
 -include Makefile.deps
 
-CXXFLAGS=-O3
+ifdef DEBUG
+	CXXFLAGS= -g
+else
+	CXXFLAGS= -O3
+endif
 CXXFLAGS+= -std=c++11
+CPPFLAGS+= -I./ -I../
 
 # opencl library
-OPENCL_INCLUDE_PATH=
-OPENCL_LIBRARY_PATH=
-ifneq ($(OPENCL_INCLUDE_PATH),)
-	CPPFLAGS += -I$(OPENCL_INCLUDE_PATH)
+ifdef OPENCL_INCLUDE_PATH
+$(info Custom OpenCL include path: $(OPENCL_INCLUDE_PATH))
+	CPPFLAGS+= -I$(OPENCL_INCLUDE_PATH)
 endif
-ifneq ($(OPENCL_LIBRARY_PATH),)
-	LDDFLAGS += -L$(OPENCL_LIBRARY_PATH)
+ifdef OPENCL_LIBRARY_PATH
+$(info Custom OpenCL library path: $(OPENCL_LIBRARY_PATH))
+	LDDFLAGS+= -L$(OPENCL_LIBRARY_PATH)
 endif
 LDDFLAGS += -lOpenCL
-CPPFLAGS += -I./
-
-# number of work items per work group
-OPENCL_LOCAL_SIZE=512
-CPPFLAGS+= -DNUMWORKITEMS_PER_WORKGROUP=$(OPENCL_LOCAL_SIZE)
 
 # opencl platform
-OPENCL_PLATFORM_ID=
-OPENCL_DEVICE_ID=
-OPENCL_DEVICE_TYPE=
-ifneq ($(OPENCL_PLATFORM_ID),)
-	CPPFLAGS += -DEPHOS_PLATFORM_HINT=$(OPENCL_PLATFORM_ID)
+ifdef OPENCL_PLATFORM_ID
+$(info OpenCL platform: $(OPENCL_PLATFORM_ID))
+	CPPFLAGS+= -DEPHOS_PLATFORM_HINT=$(OPENCL_PLATFORM_ID)
 endif
-ifneq ($(OPENCL_DEVICE_ID),)
-	CPPFLAGS += -DEPHOS_DEVICE_HINT=$(OPENCL_DEVICE_ID)
+ifdef OPENCL_DEVICE_ID
+$(info OpenCL device: $(OPENCL_DEVICE_ID))
+	CPPFLAGS+= -DEPHOS_DEVICE_HINT=$(OPENCL_DEVICE_ID)
 endif
-ifneq ($(OPENCL_DEVICE_TYPE),)
-	CPPFLAGS += -DEPHOS_DEVICE_TYPE=$(OPENCL_DEVICE_TYPE)
+ifdef OPENCL_DEVICE_TYPE
+$(info OpenCL device type: $(OPENCL_DEVICE_TYPE))
+	CPPFLAGS+= -DEPHOS_DEVICE_TYPE=$(OPENCL_DEVICE_TYPE)
 endif
 
-all: kernel checkdata
+# opencl optimization
+ifdef ENABLE_OPENCL_ZERO_COPY
+$(info Enabled OpenCL zero copy memory)
+	CPPFLAGS+= -DEPHOS_ZERO_COPY=1
+endif
+ifdef ENABLE_OPENCL_PINNED_MEMORY
+$(info Enabled OpenCL page-locked memory)
+	CPPFLAGS+= -DEPHOS_PINNED_MEMORY=1
+endif
+ifndef DISABLE_OPENCL_ATOMICS
+	CPPFLAGS+= -DEPHOS_KERNEL_ATOMICS=1
+else
+$(info Enabled OpenCL atomics)
+endif
+ifndef DISABLE_OPENCL_LOCAL_ATOMICS
+	CPPFLAGS+= -DEPHOS_KERNEL_LOCAL_ATOMICS=1
+else
+$(info Disabled local OpenCL atomics)
+endif
+ifdef OPENCL_TRANSFORMS_PER_WORK_ITEM
+$(info Transformations per work item: $(OPENCL_TRANSFORMS_PER_WORK_ITEM))
+	CPPFLAGS+= -DEPHOS_KERNEL_TRANSFORMS_PER_ITEM=$(OPENCL_TRANSFORMS_PER_WORK_ITEM)
+endif
+OPENCL_WORK_GROUP_SIZE=512
+CPPFLAGS+= -DEPHOS_KERNEL_WORK_GROUP_SIZE=$(OPENCL_WORK_GROUP_SIZE)
 
-kernel: ../common/main.o kernel.o ocl/host/ocl_tools.o
+# other settings
+ifdef TESTCASE_LIMIT
+	CPPFLAGS+= -DEPHOS_TESTCASE_LIMIT=$(TESTCASE_LIMIT)
+endif
+# whether to use a sparse reference image representation for improved read speeds
+ifdef TESTCASE_SPARSE
+$(info Indicated sparse reference data)
+	CPPFLAGS+= -DEPHOS_TESTCASE_SPARSE=1
+endif
+
+all: benchmark checkdata
+
+benchmark: ../common/main.o ../common/compute_tools.o points2image.o framework.o
 	$(CXX) $^ -o $@ $(LDDFLAGS)
 
-../common/main.o: ../common/main.cpp
-	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
+%.o: %.cpp
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
 
-kernel.o: kernel.cpp
-	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
-
-ocl/host/ocl_tools.o: ocl/host/ocl_tools.cpp
-	$(CXX) -c $(CLFAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
-
-ocl/device/ocl_kernel.h:
-	./stringify_ocl_kernels.sh
+kernel/kernel.h:
+	cd kernel && ./stringify_kernels.sh
 
 checkdata:
 ifeq ($(wildcard ../../../data/p2i_input.dat),)
@@ -62,10 +92,10 @@ ifeq ($(wildcard ../../../data/p2i_output.dat),)
 endif
 
 clean:
-	rm -f kernel kernel.o ../common/main.o Makefile.deps \
-	ocl/host/ocl_tools.o ocl/device/ocl_kernel_tmp ocl/device/ocl_kernel.h
+	rm -f benchmark points2image.o framework.o kernel/kernel.h \
+	../common/main.o ../common/compute_tools.o Makefile.deps
 
 Makefile.deps:
-	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include -MM -MG \
-	../common/main.cpp kernel.cpp ocl/host/ocl_tools.cpp > Makefile.deps
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -MM -MG \
+	../common/main.cpp ../common/compute_tools.cpp points2image.cpp framework.cpp > Makefile.deps
 

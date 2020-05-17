@@ -1,12 +1,24 @@
 .DEFAULT_GOAL := all
-.PHONY: all clean checkdata
+.PHONY: all clean checkdata kernel/kernel.h
 
 -include Makefile.deps
 
-CXXFLAGS=-O3
-#CXXFLAGS=-g
+ifdef DEBUG
+	CXXFLAGS+= -g
+else
+	CXXFLAGS+= -O3
+endif
 CXXFLAGS+= -std=c++11
-CPPFLAGS+= -I.
+CPPFLAGS+= -I./ -I../
+
+# standard optimization
+CLOUD_DISTANCES_PER_PACKET=8
+ifneq ($(CLOUD_DISTANCES_PER_PACKET),8)
+$(info Working with distance packets with $(CLOUD_DISTANCES_PER_PACKET) elements)
+endif
+CPPFLAGS+= -DEPHOS_CLOUD_DISTANCES_PER_PACKET=$(CLOUD_DISTANCES_PER_PACKET)
+
+# sycl platform flags
 ifdef SYCL_DEVICE_TYPE
 	CPPFLAGS+= -DEPHOS_DEVICE_TYPE=$(SYCL_DEVICE_TYPE)
 endif
@@ -24,7 +36,6 @@ ifdef SYCL_LIBRARY_PATH
 	LDDFLAGS+= -L$(SYCL_LIBRARY_PATH)
 endif
 LDDFLAGS+= -lComputeCpp
-
 SYCLFLAGS=-sycl
 ifdef SYCL_KERNEL_FORMAT
 	SYCLFLAGS+= -sycl-target $(SYCL_KERNEL_FORMAT)
@@ -34,32 +45,39 @@ endif
 SYCLFLAGS+= -DCL_OPENCL_TARGET_VERSION=120
 CPPFLAGS+= -DCL_OPENCL_TARGET_VERSION=120
 
+# sycl optimization
+SYCL_WORK_GROUP_SIZE=512
+CPPFLAGS+= -DEPHOS_COMPUTE_GROUP_SIZE=$(SYCL_WORK_GROUP_SIZE)
+ifdef ENABLE_SYCL_MEMCPY
+$(info Enabled OpenCL memcpy/memset intrinsics)
+	SYCLFLAGS+= -no-serial-memop
+endif
 
-all: kernel checkdata
+# other options
+ifdef TESTCASE_LIMIT
+$(info Limiting to $(TESTCASE_LIMIT) test cases)
+	CPPFLAGS+= -DEPHOS_TESTCASE_LIMIT=$(TESTCASE_LIMIT)
+endif
+ifdef ENABLE_TESTDATA_GEN
+$(info Enabled result data generation)
+	CPPFLAGS+= -DEPHOS_TESTDATA_GEN
+endif
 
-kernel: ../common/main.o kernel.o sycl/sycl_tools.o
+all: benchmark checkdata
+
+benchmark: euclidean_clustering.o framework.o ../common/main.o ../common/compute_tools.o
 	$(CXX) $^ -o $@ $(LDDFLAGS)
 
-../common/main.o: ../common/main.cpp
-	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
+%.o: %.cpp
+	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -o $@ $<
 
-kernel.o: kernel.cpp sycl/kernel.sycl
-	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -include sycl/kernel.sycl -I../include $< -o $@
+euclidean_clustering.o: euclidean_clustering.cpp kernel/kernel.sycl
+	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -include kernel/kernel.sycl -o $@ euclidean_clustering.cpp
 
-sycl/kernel.sycl: kernel.cpp
-	compute++ $(SYCLFLAGS) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include kernel.cpp
-	mv kernel.sycl sycl/
-	mv kernel-sycl* sycl/
-
-sycl/sycl_tools.o: sycl/sycl_tools.cpp
-	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
-
-clean:
-	rm -f kernel kernel.o ../common/main.o sycl/kernel.sycl sycl/kernel-sycl* Makefile.deps
-
-Makefile.deps:
-	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include -MM -MG \
-	../common/main.cpp *.cpp sycl/sycl_tools.cpp > Makefile.deps
+kernel/kernel.sycl: euclidean_clustering.cpp
+	compute++ $(SYCLFLAGS) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) $<
+	mv euclidean_clustering.sycl kernel/kernel.sycl
+	mv euclidean_clustering-sycl* kernel/
 
 checkdata:
 ifeq ($(wildcard ../../../data/ec_input.dat),)
@@ -68,3 +86,15 @@ endif
 ifeq ($(wildcard ../../../data/ec_output.dat),)
 	$(warning ec_output.dat not found. Did you forget to extract the test data?)
 endif
+
+clean:
+	rm -f Makefile.deps benchmark euclidean_clustering.o framework.o \
+	../common/main.o ../common/compute_tools.o \
+	kernel/kernel.sycl kernel/euclidean_clustering-sycl*
+
+Makefile.deps:
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS)  -MM -MG \
+	euclidean_clustering.cpp framework.cpp \
+	../common/main.cpp ../common/compute_tools.cpp > Makefile.deps
+
+

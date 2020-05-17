@@ -1,38 +1,46 @@
 * Preparation
 
-  Extract the test case data files inside the data folder
+  Extract the test data files inside the data folder (../../data)
+  Test data is supplied separately for each benchmark.
 
-  For points2image:
-  * p2i_input.dat.gz
-  * p2i_output.dat.gz
+  For example the points2image benchmark accesses the following data files:
+  * p2i_input.dat
+  * p2i_output.dat
 
-  For euclidean_cluster:
-  * ec_input.dat.gz
-  * ec_output.dat.gz
-
-  For ndt_mapping:
-  * ndt_input.dat.gz
-  * ndt_output.dat.gz
-
-  Example:
-  $ gunzip --keep ec_input.dat.gz ec_output.dat.gz
-
-  which yields:
-  * ec_input.dat
-  * ec_output.dat
-  inside the data folder
+  These can be extracted inside the data folder with:
+  $ gunzip --keep p2i_input.dat.gz p2i_input.dat.gz
 
 * Compilation
 
-  To compile all kernels in their default configuration:
+  Compilation for all OpenCL benchmarks with default configurations can be initiated from this directory by calling make:
   $ make
 
-  The same result can be achieved in the kernel subfolder (points2image/eucldiean_cluster/ndt_mapping):
+  Compilation with non standard configurations is possible by calling make in the respective subfolder:
+  $ cd points2image
   $ make
 
-* Execute the benchmark
+  Common configuration options are:
+  * TESTCASE_LIMIT - to limit the number of processed testcases
+    - provide an integer to only process a subset of testcases
+    - checked against the actual limit imposed by the test data at runtime
 
-  In the kernel subfolder:
-  $ ./kernel
+  Additional options for the points2image benchmark:
+  * TESTCASE_SPARSE - enable alternative, packed test data representation
+    - decreases load times, only applicable if sparse test data is actually provided
 
-  This will print information about the kernel runtime and unexpected deviations from the reference results
+  Arguments can be supplied to make as follows:
+  $ cd points2image
+  $ make TESTCASE_LIMIT=1250 TESTCASE_SPARSE=1
+  Recompilation may be required to account for updated arguments. Recompilation can be forced with:
+  $ make --always-make
+
+* Execution
+
+  Execute the benchmark from within the benchmark subfolder:
+  $ cd points2image
+  $ ./benchmark
+
+  This will output information about:
+  * whether the test data could be found
+  * benchmark runtime
+  * deviation from the reference data

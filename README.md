@@ -2,13 +2,13 @@
 
 This suite contains automotive benchmarks used for the evaluation of heterogeneous, parallel programming models. They are extracted from the Autoware project and should represent parallelizable workloads from the automotive field.
 
-It contains 3 kernels (euclidean\_cluster, ndt\_matching and points2image) and four different implementations for each kernel:
--Serial version
--OpenMP version
--OpenMP Offloading version
--CUDA version
--OpenCL version
--OpenCL version using atomics
+It contains 3 kernels (euclidean\_cluster, ndt\_matching and points2image) and four different implementations for each kernel:<br/>
+-Serial version<br/>
+-OpenMP version<br/>
+-OpenMP Offloading version<br/>
+-CUDA version<br/>
+-OpenCL version<br/>
+-OpenCL version using atomics<br/>
 
 
 Build the benchmarks either with
@@ -30,7 +30,7 @@ For the points2image benchmark, this release also contains an OpenCL implementat
 
 ### Compatibility Overview ###
 
-The benchmarks have been developed for a large number of platforms in mind. However compatibility out of the box can not be guaranteed. Since some platforms require manual configuration or do not run the benchmarks at all we provide information about which results to expect.
+The benchmarks have been developed for a large number of platforms in mind. However compatibility out of the box can not be guaranteed. Since some platforms require manual configuration or do not support the technology the following list provides information about which results to expect.
 
 | Benchmark                        | Consumer Desktop | Linux Workstation | Nvidia Jetson TX 2 |
 | -------------------------------- |:----------------:|:-----------------:| ------------------:|
@@ -40,11 +40,11 @@ The benchmarks have been developed for a large number of platforms in mind. Howe
 |                                  |                  |                   |                    |
 | Cuda/points2image                | ok               | ok (1)            | ok (2)             |
 | Cuda/euclidean_cluster           | ok (1)           | ok (2)            |                    |
-| Cuda/ndt_mapping                 | failed (3)       | failed (3)(1)     | ok (4)(2)          |
+| Cuda/ndt_mapping                 | ok (4)           | ok (4)(1)         | ok (4)(2)          |
 |                                  |                  |                   |                    |
 | OpenCl/points2image              | ok               | ok                | ok (5)             |
 | OpenCl/euclidean_cluster         | ok               | ok                | ok (5)             |
-| OpenCl/ndt_mapping               | ok (4)           | ok (4)            | failed (5)(6)      |
+| OpenCl/ndt_mapping               | ok (4)           | ok (4)            | not supported (5)(6) |
 |                                  |                  |                   |                    |
 | OpenCl-atomic/points2image       | ok               | ok                | ok (5)             |
 | OpenCl-atomic/euclidean_cluster  | ok               | ok                | ok (5)             |
@@ -55,22 +55,28 @@ The benchmarks have been developed for a large number of platforms in mind. Howe
 | OpenMP/ndt_mapping               | ok               | ok                | ok (4)             |
 |                                  |                  |                   |                    |
 | OpenMP-offload/points2image      | ok (CPU)         | ok (CPU), ok (CUDA)| ok (CPU)           |
-| OpenMP-offload/euclidean_cluster | ok (CPU)         | ok (CPU), ok (CUDA)| failed (8)         |
-| OpenMP-offload/ndt_mapping       | failed (CPU)(7)  | ok (CPU), ok (CUDA)(4)| failed (8)      |
+| OpenMP-offload/euclidean_cluster | ok (CPU)         | ok (CPU), ok (CUDA)| not supported (8)  |
+| OpenMP-offload/ndt_mapping       | not supported (CPU)(7) | ok (CPU), ok (CUDA)(4) | not supported (8) |
 
-(1) Compute Capability set to 6.0 or lower
+(1) Compute Capability set to 6.0 or lower<br/>
+(2) Compute Capability set to 6.2 or lower<br/>
+(3) Results outside error tolerances<br/>
+(4) Results not accurate but inside error tolerances<br/>
+(5) Running on POCL with CUDA support<br/>
+(6) cl_khr_int64_base_atomics not supported<br/>
+(7) internal compiler error<br/>
+(8) undeclared omp_target functions<br/>
 
-(2) Compute Capability set to 6.2 or lower
+## Data ##
 
-(3) Results outside error tolerances
+The test-data (input and reference output data) is available in four different sizes:
 
-(4) Results not accurate but inside error tolerances
+* Full (~4.6GB): https://hessenbox.tu-darmstadt.de/getlink/fiJUFuNr4NHzo7Mmg8opPbn7/daphne-data-full
 
-(5) Running on POCL with CUDA support
+* Medium (~1.2GB): https://hessenbox.tu-darmstadt.de/getlink/fiNBiGrqB3mH964QEJNEbNiC/daphne-data-medium
 
-(6) cl_khr_int64_base_atomics not supported
+* Small (~80MB): https://hessenbox.tu-darmstadt.de/getlink/fiEc6XdBxPKx9vUstKQwXRGU/daphne-data-small
 
-(7) internal compilation error
+* Minimal (~12MB): https://hessenbox.tu-darmstadt.de/getlink/fiEzcNF864HPfrEt1oXrnq9L/daphne-data-minimal
 
-(8) undeclared omp_target functions
-
+To use the data, just unpack the contained archive. Each archive contains input- and output data for all three benchmarks.

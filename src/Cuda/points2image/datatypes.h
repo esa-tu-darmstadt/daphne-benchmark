@@ -1,7 +1,7 @@
 /**
  * Author:  Florian Stock, Technische Universität Darmstadt,
  * Embedded Systems & Applications Group 2018
- * License: Apache 2.0 (see attachached File)
+ * License: Apache 2.0 (see attached files)
  */
 #ifndef datatypes_h
 #define datatypes_h
@@ -51,6 +51,14 @@ typedef struct PointsImage {
   int32_t image_height;
   int32_t image_width;
 } PointsImage;
+
+typedef struct FullPixelData {
+	int position[2];
+	float depth;
+	float intensity;
+	float min_height;
+	float max_height;
+} FullPixelData;
 
 #endif
 

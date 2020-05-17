@@ -13,11 +13,7 @@ typedef struct  {
 } Point;
 
 typedef struct  {
-    #if defined (DOUBLE_FP)
     double x,y,z;
-    #else
-    float x,y,z;
-    #endif
 } PointDouble;
 
 typedef struct {
@@ -26,11 +22,7 @@ typedef struct {
 
 
 typedef struct {
-    #if defined (DOUBLE_FP)
     double x,y,z,w;
-    #else
-    float x,y,z,w;
-    #endif
 } Orientation;
 
 typedef struct {
@@ -50,8 +42,8 @@ typedef struct{
     float angle;
 } RotatedRect;
 
-typedef Point* PointCloud;
-typedef std::vector<PointRGB> PointCloudRGB;
+typedef Point* PlainPointCloud;
+typedef std::vector<PointRGB> ColorPointCloud;
 
 typedef struct {
     std::vector<PointDouble> points;
@@ -65,6 +57,37 @@ typedef struct PointIndices {
     std::vector<int> indices;
 } PointIndices;
 
+typedef struct RadiusSearchInfo {
+	double radius;
+	int sourceCloudSize;
+	int alignedCloudSize;
+	int distanceLineLength;
+	int queueStartIndex;
+	int staticQueueSize;
+} RadiusSearchInfo;
+
+// TODO: evaluate
+typedef int8_t Processed;
+
+#ifndef EPHOS_KERNEL_DISTANCE_PACKETS_PER_ITEM
+#define EPHOS_KERNEL_DISTANCE_PACKETS_PER_ITEM 1
+#endif
+
+#ifndef EPHOS_KERNEL_DISTANCES_PER_PACKET
+#define EPHOS_KERNEL_DISTANCES_PER_PACKET 8
+#endif
+
+#if EPHOS_KERNEL_DISTANCES_PER_PACKET == 1 || EPHOS_KERNEL_DISTANCES_PER_PACKET == 8
+typedef uint8_t DistancePacket;
+#elif EPHOS_KERNEL_DISTANCES_PER_PACKET == 16
+typedef uint16_t DistancePacket;
+#elif EPHOS_KERNEL_DISTANCES_PER_PACKET == 32
+typedef uint32_t DistancePacket;
+#elif EPHOS_KERNEL_DISTANCES_PER_PACKET == 64
+typedef uint64_t DistancePacket;
+#else
+#error "Invalid distance packet size"
+#endif
 
 #define PI 3.1415926535897932384626433832795
 

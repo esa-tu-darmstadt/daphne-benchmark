@@ -1,7 +1,7 @@
 /**
  * Author:  Florian Stock, Technische Universität Darmstadt,
  * Embedded Systems & Applications Group 2018
- * License: Apache 2.0 (see attachached File)
+ * License: Apache 2.0 (see attached files)
  */
 #ifndef DATATYPES_H
 #define DATATYPES_H
@@ -52,6 +52,7 @@ typedef PointXYZI *PointCloudArray;
 
 typedef struct CallbackResult {
     bool converged;
+	std::vector<Matrix4f> intermediate_transformations;
     Matrix4f final_transformation;
     double fitness_score;
 } CallbackResult;

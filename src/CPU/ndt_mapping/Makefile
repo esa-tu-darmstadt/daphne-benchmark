@@ -1,21 +1,33 @@
 .DEFAULT_GOAL := all
-.PHONY: all clean checkdata
+.PHONY: all clean kernel/kernel.h checkdata
 
 -include Makefile.deps
 
-CXXFLAGS= -O3
+ifdef DEBUG
+	CXXFLAGS+= -g
+else
+	CXXFLAGS=-O3
+endif
 CXXFLAGS+= -std=c++11
+CPPFLAGS+= -I./ -I../
 
-all: kernel checkdata
 
-kernel: ../common/main.o kernel.o 
-	$(CXX) $^ -o $@
+# other options
+ifdef TESTCASE_LIMIT
+$(info Testcase limit set to $(TESTCASE_LIMIT))
+	CPPFLAGS+= -DEPHOS_TESTCASE_LIMIT=$(TESTCASE_LIMIT)
+endif
+ifdef ENABLE_DATAGEN
+$(info Enabled result data generation)
+	CPPFLAGS+= -DEPHOS_DATAGEN
+endif
+all: benchmark checkdata
 
-../common/main.o: ../common/main.cpp
-	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
+benchmark: ndt_mapping.o framework.o ../common/main.o
+	$(CXX) $^ -o $@ $(LDDFLAGS)
 
-kernel.o: kernel.cpp
-	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
+%.o: %.cpp
+	$(CXX) -c $(CLFAGS) $(CPPFLAGS) $(CXXFLAGS) -o $@ $<
 
 checkdata:
 ifeq ($(wildcard ../../../data/ndt_input.dat),)
@@ -26,8 +38,9 @@ ifeq ($(wildcard ../../../data/ndt_output.dat),)
 endif
 
 clean:
-	rm -f kernel kernel.o ../common/main.o Makefile.deps
+	rm -f Makefile.deps benchmark ndt_mapping.o ../common/main.o framework.o \
+	../common/main.o
 
 Makefile.deps:
-	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include -MM ../common/main.cpp *.cpp > Makefile.deps
-
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -MM -MG \
+	../common/main.cpp ndt_mapping.cpp framework.cpp > Makefile.deps
