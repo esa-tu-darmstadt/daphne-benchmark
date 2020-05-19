@@ -6,7 +6,7 @@ CXX=clang++
 CXXFLAGS=-O3
 #CXXFLAGS=-g
 CXXFLAGS+= -std=c++11
-CXXFLAGS+= -fopenmp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_72 -I /scratch/llvm/llvm-bin/projects/openmp/runtime/src/
+CXXFLAGS+= -fopenmp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_72 -I /scratch/llvm-11/llvm-bin/projects/openmp/runtime/src/ -I /scratch/llvm-11/llvm-src/clang/lib/Headers/__clang_cuda_device_functions.h -v
 
 
 # device hints

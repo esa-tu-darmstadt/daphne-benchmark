@@ -28,8 +28,11 @@
 #include <cstring>
 #include <chrono>
 #include <omp.h>
-
-// maximum allowed deviation from the reference
+#if defined(__NVPTX__) && defined(_OPENMP)
+#define __CUDA__
+#include "__clang_cuda_device_functions.h"
+#undef __CUDA__
+#endif
 #define MAX_TRANSLATION_EPS 0.001
 #define MAX_ROTATION_EPS 0.8
 #define MAX_EPS 2
@@ -1352,6 +1355,32 @@ void invertMatrix(Mat33 &m)
 }
 #pragma omp end declare target
 
+#pragma omp declare target
+
+#if defined(__NVPTX__) && defined(_OPENMP)
+void atom_add(double* address, double val){
+	__dAtomicAdd(address, val);
+}
+#else
+void atom_add(double* address, double val){
+	#pragma omp atomic update
+	*address += val;
+}
+#endif
+
+#if defined(__NVPTX__) && defined(_OPENMP)
+void atom_addI(int* address, int val){
+	__iAtomicAdd(address, val);
+}
+#else
+void atom_addI(int* address, int val){
+	#pragma omp atomic update
+	*address += val;
+}
+#endif
+
+#pragma omp end declare target
+
 /**
  * Scatters the point cloud onto the voxel grid. Updates cell properties.
  * target_: point cloud
@@ -1367,20 +1396,25 @@ void initComputeStep1(PointCloudArray target_, Voxel *target_cells_, int size)
 		int voxelIndex = linearizeCoord( (target_)[id].data[0], (target_)[id].data[1], (target_)[id].data[2]);
 		// sum of points
 		// number of points remembered for later normalization
-		#pragma omp atomic update
-		target_cells_[voxelIndex].mean[0] += (double) target_[id].data[0];
-		#pragma omp atomic update
-		target_cells_[voxelIndex].mean[1] += (double) target_[id].data[1];
-		#pragma omp atomic update
-		target_cells_[voxelIndex].mean[2] += (double) target_[id].data[2];
-		#pragma omp atomic update
-		target_cells_[voxelIndex].numberPoints += 1;
+		//#pragma omp atomic update
+		atom_add(&target_cells_[voxelIndex].mean[0], (double) target_[id].data[0]);
+		//target_cells_[voxelIndex].mean[0] += (double) target_[id].data[0];
+		//#pragma omp atomic update
+		//target_cells_[voxelIndex].mean[1] += (double) target_[id].data[1];
+		atom_add(&target_cells_[voxelIndex].mean[1], target_[id].data[1]);
+		//#pragma omp atomic update
+		//target_cells_[voxelIndex].mean[2] += (double) target_[id].data[2];
+		atom_add(&target_cells_[voxelIndex].mean[2], target_[id].data[2]);
+		//#pragma omp atomic update
+		//target_cells_[voxelIndex].numberPoints += 1;
+		atom_addI(&target_cells_[voxelIndex].numberPoints, 1);
 		// sum up x * xT for single pass covariance calculation
 		for (int row = 0; row < 3; row ++){
 			for (int col = 0; col < 3; col ++){
-				#pragma omp atomic update
-				target_cells_[voxelIndex].invCovariance.data[row][col] += (double) target_[id].data[row] * 
-					target_[id].data[col];
+				//#pragma omp atomic update
+				//target_cells_[voxelIndex].invCovariance.data[row][col] += (double) target_[id].data[row] * 
+				//	target_[id].data[col];
+				atom_add(&target_cells_[voxelIndex].invCovariance.data[row][col], target_[id].data[row] * target_[id].data[col]);
 			}
 		}
 	}
