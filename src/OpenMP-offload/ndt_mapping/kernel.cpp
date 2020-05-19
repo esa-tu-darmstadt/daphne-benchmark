@@ -28,11 +28,7 @@
 #include <cstring>
 #include <chrono>
 #include <omp.h>
-#if defined(__NVPTX__) && defined(_OPENMP)
-#define __CUDA__
-#include "__clang_cuda_device_functions.h"
-#undef __CUDA__
-#endif
+
 #define MAX_TRANSLATION_EPS 0.001
 #define MAX_ROTATION_EPS 0.8
 #define MAX_EPS 2
@@ -1357,27 +1353,31 @@ void invertMatrix(Mat33 &m)
 
 #pragma omp declare target
 
-#if defined(__NVPTX__) && defined(_OPENMP)
+#pragma omp begin declare variant match(device={arch(nvptx, nvptx64)}, implementation={extension(match_any)})
+
+#define __CUDA__
+#include <__clang_cuda_device_functions.h>
+#undef __CUDA__
+
 void atom_add(double* address, double val){
 	__dAtomicAdd(address, val);
 }
-#else
+
+void atom_addI(int* address, int val){
+	__iAtomicAdd(address, val);
+}
+
+#pragma omp end declare variant
+
 void atom_add(double* address, double val){
 	#pragma omp atomic update
 	*address += val;
 }
-#endif
 
-#if defined(__NVPTX__) && defined(_OPENMP)
-void atom_addI(int* address, int val){
-	__iAtomicAdd(address, val);
-}
-#else
 void atom_addI(int* address, int val){
 	#pragma omp atomic update
 	*address += val;
 }
-#endif
 
 #pragma omp end declare target
 
