@@ -197,10 +197,10 @@ int points2image::read_next_testcases(int count)
 	if (results)
 	for (int m = 0; m < count; ++m)
 	{
-		delete [] results[m].intensity;
-		delete [] results[m].distance;
-		delete [] results[m].min_height;
-		delete [] results[m].max_height;
+		omp_target_free(results[m].intensity, 0);
+		omp_target_free(results[m].distance, 0);
+		omp_target_free(results[m].min_height, 0);
+		omp_target_free(results[m].max_height, 0);
 	}
 	delete [] results;
 	results = new PointsImage[count];
@@ -279,6 +279,66 @@ void points2image::init() {
 	std::cout << "done\n" << std::endl;
 }
 
+#pragma omp declare target
+
+#pragma omp begin declare variant match(device={arch(nvptx, nvptx64)}, implementation={extension(match_any)})
+
+#define __CUDA__
+#include <__clang_cuda_device_functions.h>
+#undef __CUDA__
+
+void atom_float_min(float* address, float val){
+	__int_as_float(__iAtomicMin((int *)address, __float_as_int(val)));
+}
+
+void atom_addI(int* address, int val){
+	__iAtomicAdd(address, val);
+}
+
+void atom_min(int* address, int val){
+	__iAtomicMin(address, val);
+}
+
+void atom_max(int* address, int val){
+	__iAtomicMax(address, val);
+}
+
+void atom_cas(int* address, int cmp){
+	__iAtomicCAS(address, cmp, 0x007fffe1);
+}
+
+#pragma omp end declare variant
+
+void atom_float_min(float* address, float val){
+	#pragma omp critical
+	{
+		*address = (*address > val) ? val : *address;
+	}
+}
+
+void atom_cas(int* address, int cmp){
+	#pragma omp critical
+	{
+		*address = (*address == cmp) ? 0x007fffe1 : *address;	
+	}
+}
+
+void atom_min(int* address, int val){
+	#pragma omp critical
+	{
+		*address = (*address > val) ? val : *address;
+	}
+}
+
+void atom_max(int* address, int val){
+	#pragma omp critical
+	{
+		*address = (*address < val) ? val : *address;
+	}
+}
+
+#pragma omp end declare target
+
 
 /**
  * This code is extracted from Autoware, file:
@@ -301,20 +361,22 @@ PointsImage pointcloud2_to_image(
 	int w = imageSize.width;
 	int h = imageSize.height;
 	PointsImage msg;
-	msg.intensity = new float[w*h];
+	msg.intensity = (float*) omp_target_alloc(w*h*sizeof(float), 0);
 	std::memset(msg.intensity, 0, sizeof(float)*w*h);
-	msg.distance = new float[w*h];
+	msg.distance = (float*) omp_target_alloc(w*h*sizeof(float), 0);
 	std::memset(msg.distance, 0, sizeof(float)*w*h);
-	msg.min_height = new float[w*h];
+	msg.min_height = (float*) omp_target_alloc(w*h*sizeof(float), 0);
 	std::memset(msg.min_height, 0, sizeof(float)*w*h);
-	msg.max_height = new float[w*h];
+	msg.max_height = (float*) omp_target_alloc(w*h*sizeof(float), 0);
 	std::memset(msg.max_height, 0, sizeof(float)*w*h);
 	msg.max_y = -1;
 	msg.min_y = h;
 	msg.image_height = imageSize.height;
 	msg.image_width = imageSize.width;
-	int32_t max_y = -1;
-	int32_t min_y = h;
+	int32_t* max_y = (int32_t*) omp_target_alloc(sizeof(int32_t), 0);
+	int32_t* min_y = (int32_t*) omp_target_alloc(sizeof(int32_t), 0);
+	*max_y = -1;
+	*min_y = h;
 
 	float* cloud = (float *)pointcloud2.data;
 	// preprocess the given matrices
@@ -333,15 +395,18 @@ PointsImage pointcloud2_to_image(
 	// various data sizes in bytes
 	int sizeMat = pointcloud2.width * pointcloud2.height;
 	int sizeMaxCp = pointcloud2.height * pointcloud2.width * pointcloud2.point_step;
-	double* distanceArr = (double*) omp_target_alloc(sizeMat * sizeof(double), 0);
-	Point2d* imagePointArr = (Point2d*) omp_target_alloc(sizeMat * sizeof(Point2d), 0);
 	int cloudHeight = pointcloud2.height;
 	int cloudWidth = pointcloud2.width;
 	int cloudStepSize = pointcloud2.point_step;
 
+	float* msg_intensity = msg.intensity;
+	float* msg_distance = msg.distance;
+	float* msg_min_height = msg.min_height;
+	float* msg_max_height = msg.max_height;
+
 	// point transformation
 	#pragma omp target \
-	is_device_ptr(distanceArr, imagePointArr, cloud) \
+	is_device_ptr(cloud, msg_intensity, msg_distance, msg_min_height, msg_max_height, max_y, min_y) \
 	map(to:distCoeff,cameraMat,invT,invR,cloudHeight,cloudWidth,cloudStepSize)
 	{
 	#pragma omp teams distribute parallel for collapse(2)
@@ -351,79 +416,75 @@ PointsImage pointcloud2_to_image(
 			float* fp = (float *)(((uintptr_t)cloud) + (x + y*cloudWidth) * cloudStepSize);
 
 			double intensity = fp[4];
-
+			// apply the transformations
 			Mat13 point, point2;
 			point2.data[0] = double(fp[0]);
 			point2.data[1] = double(fp[1]);
 			point2.data[2] = double(fp[2]);
-			// apply matrices
+			//point = point * invR.t() + invT.t();
 			for (int row = 0; row < 3; row++) {
 				point.data[row] = invT.data[row];
-				for (int col = 0; col < 3; col++)
-					point.data[row] += point2.data[col] * invR.data[row][col];
+				for (int col = 0; col < 3; col++) 
+				point.data[row] += point2.data[col] * invR.data[row][col];
 			}
-			distanceArr[iPoint] = point.data[2] * 100.0;
-			// discard points that are too near
+			
 			if (point.data[2] <= 2.5) {
-				Point2d imagepointError;
-				imagepointError.x = -1;
-				imagepointError.y = -1;
-				imagePointArr[iPoint] = imagepointError;
-				continue;
+					continue;
 			}
-			// determine image coordinates
+
 			double tmpx = point.data[0] / point.data[2];
-			double tmpy = point.data[1] / point.data[2];
+			double tmpy = point.data[1]/ point.data[2];
 			double r2 = tmpx * tmpx + tmpy * tmpy;
 			double tmpdist = 1 + distCoeff.data[0] * r2
 					+ distCoeff.data[1] * r2 * r2
 					+ distCoeff.data[4] * r2 * r2 * r2;
+
 			Point2d imagepoint;
 			imagepoint.x = tmpx * tmpdist
-				+ 2 * distCoeff.data[2] * tmpx * tmpy
-				+ distCoeff.data[3] * (r2 + 2 * tmpx * tmpx);
+					+ 2 * distCoeff.data[2] * tmpx * tmpy
+					+ distCoeff.data[3] * (r2 + 2 * tmpx * tmpx);
 			imagepoint.y = tmpy * tmpdist
-				+ distCoeff.data[2] * (r2 + 2 * tmpy * tmpy)
-				+ 2 * distCoeff.data[3] * tmpx * tmpy;
+					+ distCoeff.data[2] * (r2 + 2 * tmpy * tmpy)
+					+ 2 * distCoeff.data[3] * tmpx * tmpy;
 			imagepoint.x = cameraMat.data[0][0] * imagepoint.x + cameraMat.data[0][2];
 			imagepoint.y = cameraMat.data[1][1] * imagepoint.y + cameraMat.data[1][2];
-			imagePointArr[iPoint] = imagepoint;
-			}
-		}
-	}
-	// image formation
-	for (uint32_t x = 0; x < cloudWidth; ++x) {
-		for (uint32_t y = 0; y < cloudHeight; ++y) {
-			int iPoint =x + y * cloudWidth;
-			// restore values
-			double distance = distanceArr[iPoint];
-			// discard near points again
-			if (distance <= (2.5 * 100.0)) {
-				continue;
-			}
-			float* fp = (float *)(((uintptr_t)cloud) + (x + y*cloudWidth) * cloudStepSize);
-			double intensity = fp[4];
-			Point2d imagepoint = imagePointArr[iPoint];
 			int px = int(imagepoint.x + 0.5);
 			int py = int(imagepoint.y + 0.5);
-			if(0 <= px && px < w && 0 <= py && py < h)
+			// continue with points inside image bounds
+			int pid = py * w + px;
+			float cm_point;
+			if (0 <= px && px < w && 0 <= py && py < h)
 			{
-				// write to image and update vertical extends
-				int pid = py * w + px;
-				if(msg.distance[pid] == 0 || msg.distance[pid] > distance)
+				pid = py * w + px;
+				cm_point = point.data[2] * 100.0;
+				atom_cas((int*) &msg_distance[pid], 0);
+				atom_float_min(&msg_distance[pid], cm_point);
+			}
+			// synchronize required for deterministic intensity in the image
+			#if defined(__NVPTX)
+			__syncthreads();
+			__threadfence_system();
+			#endif
+			float newvalue = msg_distance[pid];
+			if (0 <= px && px < w && 0 <= py && py < h)
+			{
+				// update intensity, height and image extends
+				if ( newvalue>= cm_point)
 				{
-					msg.distance[pid] = float(distance); //msg is das problem beim paralelisieren
-					msg.intensity[pid] = float(intensity);
-					msg.max_y = py > msg.max_y ? py : msg.max_y;
-					msg.min_y = py < msg.min_y ? py : msg.min_y;
+					msg_intensity[pid] = float(intensity);
+					atom_max(max_y, py);
+					atom_min(min_y, py);
 				}
-				msg.min_height[pid] = -1.25;
-				msg.max_height[pid] = 0;
+				msg_min_height[pid] = -1.25;
 			}
 		}
 	}
-	omp_target_free(distanceArr, 0);
-	omp_target_free(imagePointArr, 0);
+	}
+	
+	msg.min_y = *min_y;
+	msg.max_y = *max_y;
+	omp_target_free(max_y, 0);
+	omp_target_free(min_y, 0);
 	return msg;
 }
 
