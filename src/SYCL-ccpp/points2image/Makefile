@@ -1,21 +1,31 @@
 .DEFAULT_GOAL := all
-.PHONY: all clean checkdata
+.PHONY: all clean checkdata kernel/kernel.h
 
 -include Makefile.deps
 
-CXXFLAGS=-O3
-#CXXFLAGS=-g
+ifdef DEBUG
+	CXXFLAGS= -g
+else
+	CXXFLAGS= -O3
+endif
 CXXFLAGS+= -std=c++11
-CPPFLAGS+= -I.
+CPPFLAGS+= -I./ -I../
+
+# sycl platform flags
 ifdef SYCL_DEVICE_TYPE
+$(info Selecting SYCL device type $(SYCL_DEVICE_TYPE))
 	CPPFLAGS+= -DEPHOS_DEVICE_TYPE=$(SYCL_DEVICE_TYPE)
 endif
 ifdef SYCL_DEVICE_NAME
+$(info Selecting SYCL device name $(SYCL_DEVICE_NAME))
 	CPPFLAGS+= -DEPHOS_DEVICE_NAME=$(SYCL_DEVICE_NAME)
 endif
 ifdef SYCL_PLATFORM_NAME
+$(info Selecting SYCL platform name $(SYCL_PLATFORM_NAME))
 	CPPFLAGS+= -DEPHOS_PLATFORM_NAME=$(SYCL_PLATFORM_NAME)
 endif
+SYCL_WORK_GROUP_SIZE=512
+CPPFLAGS+= -DEPHOS_COMPUTE_GROUP_SIZE=$(SYCL_WORK_GROUP_SIZE)
 
 ifdef SYCL_INCLUDE_PATH
 	CPPFLAGS+= -I$(SYCL_INCLUDE_PATH)
@@ -25,35 +35,46 @@ ifdef SYCL_LIBRARY_PATH
 endif
 LDDFLAGS+= -lComputeCpp
 
-SYCLFLAGS=-sycl
+SYCLFLAGS= -sycl
 ifdef SYCL_KERNEL_FORMAT
+$(info Compiling to kernel format $(SYCL_KERNEL_FORMAT))
 	SYCLFLAGS+= -sycl-target $(SYCL_KERNEL_FORMAT)
 else
 	SYCLFLAGS+= -sycl-target spir64
 endif
 CPPFLAGS+= -DCL_TARGET_OPENCL_VERSION=120
 SYCLFLAGS+= -DCL_TARGET_OPENCL_VERSION=120
-SYCLFLAGS+= -no-serial-memop
+ifdef ENABLE_SYCL_MEMCPY
+$(info Enabled SYCL memcpy operations)
+	SYCLFLAGS+= -no-serial-memop
+endif
 
 
-all: kernel checkdata
 
-kernel: ../common/main.o kernel.o sycl/sycl_tools.o
+# other settings
+ifdef TESTCASE_LIMIT
+$(info Limiting to $(TESTCASE_LIMIT) test cases)
+	CPPFLAGS+= -DEPHOS_TESTCASE_LIMIT=$(TESTCASE_LIMIT)
+endif
+ifdef ENABLE_LEGACY_TESTDATA
+$(info Indicated legacy reference data)
+	CPPFLAGS+= -DEPHOS_TESTDATA_LEGACY
+endif
+ifdef ENABLE_TESTDATA_GEN
+$(info Enabled result data generation)
+	CPPFLAGS+= -DEPHOS_TESTDATA_GEN
+endif
+
+all: benchmark checkdata
+
+benchmark: ../common/main.o points2image.o framework.o ../common/compute_tools.o
 	$(CXX) $^ -o $@ $(LDDFLAGS)
 
-../common/main.o: ../common/main.cpp
-	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
+%.o: %.cpp
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
 
-kernel.o: kernel.cpp sycl/kernel.sycl
-	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -include sycl/kernel.sycl -I../include $< -o $@
-
-sycl/kernel.sycl: kernel.cpp
-	compute++ $(SYCLFLAGS) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include kernel.cpp
-	mv kernel.sycl sycl/
-	mv kernel-sycl* sycl/
-	
-sycl/sycl_tools.o: sycl/sycl_tools.cpp
-	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
+kernel/kernel.h:
+	cd kernel && ./stringify_kernels.sh
 
 checkdata:
 ifeq ($(wildcard ../../../data/p2i_input.dat),)
@@ -64,9 +85,10 @@ ifeq ($(wildcard ../../../data/p2i_output.dat),)
 endif
 
 clean:
-	rm -f kernel kernel.o ../common/main.o sycl/kernel.sycl sycl/kernel-sycl* Makefile.deps 
+	rm -f benchmark points2image.o framework.o kernel/kernel.h \
+	../common/main.o  Makefile.deps
 
 Makefile.deps:
-	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include -MM -MG \
-	../common/main.cpp *.cpp sycl/sycl_tools.cpp > Makefile.deps
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -MM -MG \
+	../common/main.cpp points2image.cpp framework.cpp > Makefile.deps
 
