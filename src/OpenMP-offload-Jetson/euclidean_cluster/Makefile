@@ -4,20 +4,9 @@
 -include Makefile.deps
 CXX=clang++
 CXXFLAGS=-O3
-#CXXFLAGS=-g
 CXXFLAGS+= -std=c++11
-CXXFLAGS+=-fopenmp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_72 -I /scratch/llvm/llvm-bin/projects/openmp/runtime/src/ -g 
+CXXFLAGS+=-fopenmp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_72 -I LLVM_DIR/projects/openmp/runtime/src/ -g 
 
-
-# device hints
-EPHOS_TARGET_DEVICE_ID=
-EPHOS_HOST_DEVICE_ID=
-ifneq ($(OPENMP_TARGET_DEVICE_ID),)
-	CPPFLAGS+= -DEPHOS_TARGET_DEVICE_ID=$(OPENMP_TARGET_DEVICE_ID)
-endif
-ifneq ($(OPENMP_HOST_DEVICE_ID),)
-	CPPFLAGS+= -DEPHOS_HOST_DEVICE_ID=$(OPENMP_HOST_DEVICE_ID)
-endif
 
 all: kernel checkdata
 

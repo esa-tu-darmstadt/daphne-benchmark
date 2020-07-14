@@ -6,18 +6,8 @@ CXX=clang++
 CXXFLAGS=-O3
 #CXXFLAGS=-g
 CXXFLAGS+= -std=c++11
-CXXFLAGS+= -fopenmp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_72 -I /scratch/llvm-11/llvm-bin/projects/openmp/runtime/src/ -I /scratch/llvm-11/llvm-src/clang/lib/Headers/__clang_cuda_device_functions.h -v
+CXXFLAGS+= -fopenmp -fopenmp-targets=nvptx64-nvidia-cuda -Xopenmp-target -march=sm_72 -I LLVM_DIR/projects/openmp/runtime/src/ -I LLVM_SRC/clang/lib/Headers/__clang_cuda_device_functions.h -v
 
-
-# device hints
-EPHOS_TARGET_DEVICE_ID=
-EPHOS_HOST_DEVICE_ID=
-ifneq ($(OPENMP_TARGET_DEVICE_ID),)
-	CPPFLAGS+= -DEPHOS_TARGET_DEVICE_ID=$(OPENMP_TARGET_DEVICE_ID)
-endif
-ifneq ($(OPENMP_HOST_DEVICE_ID),)
-	CPPFLAGS+= -DEPHOS_HOST_DEVICE_ID=$(OPENMP_HOST_DEVICE_ID)
-endif
 
 all: kernel checkdata
 

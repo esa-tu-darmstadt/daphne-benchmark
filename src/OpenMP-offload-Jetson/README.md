@@ -1,4 +1,4 @@
-* Preparation
+## Preparation ##
 
   Extract the test case data files inside the data folder
   
@@ -22,35 +22,19 @@
   * ec_output.dat 
   inside the data folder
 
-* Compilation
+## Compilation ##
 
-  Make sure to use a compiler that supports offloading with OpenMP
-  Non offloading kernel variants are available in the src/OpenMP folder
-
-  Compilation for all OpenMP-offload kernels can be started from this folder with:
-  $ make
-
-  They kernels can also be individually compiled with:
-  $ make 
- 
-  in their respective subfolders (points2image, euclidean_cluster, ndt_mapping)
+  This version of the benchmark is specialized for OpenMP offloading on the Nvidia Jetson platforms.
+  It requires to download and build a modified version of Clang & LLVM's OpenMP infrastructure that 
+  you can find on [Github](https://github.com/sommerlukas/llvm-offload-jetson/tree/omp-jetson-11).
   
-  To use a specific compiler set the CXX variable:
-  $ make CXX=/path/to/compiler/executable
+  First, build the LLVM project found in the repository mentioned above. Then, make sure to 
+  adapt the paths in the respective Makefiles to your setup, where `LLVM_DIR` is the build 
+  output directory of your compiled LLVM and `LLVM_SRC` is the LLVM project source directory.
   
-  The automatically selected host and target devices might not match your hardware.
-  The device IDs used for buffer allocation and memory copies can be set with
-  OPENMP_TARGET_DEVICE_ID and OPENMP_HOST_DEVICE_ID:
-  $ make OPENMP_HOST_DEVICE_ID=-2 OPENMP_TARGET_DEVICE_ID=0
+  After that, you can simply build the applications with `make`. 
 
-  Note: Not settings these correctly may result in segmentation faults at runtime.
-  GCC can be configured to offload to CUDA devices. This requires CUDA capable hardware 
-  alongside a working CUDA Toolkit installation. Not meeting these requirements may lead to 
-  compilation errors or segmentation faults and error messages a runtime.
-  Additionally we have identified that the compilation process can unexpectedly fail
-  with internal compiler errors on certain software and hardware configurations.
-
-* Execute the benchmark
+## Execute the benchmark ##
 
   In the respective kernel subfolder type:
   $ ./kernel
