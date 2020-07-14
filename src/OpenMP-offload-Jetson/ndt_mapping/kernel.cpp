@@ -19,66 +19,48 @@
  *
  * Computed results are compared with the Autoware computed result.
  */
-#include "../include/benchmark.h"
+#include "benchmark.h"
 #include "datatypes.h"
-#include <math.h>
+#include <cmath>
 #include <iostream>
 #include <fstream>
 #include <limits>
 #include <cstring>
 #include <chrono>
-#include <stdlib.h>
 #include <omp.h>
-#include <float.h>
-#include <vector>
-#include <algorithm>
 
-#pragma omp declare reduction(min:PointXYZI:  omp_out.data[0] = omp_out.data[0] < omp_in.data[0] ? omp_out.data[0] : omp_in.data[0],  omp_out.data[1] = omp_out.data[1] < omp_in.data[1] ? omp_out.data[1] : omp_in.data[1], omp_out.data[2] = omp_out.data[2] < omp_in.data[2] ? omp_out.data[2] : omp_in.data[2]) initializer (omp_priv={{FLT_MAX ,FLT_MAX ,FLT_MAX ,0}})
-
-#pragma omp declare reduction(max:PointXYZI:  omp_out.data[0] = omp_out.data[0] > omp_in.data[0] ? omp_out.data[0] : omp_in.data[0],  omp_out.data[1] = omp_out.data[1] > omp_in.data[1] ? omp_out.data[1] : omp_in.data[1], omp_out.data[2] = omp_out.data[2] > omp_in.data[2] ? omp_out.data[2] : omp_in.data[2]) initializer (omp_priv= {{FLT_MIN ,FLT_MIN ,FLT_MIN ,0}})
-
-
-// maximum allowed deviation from reference
-#define MAX_EPS 0.001
 #define MAX_TRANSLATION_EPS 0.001
-#define MAX_ROTATION_EPS 0.9
+#define MAX_ROTATION_EPS 0.8
 #define MAX_EPS 2
+// number of GPU threads
+#define THREADS 512
 
 class ndt_mapping : public kernel {
 private:
-	// neighbor buffer size multiple
-	int averageNeighborsPerPoint = 3*3*3;
-private:
-	// openmp device
-	int targetDeviceId = 0;
-	int hostDeviceId = 0;
-	// openmp device buffers
-	Voxel* voxelGrid = nullptr;
-	Voxel* neighborBuffer = nullptr;
-	// corresponding host buffers
-	Voxel* neighborStorage = nullptr;
-private:
-	// the number of testcases read
-	int read_testcases = 0;
+	PointCloud* input_ = nullptr;
+	PointCloudArray target_;
+	int target_size_ = 0;
+	VoxelGrid target_cells_;
+	int target_cells_size_ = 0;
+	// data structures read from disk
 	PointCloud* filtered_scan_ptr = nullptr;
-	Matrix4f* init_guess = nullptr;
-	CallbackResult* results = nullptr;
-	PointCloud* maps = nullptr;
-	// testcase and result stream
+    Matrix4f* init_guess = nullptr;
+    CallbackResult* results = nullptr;
+    PointCloudArray* maps = nullptr;
+    int *maps_size_ = nullptr;
+	int read_testcases = 0;
 	std::ifstream input_file, output_file;
-	// whether an abnormal deviation has been detected
 	bool error_so_far = false;
-	// maximum deviation from the reference data so far
 	double max_delta = 0.0;
-	// ndt parameters
+	// parameters for ndt
 	double outlier_ratio_ = 0.55;
-	float resolution_ = 1.0;
+	const float resolution_ = 1.0;
 	double trans_eps = 0.01; //Transformation epsilon
 	double step_size_ = 0.1; // Step size
 	int iter = 30;  // Maximum iterations
 	Matrix4f final_transformation_, transformation_, previous_transformation_;
-	bool converged_ = false;
-	int nr_iterations_ = 0;
+	bool converged_;
+	int nr_iterations_;
 	Vec3 h_ang_a2_, h_ang_a3_,
 	h_ang_b2_, h_ang_b3_,
 	h_ang_c2_, h_ang_c3_,
@@ -91,35 +73,25 @@ private:
 	double gauss_d1_, gauss_d2_;
 	double trans_probability_;
 	double transformation_epsilon_ = 0.1;
-	int max_iterations_ = 0;
-	// point clouds
-	PointCloud* input_ = nullptr;
-	PointCloud* target_ = nullptr;
-	// voxel grid spanning over all points
-	VoxelGrid target_cells_;
-	// voxel grid extend
-	PointXYZI minVoxel, maxVoxel;
-	int voxelDimension[3];
+	int max_iterations_;
 public:
-	virtual void init();
-	virtual void run(int p = 1);
-	virtual bool check_output();
-protected:
-	/**
-	 * Reads the number of testcases in the data file
-	 */
-	int read_number_testcases(std::ifstream& input_file);
+    virtual void init();
+    virtual void run(int p = 1);
+    virtual bool check_output();
+    
+protected:    
 	/**
 	 * Reads the next testcases.
 	 * count: number of datasets to read
 	 * return: number of data sets actually read.
-	*/
+	 */
 	virtual int read_next_testcases(int count);
 	/**
 	 * Reads and compares algorithm results with the respective reference.
 	 * count: number of testcase results to compare
 	 */
 	virtual void check_next_outputs(int count);
+
 	/**
 	 * Reduces a multi dimensional voxel grid index to one dimension.
 	 */
@@ -128,26 +100,25 @@ protected:
 	 * Reduces a coordinate to a voxel grid index.
 	 */
 	inline int linearizeCoord(const float x, const float y, const float z);
-
 	double updateDerivatives (Vec6 &score_gradient,
-		Mat66 &hessian,
-		Vec3 &x_trans, Mat33 &c_inv,
-		bool compute_hessian = true);
+						Mat66 &hessian,
+						Vec3 &x_trans, Mat33 &c_inv,
+						bool compute_hessian = true);
 	void computePointDerivatives (Vec3 &x, bool compute_hessian = true);
 	void computeHessian (Mat66 &hessian,
-		PointCloudSource &trans_cloud, Vec6 &);
+				PointCloudSource &trans_cloud, Vec6 &);
 	void updateHessian (Mat66 &hessian, Vec3 &x_trans, Mat33 &c_inv);
 	double computeDerivatives (Vec6 &score_gradient,
-		Mat66 &hessian,
-		PointCloudSource &trans_cloud,
-		Vec6 &p,
-		bool compute_hessian = true );
+						Mat66 &hessian,
+						PointCloudSource &trans_cloud,
+						Vec6 &p,
+						bool compute_hessian = true );
 	bool updateIntervalMT (double &a_l, double &f_l, double &g_l,
-		double &a_u, double &f_u, double &g_u,
-		double a_t, double f_t, double g_t);
+					double &a_u, double &f_u, double &g_u,
+					double a_t, double f_t, double g_t);
 	double trialValueSelectionMT (double a_l, double f_l, double g_l,
-		double a_u, double f_u, double g_u,
-		double a_t, double f_t, double g_t);
+							double a_u, double f_u, double g_u,
+							double a_t, double f_t, double g_t);
 	double computeStepLengthMT (const Vec6 &x, Vec6 &step_dir, double step_init, double step_max,
 				double step_min, double &score, Vec6 &score_gradient, Mat66 &hessian,
 				PointCloudSource &trans_cloud);
@@ -158,20 +129,37 @@ protected:
 	 * Performs point cloud specific voxel grid initialization.
 	 */
 	void initCompute();
+	/**
+	 * Complement to initCompute()
+	 */
+	void deinitCompute();
 	void buildTransformationMatrix(Matrix4f &matrix, Vec6 transform);
-	/**
-	 * Computes the eulerangles from an rotation matrix.
-	 */
+	int read_number_testcases(std::ifstream& input_file);
+	inline double ndt_getFitnessScore ();
 	void eulerAngles(Matrix4f transform, Vec3 &result);
-	CallbackResult partial_points_callback(PointCloud &input_cloud, Matrix4f &init_guess, PointCloud& target_cloud);
-	/**
-	 * Helper function to select near voxels.
-	 */
-	int voxelRadiusSearch(
-		VoxelGrid &grid, const PointXYZI& point, double radius,
-		std::vector<Voxel> & indices,
-		std::vector<float> distances);
+	CallbackResult partial_points_callback(PointCloud &input_cloud, Matrix4f &init_guess, PointCloudArray target_cloud, int target_cloud_size);
+	int voxelRadiusSearch(VoxelGrid &grid, const PointXYZI& point, double radius,
+				std::vector<Voxel> & indices,
+				std::vector<float> distances);
 };
+
+// data structures for the kernel
+int voxelDimension[3];
+PointXYZI minVoxel;
+PointXYZI maxVoxel;
+const float resolution_ = 1.0;
+#pragma omp declare target link(voxelDimension, minVoxel, resolution_)
+
+int ndt_mapping::read_number_testcases(std::ifstream& input_file)
+{
+	int32_t number;
+	try {
+		input_file.read((char*)&(number), sizeof(int32_t));
+	} catch (std::ifstream::failure) {
+		throw std::ios_base::failure("Error reading number of test cases");
+	}
+	return number;
+}
 
 /**
  * Reads the next point cloud.
@@ -190,7 +178,28 @@ void  parseFilteredScan(std::ifstream& input_file, PointCloud* pointcloud) {
 			input_file.read((char*)&p.data[3], sizeof(float));
 			pointcloud->push_back(p);
 		}
-	}  catch (std::ifstream::failure) {
+	} catch (std::ifstream::failure) {
+		throw std::ios_base::failure("Error reading filtered scan");
+	}
+}
+
+/**
+ * Reads the next point cloud.
+ */
+void  parseMaps(std::ifstream& input_file, PointCloudArray *pointcloud, int *size) {
+	try {
+		input_file.read((char*)size, sizeof(int));
+		*pointcloud = (PointCloudArray) omp_target_alloc(*size * sizeof(PointXYZI), 0);
+		for (int i = 0; i < (*size); i++)
+		{
+			PointXYZI p;
+			input_file.read((char*)&p.data[0], sizeof(float));
+			input_file.read((char*)&p.data[1], sizeof(float));
+			input_file.read((char*)&p.data[2], sizeof(float));
+			input_file.read((char*)&p.data[3], sizeof(float));
+			(*pointcloud)[i] = p;
+		}
+	} catch (std::ifstream::failure) {
 		throw std::ios_base::failure("Error reading filtered scan");
 	}
 }
@@ -221,158 +230,143 @@ void parseResult(std::ifstream& output_file, CallbackResult* goldenResult) {
 		output_file.read((char*)&(goldenResult->fitness_score), sizeof(double));
 		output_file.read((char*)&(goldenResult->converged), sizeof(bool));
 	}  catch (std::ifstream::failure) {
-		throw std::ios_base::failure("Error reading reference result");
+		throw std::ios_base::failure("Error reading reference result");		
 	}
 }
 
+// return how many could be read
 int ndt_mapping::read_next_testcases(int count)
 {
 	int i;
-	// free memory used in the previous test case and allocate new one
+	// free memory used in the previous step and allocate new one
+	if (maps)
+		for (int i = 0; i < count; i++)
+	omp_target_free(maps[i], 0);
 	delete [] maps;
-	maps = new PointCloud[count];
+	maps = new PointCloudArray[count];
+	delete [] maps_size_;
+	maps_size_ = new int[count];
 	delete [] filtered_scan_ptr;
 	filtered_scan_ptr = new PointCloud[count];
 	delete [] init_guess;
 	init_guess = new Matrix4f[count];
 	delete [] results;
 	results = new CallbackResult[count];
-	// parse the test cases
+	// read the testcase data
 	for (i = 0; (i < count) && (read_testcases < testcases); i++,read_testcases++)
 	{
-		try {
-			parseInitGuess(input_file, init_guess + i);
-			parseFilteredScan(input_file, filtered_scan_ptr + i);
-			parseFilteredScan(input_file, maps + i);
-		} catch (std::ios_base::failure& e) {
-			std::cerr << e.what() << std::endl;
-			exit(-3);
-		}
+		parseInitGuess(input_file, init_guess + i);
+		parseFilteredScan(input_file, filtered_scan_ptr + i);
+		parseMaps(input_file, maps + i, maps_size_ + i);
 	}
 	return i;
 }
 
-int ndt_mapping::read_number_testcases(std::ifstream& input_file)
-{
-	int32_t number;
-	try {
-		input_file.read((char*)&(number), sizeof(int32_t));
-	} catch (std::ifstream::failure) {
-		throw std::ios_base::failure("Error reading number of test cases");
-	}
-	return number;
-}
 
-inline int ndt_mapping::linearizeAddr(const int x, const int y, const int z)
+#pragma omp declare target
+int ndt_mapping::linearizeAddr(const int x, const int y, const int z)
 {
 	return  (x + voxelDimension[0] * (y + voxelDimension[1] * z));
 }
 
-inline int ndt_mapping::linearizeCoord(const float x, const float y, const float z)
+int ndt_mapping::linearizeCoord(const float x, const float y, const float z)
 {
-	// determine cell index
 	int idx_x = (x - minVoxel.data[0]) / resolution_;
 	int idx_y = (y - minVoxel.data[1]) / resolution_;
 	int idx_z = (z - minVoxel.data[2]) / resolution_;
-	// then linearize it
 	return linearizeAddr(idx_x, idx_y, idx_z);
-}
-
-#pragma omp declare target
-/**
- * Reduces a multi dimensional voxel grid index to one dimension.
- */
-int linearizeAddrOFF(const int x, const int y, const int z,int voxelDim[3])
-{
-	return  (x + voxelDim[0] * (y + voxelDim[1] * z));
-}
-/**
- * Reduces a coordinate to the corresponding voxel grid index.
- */
-int linearizeCoordOFF(const float x, const float y, const float z,float res,PointXYZI minVox,int dim[3])
-{
-	int idx_x = (x - minVox.data[0]) / res;
-	int idx_y = (y - minVox.data[1]) / res;
-	int idx_z = (z - minVox.data[2]) / res;
-	return linearizeAddrOFF(idx_x, idx_y, idx_z,dim);
-}
-int linearizeCoordOFF(const float x, const float y, const float z, const float resolution, const float* voxelMin, const int* voxelDim) {
-	int dx = (x - voxelMin[0])/resolution;
-	int dy = (y - voxelMin[1])/resolution;
-	int dz = (z - voxelMin[2])/resolution;
-	return dx + (dy + dz*voxelDim[1])*voxelDim[0];
 }
 #pragma omp end declare target
 
+int linearizeAddr(const int x, const int y, const int z)
+{
+	return  (x + voxelDimension[0] * (y + voxelDimension[1] * z));
+}
+
+int linearizeCoord(const float x, const float y, const float z)
+{
+	int idx_x = (x - minVoxel.data[0]) / resolution_;
+	int idx_y = (y - minVoxel.data[1]) / resolution_;
+	int idx_z = (z - minVoxel.data[2]) / resolution_;
+	return linearizeAddr(idx_x, idx_y, idx_z);
+}
 
 int ndt_mapping::voxelRadiusSearch(VoxelGrid &grid, const PointXYZI& point, double radius,
-				   std::vector<Voxel> & indices,
-				   std::vector<float> distances)
+	std::vector<Voxel> & indices,
+	std::vector<float> distances)
 {
-
 	int result = 0;
 	indices.clear();
 	distances.clear();
-	// checking the voxel and its surroundings
+	// make sure to find all near voxels
 	float radiusFinal = radius + 0.001f;
-	for (float x = point.data[0] - radius; x <= point.data[0] + radiusFinal; x+= resolution_)
-	for (float y = point.data[1] - radius; y <= point.data[1] + radiusFinal; y+= resolution_)
-		for (float z = point.data[2] - radius; z <= point.data[2] + radiusFinal; z+= resolution_)
-		{
-			if ((x < minVoxel.data[0]) ||
-			(x > maxVoxel.data[0]) ||
-			(y < minVoxel.data[1]) ||
-			(y > maxVoxel.data[1]) ||
-			(z < minVoxel.data[2]) ||
-			(z > maxVoxel.data[2]))
-			continue;
-			int idx =  linearizeCoord(x, y, z);
-			Vec3 &c =  grid[idx].mean;
-			float dx = c[0] - point.data[0];
-			float dy = c[1] - point.data[1];
-			float dz = c[2] - point.data[2];
-			float dist = sqrt(dx * dx + dy * dy + dz * dz);
-			if (dist < radius)
+	// test all voxels in the vicinity
+	for (float z = point.data[2] - radius; z <= point.data[2] + radiusFinal; z += resolution_)
+		for (float y = point.data[1] - radius; y <= point.data[1] + radiusFinal; y += resolution_)
+			for (float x = point.data[0] - radius; x <= point.data[0] + radiusFinal; x += resolution_)
 			{
-				result++;
-				indices.push_back(grid[idx]);
-				distances.push_back(dist);
+				// avoid accesses out of bounds
+				if ((x < minVoxel.data[0]) ||
+					(x > maxVoxel.data[0]) ||
+					(y < minVoxel.data[1]) ||
+					(y > maxVoxel.data[1]) ||
+					(z < minVoxel.data[2]) ||
+					(z > maxVoxel.data[2]))
+				{
+					continue;
+				}
+				// determine the distance to the voxel mean
+				int idx =  linearizeCoord(x, y, z);
+				Vec3 &c =  grid[idx].mean;
+				float dx = c[0] - point.data[0];
+				float dy = c[1] - point.data[1];
+				float dz = c[2] - point.data[2];
+				float dist = sqrt(dx * dx + dy * dy + dz * dz);
+				// add near cells to the results
+				if (dist < radius)
+				{
+					result++;
+					indices.push_back(grid[idx]);
+					distances.push_back(dist);
+				}
 			}
-		}
 	return result;
 }
 
 /**
-   Solve routine to replace the used SVD.solve from EIgen.
-   Solves Ax = b, and returns (newly allocated) x.
-   Maybe not as good when handling very ill conditioned systems, but for a 6x6 faster and good enough
-*/
+ * Solves Ax = b for x.
+ * Maybe not as good when handling very ill conditioned systems, but is faster for a 6x6 matrix 
+ * and works well enough in practice.
+ */
 void solve(Vec6& result, Mat66 A, Vec6& b)
 {
 	double pivot;
+
 	// bring to upper diagonal
 	for(int j = 0; j < 6; j++)
 	{
-		double max = fabs(A.data[j][j]);
+		// search for the biggest entry
+		double max = std::fabs(A.data[j][j]);
 		int mi = j;
 		for (int i = j + 1; i < 6; i++)
-		if (fabs(A.data[i][j]) > max)
+			if (std::fabs(A.data[i][j]) > max)
 			{
-			mi = i;
-			max = fabs(A.data[i][j]);
+				mi = i;
+				max = std::fabs(A.data[i][j]);
 			}
 		// swap lines mi and j
-		if (mi !=j)
-		for (int i = 0; i < 6; i++)
+		if (mi != j)
+			for (int i = 0; i < 6; i++)
 			{
-			double temp = A.data[mi][i];
-			A.data[mi][i] = A.data[j][i];
-			A.data[j][i] = temp;
+				double temp = A.data[mi][i];
+				A.data[mi][i] = A.data[j][i];
+				A.data[j][i] = temp;
 			}
 		if (max == 0.0) {
-		//	std::cout << "Singular matrix\n";
-		A.data[j][j] = MAX_EPS;
+			// we have a singular matrix
+			A.data[j][j] = MAX_TRANSLATION_EPS;
 		}
+		// subtract lines to yield a triagonal matrix
 		for (int i = j+1; i < 6; i++)
 		{
 			pivot=A.data[i][j]/A.data[j][j];
@@ -395,56 +389,41 @@ void solve(Vec6& result, Mat66 A, Vec6& b)
 		result[i]=(b[i]-sum)/A.data[i][i];
 	}
 }
-
 void ndt_mapping::init() {
-	std::cout << "init\n";
+std::cout << "init\n";
 	// open data file streams
 	input_file.exceptions ( std::ifstream::failbit | std::ifstream::badbit );
 	output_file.exceptions ( std::ifstream::failbit | std::ifstream::badbit );
 	try {
-			input_file.open("../../../data/ndt_input.dat", std::ios::binary);
+		input_file.open("../../../data/ndt_input.dat", std::ios::binary);
 	} catch (std::ifstream::failure) {
-			std::cerr << "Error opening the testcase file" << std::endl;
-			exit(-3);
+		std::cerr << "Error opening the testcase file" << std::endl;
+		exit(-3);
 	}
 	try {
-			output_file.open("../../../data/ndt_output.dat", std::ios::binary);
+		output_file.open("../../../data/ndt_output.dat", std::ios::binary);
 	}  catch (std::ifstream::failure e) {
-			std::cerr << "Error opening the results file" << std::endl;
-			exit(-3);
+		std::cerr << "Error opening the results file" << std::endl;
+		exit(-3);
 	}
 	// consume the number of testcases from the testcase file
 	try {
-			testcases = read_number_testcases(input_file);
+		testcases = read_number_testcases(input_file);
 	} catch (std::ios_base::failure& e) {
-			std::cerr << e.what() << std::endl;
-			exit(-3);
+		std::cerr << e.what() << std::endl;
+		exit(-3);
 	}
 	// prepare the first iteration
-	voxelGrid = nullptr;
-	neighborBuffer = nullptr;
-	neighborStorage = nullptr;
 	error_so_far = false;
 	max_delta = 0.0;
+	maps_size_ = nullptr; 
 	maps = nullptr;
 	init_guess = nullptr;
 	filtered_scan_ptr = nullptr;
 	results = nullptr;
-	#ifdef EPHOS_TARGET_DEVICE_ID
-		targetDeviceId = EPHOS_TARGET_DEVICE_ID;
-	#else
-		targetDeviceId = omp_get_default_device();
-	#endif
-	#ifdef EPHOS_HOST_DEVICE_ID
-		hostDeviceId = EPHOS_HOST_DEVICE_ID;
-	#else
-		hostDeviceId = omp_get_initial_device();
-	#endif
-	std::cout << "Selected target device: " << targetDeviceId << std::endl;
-	std::cout << "Selected host device: " << hostDeviceId << std::endl;
+
 	std::cout << "done\n" << std::endl;
 }
-
 
 /**
  * Applies the transformation matrix to all point cloud elements
@@ -452,34 +431,33 @@ void ndt_mapping::init() {
  * output: transformed points
  * transform: transformation matrix
  */
-void transformPointCloud(const PointCloud& input, PointCloud &output, Matrix4f transform) //TODO
+void transformPointCloud(const PointCloud& input, PointCloud &output, Matrix4f transform)
 {
-    if (&input != &output)
+	if (&input != &output)
 	{
-	    output.clear();
-	    output.resize(input.size());
+		output.clear();
+		output.resize(input.size());
 	}
-    for (auto it = 0 ; it < input.size(); ++it)
+	for (auto it = 0 ; it < input.size(); ++it)
 	{
-	    PointXYZI transformed;
-	    for (int row = 0; row < 3; row++)
+		PointXYZI transformed;
+		for (int row = 0; row < 3; row++)
 		{
-		    transformed.data[row] = transform.data[row][0] * input[it].data[0]
+			transformed.data[row] = transform.data[row][0] * input[it].data[0]
 			+ transform.data[row][1] * input[it].data[1]
 			+ transform.data[row][2] * input[it].data[2]
 			+ transform.data[row][3];
 		}
-	    output[it] = transformed;
+		output[it] = transformed;
 	}
 }
-
 
 /**
  * Helper function to calculate the dot product of two vectors.
  */
 double dot_product(Vec3 &a, Vec3 &b)
 {
-	return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
 
 /**
@@ -487,24 +465,21 @@ double dot_product(Vec3 &a, Vec3 &b)
  */
 double dot_product6(Vec6 &a, Vec6 &b)
 {
-	return a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3] + a[4] * b[4] + a[5] * b[5];
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3] + a[4] * b[4] + a[5] * b[5];
 }
-
 
 /**
  * Helper function for offset point generation.
  */
-inline double
-auxilaryFunction_dPsiMT (double g_a, double g_0, double mu = 1.e-4)
+inline double auxilaryFunction_dPsiMT (double g_a, double g_0, double mu = 1.e-4)
 {
     return (g_a - mu * g_0);
 }
 
 /**
- * Helper function for offset point generation.
+ * Helper function for difference offset generation.
  */
-inline double
-auxilaryFunction_PsiMT (double a, double f_a, double f_0, double g_0, double mu = 1.e-4)
+inline double auxilaryFunction_PsiMT (double a, double f_a, double f_0, double g_0, double mu = 1.e-4)
 {
     return (f_a - f_0 - mu * g_0 * a);
 }
@@ -633,45 +608,40 @@ void ndt_mapping::computePointDerivatives (Vec3 &x, bool compute_hessian)
 	}
 }
 
-
-void ndt_mapping::computeHessian (Mat66 &hessian,
-	PointCloud &trans_cloud, Vec6 &)
+void ndt_mapping::computeHessian(
+	Mat66 &hessian, PointCloud &trans_cloud, Vec6 &)
 {
-	// TODO: implement on device
-	throw new std::logic_error("not implemented");
+	// temporary data structures
+	PointXYZI  x_pt, x_trans_pt; // Original Point and Transformed Point
+	Vec3 x, x_trans; // Original Point and Transformed Point
+	Voxel cell; // Occupied Voxel
+	Mat33 c_inv; // Inverse Covariance of Occupied Voxel
 	memset(&(hessian.data[0][0]), 0, sizeof(double) * 6 * 6);
-
-	// Precompute Angular Derivatives unessisary because only used after regular derivative calculation
 	// Update hessian for each point, line 17 in Algorithm 2 [Magnusson 2009]
 	for (size_t idx = 0; idx < input_->size (); idx++)
 	{
-		PointXYZI x_trans_pt = trans_cloud[idx];
-
-		// Find nieghbors (Radius search has been experimentally faster than direct neighbor checking.
+		x_trans_pt = trans_cloud[idx];
+		// Find neighbors
 		std::vector<Voxel> neighborhood;
 		std::vector<float> distances;
 		voxelRadiusSearch (target_cells_, x_trans_pt, resolution_, neighborhood, distances);
-
+		// execute for each neighbor
 		for (auto neighborhood_it = neighborhood.begin (); neighborhood_it != neighborhood.end (); neighborhood_it++)
 		{
-			Voxel cell = *neighborhood_it;
-			PointXYZI x_pt = (*input_)[idx];
-			Vec3 x, x_trans;
+			cell = *neighborhood_it;
+			// extract point
+			x_pt = (*input_)[idx];
 			x[0] = x_pt.data[0];
 			x[1] = x_pt.data[1];
 			x[2] = x_pt.data[2];
-
 			x_trans[0] = x_trans_pt.data[0];
 			x_trans[1] = x_trans_pt.data[1];
 			x_trans[2] = x_trans_pt.data[2];
-
 			// Denorm point, x_k' in Equations 6.12 and 6.13 [Magnusson 2009]
 			x_trans[0] -= cell.mean[0];
 			x_trans[1] -= cell.mean[1];
 			x_trans[2] -= cell.mean[2];
-			// Uses precomputed covariance for speed.
-			Mat33 c_inv = cell.invCovariance;
-
+			c_inv = cell.invCovariance;
 			// Compute derivative of transform function w.r.t. transform vector, J_E and H_E in Equations 6.18 and 6.20 [Magnusson 2009]
 			computePointDerivatives (x);
 			// Update hessian, lines 21 in Algorithm 2, according to Equations 6.10, 6.12 and 6.13, respectively [Magnusson 2009]
@@ -707,7 +677,7 @@ void ndt_mapping::updateHessian (Mat66 &hessian, Vec3 &x_trans, Mat33 &c_inv)
 			for (int col = 0; col < 3; col++)
 			cov_dxd_pi[row] += c_inv.data[row][col] * point_gradient_.data[col][i];
 		}
-
+		
 	for (int j = 0; j < 6; j++)
 	{
 		// Update hessian, Equation 6.13 [Magnusson 2009]
@@ -727,107 +697,64 @@ void ndt_mapping::updateHessian (Mat66 &hessian, Vec3 &x_trans, Mat33 &c_inv)
 	}
 }
 
-
 double ndt_mapping::computeDerivatives (Vec6 &score_gradient,
-					Mat66 &hessian,
-					PointCloudSource &trans_cloud,
-					Vec6 &p,
-					bool compute_hessian)
+	Mat66 &hessian,
+	PointCloudSource &trans_cloud,
+	Vec6 &p,
+	bool compute_hessian)
 {
+	// Original Point and Transformed Point
+	PointXYZI x_pt, x_trans_pt;
+	// Original Point and Transformed Point (for math)
+	Vec3 x, x_trans;
+	// Occupied Voxel
+	Voxel cell;
+	// Inverse Covariance of Occupied Voxel
+	Mat33 c_inv;
+	// initialization to 0
 	memset(&(score_gradient[0]), 0, sizeof(double) * 6 );
 	memset(&(hessian.data[0][0]), 0, sizeof(double) * 6 * 6);
 	double score = 0.0;
 
 	// Precompute Angular Derivatives (eq. 6.19 and 6.21)[Magnusson 2009]
 	computeAngleDerivatives (p);
+
 	// Update gradient and hessian for each point, line 17 in Algorithm 2 [Magnusson 2009]
-	int pointNo = input_->size();
-	std::vector<int> pointIndices;
-	int neighborNo = 0;
-	int* pNeighborNo = &neighborNo;
-	double resolution = resolution_;
-	double radiusStart = resolution_;
-	double radiusFinal = resolution_ + 0.001f;
-	double step = resolution_;
-	double radius = resolution_;
-	PointXYZI* transCloudData = trans_cloud.data();
-	float* voxelMaxBuffer = maxVoxel.data;
-	float* voxelMinBuffer = minVoxel.data;
-	Voxel* voxelGrid = this->voxelGrid; // allocated in initCompute()
-	Voxel* neighborBuffer = this->neighborBuffer; // allocated in initCompute()
-	int* voxelDimBuffer = voxelDimension;
-	#pragma omp target \
-	map(to: radiusStart, radiusFinal, step, radius, voxelMinBuffer[:3], voxelMaxBuffer[:3], resolution, voxelDimBuffer[:3]) \
-	map(to: transCloudData[:pointNo]) \
-	map(tofrom: pNeighborNo[:1]) \
-	is_device_ptr(voxelGrid, neighborBuffer)
-	#pragma omp teams distribute parallel for \
-	default(none) \
-	shared(radiusStart, radiusFinal, step, radius, pointNo, voxelMinBuffer, voxelMaxBuffer, voxelDimBuffer, resolution) \
-	shared(pNeighborNo, neighborBuffer, transCloudData, voxelGrid)
-	for (size_t idx = 0; idx < pointNo; idx++)
+	for (size_t idx = 0; idx < input_->size (); idx++)
 	{
-		PointXYZI x_trans_pt = transCloudData[idx];
-		for (float z = x_trans_pt.data[2] - radiusStart; z <= x_trans_pt.data[2] + radiusFinal; z += step) {
-			for (float y = x_trans_pt.data[1] - radiusStart; y <= x_trans_pt.data[1] + radiusFinal; y += step) {
-				for (float x = x_trans_pt.data[0] - radiusStart; x <= x_trans_pt.data[0] + radiusFinal; x += step) {
-					if ((x < voxelMinBuffer[0]) || (x > voxelMaxBuffer[0]) ||
-						(y < voxelMinBuffer[1]) || (y > voxelMaxBuffer[1]) ||
-						(z < voxelMinBuffer[2]) || (z > voxelMaxBuffer[2])) {
-						// skip
-					} else {
-						int iVoxel = linearizeCoordOFF(x, y, z, resolution, voxelMinBuffer, voxelDimBuffer);
-						float dx = voxelGrid[iVoxel].mean[0] - x_trans_pt.data[0];
-						float dy = voxelGrid[iVoxel].mean[1] - x_trans_pt.data[1];
-						float dz = voxelGrid[iVoxel].mean[2] - x_trans_pt.data[2];
-						float dist = dx*dx + dy*dy + dz*dz;
-						if (dist < radius*radius) {
-							Voxel pointVoxel = voxelGrid[iVoxel];
-							pointVoxel.point = idx;
-							int iNeighbor;
-							#pragma omp atomic capture
-							{
-								iNeighbor = *pNeighborNo;
-								*pNeighborNo += 1;
-							}
-							neighborBuffer[iNeighbor] = pointVoxel;
-						}
-					}
-				}
-			}
+		x_trans_pt = trans_cloud[idx];
+
+		// Find nieghbors (Radius search has been experimentally faster than direct neighbor checking.
+		std::vector<Voxel> neighborhood;
+		std::vector<float> distances;
+		voxelRadiusSearch (target_cells_, x_trans_pt, resolution_, neighborhood, distances);
+		
+		for (auto neighborhood_it = neighborhood.begin (); neighborhood_it != neighborhood.end (); neighborhood_it++)
+		{
+			cell = *neighborhood_it;
+			x_pt = (*input_)[idx];
+			x[0] = x_pt.data[0];
+			x[1] = x_pt.data[1];
+			x[2] = x_pt.data[2];
+			x_trans[0] = x_trans_pt.data[0];
+			x_trans[1] = x_trans_pt.data[1];
+			x_trans[2] = x_trans_pt.data[2];
+			// Denorm point, x_k' in Equations 6.12 and 6.13 [Magnusson 2009]
+			x_trans[0] -= cell.mean[0];
+			x_trans[1] -= cell.mean[1];
+			x_trans[2] -= cell.mean[2];
+			// Uses precomputed covariance for speed.
+			c_inv = cell.invCovariance;
+			// Equations 6.18 and 6.20 [Magnusson 2009]
+			computePointDerivatives (x);
+			// Equations 6.10, 6.12 and 6.13, respectively [Magnusson 2009]
+			score += updateDerivatives (score_gradient, hessian, x_trans, c_inv, compute_hessian);
+
 		}
 	}
-	omp_target_memcpy(neighborStorage, neighborBuffer, sizeof(Voxel)*neighborNo,
-		0, 0, hostDeviceId, targetDeviceId);
-	for (int i = 0; i < neighborNo; i++)
-	{
-		int iPoint = neighborStorage[i].point;
-		PointXYZI x_pt = input_->at(iPoint);
-		PointXYZI x_trans_pt = trans_cloud[iPoint];
-		Vec3 x, x_trans;
-		x[0] = x_pt.data[0];
-		x[1] = x_pt.data[1];
-		x[2] = x_pt.data[2];
-
-		x_trans[0] = x_trans_pt.data[0];
-		x_trans[1] = x_trans_pt.data[1];
-		x_trans[2] = x_trans_pt.data[2];
-
-		// Denorm point, x_k' in Equations 6.12 and 6.13 [Magnusson 2009]
-		x_trans[0] -= neighborStorage[i].mean[0];
-		x_trans[1] -= neighborStorage[i].mean[1];
-		x_trans[2] -= neighborStorage[i].mean[2];
-		// Uses precomputed covariance for speed.
-		Mat33 c_inv = neighborStorage[i].invCovariance;
-
-		// Compute derivative of transform function w.r.t. transform vector, J_E and H_E in Equations 6.18 and 6.20 [Magnusson 2009]
-		computePointDerivatives (x);
-		// Update score, gradient and hessian, lines 19-21 in Algorithm 2, according to Equations 6.10, 6.12 and 6.13, respectively [Magnusson 2009]
-		score += updateDerivatives (score_gradient, hessian, x_trans, c_inv, compute_hessian);
-
-	}
-	return (score);
+	return score;
 }
+
 void ndt_mapping::computeAngleDerivatives (Vec6 &p, bool compute_hessian)
 {
 	// Simplified math for near 0 angles
@@ -901,21 +828,21 @@ void ndt_mapping::computeAngleDerivatives (Vec6 &p, bool compute_hessian)
 		h_ang_a3_[0] =  (-sx * sz + cx * sy * cz);
 		h_ang_a3_[1] = (-cx * sy * sz - sx * cz);
 		h_ang_a3_[2] = (-cx * cy);
-
+		
 		h_ang_b2_[0] = (cx * cy * cz);
 		h_ang_b2_[1] = (-cx * cy * sz);
 		h_ang_b2_[2] = (cx * sy);
 		h_ang_b3_[0] = (sx * cy * cz);
 		h_ang_b3_[1] = (-sx * cy * sz);
 		h_ang_b3_[2] = (sx * sy);
-
+		
 		h_ang_c2_[0] = (-sx * cz - cx * sy * sz);
 		h_ang_c2_[1] = (sx * sz - cx * sy * cz);
 		h_ang_c2_[2] = 0;
 		h_ang_c3_[0] = (cx * cz - sx * sy * sz);
 		h_ang_c3_[1] = (-sx * sy * cz - cx * sz);
 		h_ang_c3_[2] = 0;
-
+		
 		h_ang_d1_[0] = (-cy * cz);
 		h_ang_d1_[1] = (cy * sz);
 		h_ang_d1_[2] = (sy);
@@ -925,7 +852,7 @@ void ndt_mapping::computeAngleDerivatives (Vec6 &p, bool compute_hessian)
 		h_ang_d3_[0] = (cx * sy * cz);
 		h_ang_d3_[1] = (-cx * sy * sz);
 		h_ang_d3_[2] = (-cx * cy);
-
+		
 		h_ang_e1_[0] = (sy * sz);
 		h_ang_e1_[1] = (sy * cz);
 		h_ang_e1_[2] = 0;
@@ -935,7 +862,7 @@ void ndt_mapping::computeAngleDerivatives (Vec6 &p, bool compute_hessian)
 		h_ang_e3_[0] = (cx * cy * sz);
 		h_ang_e3_[1] = (cx * cy * cz);
 		h_ang_e3_[2] = 0;
-
+		
 		h_ang_f1_[0] = (-cy * cz);
 		h_ang_f1_[1] = (cy * sz);
 		h_ang_f1_[2] = 0;
@@ -947,7 +874,6 @@ void ndt_mapping::computeAngleDerivatives (Vec6 &p, bool compute_hessian)
 		h_ang_f3_[2] = 0;
 	}
 }
-
 
 bool ndt_mapping::updateIntervalMT (double &a_l, double &f_l, double &g_l,
 	double &a_u, double &f_u, double &g_u,
@@ -987,6 +913,7 @@ bool ndt_mapping::updateIntervalMT (double &a_l, double &f_l, double &g_l,
 	else
 		return true;
 }
+
 
 double ndt_mapping::trialValueSelectionMT (double a_l, double f_l, double g_l,
 	double a_u, double f_u, double g_u,
@@ -1216,7 +1143,7 @@ double ndt_mapping::computeStepLengthMT (const Vec6 &x, Vec6 &step_dir, double s
 		for (int row = 0; row < 6; row++)
 			x_t[row] = x[row] + step_dir[row] * a_t;
 
-		buildTransformationMatrix(final_transformation_, x_t);
+		buildTransformationMatrix(final_transformation_, x_t); 
 		// New transformed point cloud
 		// Done on final cloud to prevent wasted computation
 		transformPointCloud (*input_, trans_cloud, final_transformation_);
@@ -1265,7 +1192,6 @@ double ndt_mapping::computeStepLengthMT (const Vec6 &x, Vec6 &step_dir, double s
 		computeHessian (hessian, trans_cloud, x_t);
 	return a_t;
 }
-
 
 void ndt_mapping::eulerAngles(Matrix4f trans, Vec3 &result)
 {
@@ -1328,7 +1254,7 @@ void ndt_mapping::computeTransformation(PointCloud &output, const Matrix4f &gues
 	p[3] = ea[0];
 	p[4] = ea[1];
 	p[5] = ea[2];
-
+	
 	Mat66 hessian;
 	double score = 0;
 	double delta_p_norm;
@@ -1365,7 +1291,7 @@ void ndt_mapping::computeTransformation(PointCloud &output, const Matrix4f &gues
 		delta_p[3] /= delta_p_norm;
 		delta_p[4] /= delta_p_norm;
 		delta_p[5] /= delta_p_norm;
-
+		
 		delta_p_norm = computeStepLengthMT (p, delta_p, delta_p_norm, step_size_, transformation_epsilon_ / 2, score, score_gradient, hessian, output);
 		delta_p[0] *= delta_p_norm;
 		delta_p[1] *= delta_p_norm;
@@ -1380,7 +1306,7 @@ void ndt_mapping::computeTransformation(PointCloud &output, const Matrix4f &gues
 		p[2] = p[2] + delta_p[2];
 		p[3] = p[3] + delta_p[3];
 		p[4] = p[4] + delta_p[4];
-		p[5] = p[5] + delta_p[5];
+		p[5] = p[5] + delta_p[5];		    
 
 		if (nr_iterations_ > max_iterations_ ||
 			(nr_iterations_ && (std::fabs (delta_p_norm) < transformation_epsilon_)))
@@ -1395,7 +1321,10 @@ void ndt_mapping::computeTransformation(PointCloud &output, const Matrix4f &gues
 	trans_probability_ = score / static_cast<double> (input_->size ());
 }
 
-// invert matrix: its just 3x3 so we use the determinant
+#pragma omp declare target
+/**
+ * Helper function for simple matrix inversion using the determinant
+ */
 void invertMatrix(Mat33 &m)
 {
 	Mat33 temp;
@@ -1417,52 +1346,122 @@ void invertMatrix(Mat33 &m)
 	temp.data[2][2] = m.data[1][1] * m.data[0][0] - m.data[1][0] * m.data[0][1];
 
 	for (int row = 0; row < 3; row++)
-	for (int col = 0; col < 3; col++)
-		m.data[row][col] = temp.data[row][col] * invDet;
-
-}
-#pragma omp declare target
-void invertMatrixOFF(Mat33 &m)
-{
-	Mat33 temp;
-	double det = m.data[0][0] * (m.data[2][2] * m.data[1][1] - m.data[2][1] * m.data[1][2]) -
-	m.data[1][0] * (m.data[2][2] * m.data[0][1] - m.data[2][1] * m.data[0][2]) +
-	m.data[2][0] * (m.data[1][2] * m.data[0][1] - m.data[1][1] * m.data[0][2]);
-	double invDet = 1.0 / det;
-	// adjungated matrix of minors
-	temp.data[0][0] = m.data[2][2] * m.data[1][1] - m.data[2][1] * m.data[1][2];
-	temp.data[0][1] = -( m.data[2][2] * m.data[0][1] - m.data[2][1] * m.data[0][2]);
-	temp.data[0][2] = m.data[1][2] * m.data[0][1] - m.data[1][1] * m.data[0][2];
-
-	temp.data[1][0] = -( m.data[2][2] * m.data[0][1] - m.data[2][0] * m.data[1][2]);
-	temp.data[1][1] = m.data[2][2] * m.data[0][0] - m.data[2][1] * m.data[0][2];
-	temp.data[1][2] = -( m.data[1][2] * m.data[0][0] - m.data[1][0] * m.data[0][2]);
-
-	temp.data[2][0] = m.data[2][1] * m.data[1][0] - m.data[2][0] * m.data[1][1];
-	temp.data[2][1] = -( m.data[2][1] * m.data[0][0] - m.data[2][0] * m.data[0][1]);
-	temp.data[2][2] = m.data[1][1] * m.data[0][0] - m.data[1][0] * m.data[0][1];
-
-	for (int row = 0; row < 3; row++)
-	for (int col = 0; col < 3; col++)
-		m.data[row][col] = temp.data[row][col] * invDet;
-
+		for (int col = 0; col < 3; col++)
+			m.data[row][col] = temp.data[row][col] * invDet;
 }
 #pragma omp end declare target
-void ndt_mapping::initCompute()
-{
 
-	// find min/max
-	minVoxel = (*target_)[0];
-	maxVoxel = (*target_)[0];
-	#pragma omp parallel for collapse(2) reduction(min:minVoxel) reduction(max:maxVoxel)
-	for (int i = 1; i < target_->size(); i++)
+#pragma omp declare target
+
+#pragma omp begin declare variant match(device={arch(nvptx, nvptx64)}, implementation={extension(match_any)})
+
+#define __CUDA__
+#include <__clang_cuda_device_functions.h>
+#undef __CUDA__
+
+void atom_add(double* address, double val){
+	__dAtomicAdd(address, val);
+}
+
+void atom_addI(int* address, int val){
+	__iAtomicAdd(address, val);
+}
+
+#pragma omp end declare variant
+
+void atom_add(double* address, double val){
+	#pragma omp atomic update
+	*address += val;
+}
+
+void atom_addI(int* address, int val){
+	#pragma omp atomic update
+	*address += val;
+}
+
+#pragma omp end declare target
+
+/**
+ * Scatters the point cloud onto the voxel grid. Updates cell properties.
+ * target_: point cloud
+ * target_cells_: voxel grid
+ * size: number of voxel grid elements
+ */
+void initComputeStep1(PointCloudArray target_, Voxel *target_cells_, int size)
+{
+	#pragma omp target teams distribute parallel for \
+		is_device_ptr(target_, target_cells_) \
+		map(to: voxelDimension, resolution_, minVoxel)
+	for(int id=0; id < size; ++id){
+		int voxelIndex = linearizeCoord( (target_)[id].data[0], (target_)[id].data[1], (target_)[id].data[2]);
+		// sum of points
+		// number of points remembered for later normalization
+		//#pragma omp atomic update
+		atom_add(&target_cells_[voxelIndex].mean[0], (double) target_[id].data[0]);
+		//target_cells_[voxelIndex].mean[0] += (double) target_[id].data[0];
+		//#pragma omp atomic update
+		//target_cells_[voxelIndex].mean[1] += (double) target_[id].data[1];
+		atom_add(&target_cells_[voxelIndex].mean[1], target_[id].data[1]);
+		//#pragma omp atomic update
+		//target_cells_[voxelIndex].mean[2] += (double) target_[id].data[2];
+		atom_add(&target_cells_[voxelIndex].mean[2], target_[id].data[2]);
+		//#pragma omp atomic update
+		//target_cells_[voxelIndex].numberPoints += 1;
+		atom_addI(&target_cells_[voxelIndex].numberPoints, 1);
+		// sum up x * xT for single pass covariance calculation
+		for (int row = 0; row < 3; row ++){
+			for (int col = 0; col < 3; col ++){
+				//#pragma omp atomic update
+				//target_cells_[voxelIndex].invCovariance.data[row][col] += (double) target_[id].data[row] * 
+				//	target_[id].data[col];
+				atom_add(&target_cells_[voxelIndex].invCovariance.data[row][col], target_[id].data[row] * target_[id].data[col]);
+			}
+		}
+	}
+}
+/**
+ * Normalizes the voxel grid. This yields the mean and inverse covariance matrix for each cell.
+ * target_cells_: voxel grid
+ * size: number of voxel grid elements
+ */
+void initComputeStep2(Voxel *target_cells_, int size)
+{
+	#pragma omp target teams distribute parallel for \
+		is_device_ptr(target_cells_)
+	for(int id = 0; id < size; ++id){
+		// average the sum of points
+		Vec3 pointSum = {target_cells_[id].mean[0], target_cells_[id].mean[1], target_cells_[id].mean[2]};
+		target_cells_[id].mean[0] /= target_cells_[id].numberPoints;
+		target_cells_[id].mean[1] /= target_cells_[id].numberPoints;
+		target_cells_[id].mean[2] /= target_cells_[id].numberPoints;
+		// calculate the inverse covariance matrix
+		for (int row = 0; row < 3; row++)
+			for (int col = 0; col < 3; col++)
+			{
+				target_cells_[id].invCovariance.data[row][col] = 
+					(target_cells_[id].invCovariance.data[row][col] -
+					2 * (pointSum[row] * target_cells_[id].mean[col])) / size +
+					target_cells_[id].mean[row]*target_cells_[id].mean[col];
+				target_cells_[id].invCovariance.data[row][col] *= (size -1.0) / target_cells_[id].numberPoints; 
+			}
+		invertMatrix(target_cells_[id].invCovariance);
+	}
+}
+
+void ndt_mapping::initCompute()
+{	
+	// measure the voxel grid
+	minVoxel = (target_)[0];
+	maxVoxel = (target_)[0];
+
+	for (int i = 1; i < target_size_; i++)
 	{
 		for (int elem = 0; elem < 3; elem++)
 		{
-			if ( (*target_)[i].data[elem] > maxVoxel.data[elem] )
-				maxVoxel.data[elem] = (*target_)[i].data[elem];
-			if ( (*target_)[i].data[elem] < minVoxel.data[elem] )
-				minVoxel.data[elem] = (*target_)[i].data[elem];
+			if ( (target_)[i].data[elem] > maxVoxel.data[elem] )
+			maxVoxel.data[elem] = (target_)[i].data[elem];
+			if ( (target_)[i].data[elem] < minVoxel.data[elem] )
+			minVoxel.data[elem] = (target_)[i].data[elem];
 		}
 	}
 	for (int i = 0; i < 3; i++) {
@@ -1470,114 +1469,29 @@ void ndt_mapping::initCompute()
 		maxVoxel.data[i] += 0.01f;
 		voxelDimension[i] = (maxVoxel.data[i] - minVoxel.data[i]) / resolution_ + 1;
 	}
-	// openmp accessible data structure pointers
-	int sizeOfDatacell = voxelDimension[0] * voxelDimension[1] * voxelDimension[2];
-	int targetSize = target_->size();
-	PointXYZI *targetData = target_->data();
-	int* voxelDim = voxelDimension;
-	float* voxelMin = minVoxel.data;
-	float resolution = resolution_;
-	// buffers required for the whole testcase
-	omp_target_free(this->voxelGrid, targetDeviceId);
-	omp_target_free(this->neighborBuffer, targetDeviceId);
-	delete neighborStorage;
-	Voxel* voxelGrid = (Voxel*)omp_target_alloc(sizeof(Voxel)*sizeOfDatacell, targetDeviceId);
-	Voxel* neighborBuffer = (Voxel*)omp_target_alloc(sizeof(Voxel)*targetSize*averageNeighborsPerPoint, targetDeviceId);
-	neighborStorage = new Voxel[targetSize*averageNeighborsPerPoint];
-	int* nextTarget = (int*)omp_target_alloc(sizeof(Voxel)*sizeOfDatacell, targetDeviceId);
-	this->voxelGrid = voxelGrid;
-	this->neighborBuffer = neighborBuffer;
-	#pragma omp target data \
-	map(to: targetData[:targetSize]) \
-	map(to: sizeOfDatacell, targetSize, resolution, voxelMin[:3], voxelDim[:3])
+	// allocate and init the voxel grid
+	target_cells_size_ = voxelDimension[0] * voxelDimension[1] * voxelDimension[2];
+	target_cells_ = (VoxelGrid) omp_target_alloc(target_cells_size_ * sizeof(Voxel), 0);
+	for (int i = 0; i < target_cells_size_; i++)
 	{
-		#pragma omp target teams distribute parallel for \
-		default(none) \
-		shared(sizeOfDatacell, voxelGrid) \
-		is_device_ptr(voxelGrid, nextTarget)
-		for (int i = 0; i < sizeOfDatacell; i++) {
-			voxelGrid[i].point = -1;
-			voxelGrid[i].mean[0] = 0;
-			voxelGrid[i].mean[1] = 0;
-			voxelGrid[i].mean[2] = 0;
-
-			//#pragma omp simd
-			voxelGrid[i].invCovariance = {.data ={
-				{0,0,1},
-				{0,1,0},
-				{1,0,0}
-			}};
-		}
-		#pragma omp target teams distribute parallel for \
-		default(none) \
-		shared(voxelDim, voxelMin, resolution) \
-		shared(targetSize, voxelGrid, nextTarget, targetData) \
-		is_device_ptr(voxelGrid, nextTarget)
-		for (int i = 0; i < targetSize; i++) {
-			int voxelIndex = linearizeCoordOFF(targetData[i].data[0], targetData[i].data[1], targetData[i].data[2], resolution, voxelMin, voxelDim);
-			// build the point index queue
-			int iNext;
-			#pragma omp atomic capture
-			{
-				iNext = voxelGrid[voxelIndex].point;
-				voxelGrid[voxelIndex].point = i;
-			}
-			nextTarget[i] = iNext;
-		}
-		#pragma omp target teams distribute parallel for \
-		default(none) \
-		firstprivate(sizeOfDatacell) \
-		shared(voxelGrid, nextTarget, targetData) \
-		is_device_ptr(voxelGrid, nextTarget)
-		for (int i = 0; i < sizeOfDatacell; i++) {
-			int pointNo = 0;
-			Voxel cell = voxelGrid[i];
-			int iNext = cell.point;
-			PointXYZI point;
-			while (iNext > -1) {
-				pointNo += 1;
-				point = targetData[iNext];
-				// modify cell
-				cell.mean[0] += point.data[0];
-				cell.mean[1] += point.data[1];
-				cell.mean[2] += point.data[2];
-				for (int row = 0; row < 3; row ++) {
-					for (int col = 0; col < 3; col ++) {
-						cell.invCovariance.data[row][col] += point.data[row] * point.data[col];
-					}
-				}
-				// iterate
-				iNext = nextTarget[iNext];
-			}
-			// normalize
-			if (pointNo > 0) {
-				Vec3 pointSum = {cell.mean[0], cell.mean[1], cell.mean[2]};
-				//double invSizeOfDatacell = 1.0/sizeOfDatacell;
-				//double invPointNo = 1.0/pointNo;
-				/*cell.mean[0] *= invPointNo;
-				cell.mean[1] *= invPointNo;
-				cell.mean[2] *= invPointNo;*/
-				cell.mean[0] /= pointNo;
-				cell.mean[1] /= pointNo;
-				cell.mean[2] /= pointNo;
-				for (int row = 0; row < 3; row++) {
-					for (int col = 0; col < 3; col++)
-					{
-						cell.invCovariance.data[row][col] = 
-							(cell.invCovariance.data[row][col] - 2*(pointSum[row] * cell.mean[col])) /
-							sizeOfDatacell +
-							cell.mean[row]*cell.mean[col];
-
-						cell.invCovariance.data[row][col] *= (sizeOfDatacell - 1.0)/pointNo;
-					}
-				}
-				invertMatrixOFF(cell.invCovariance);
-				voxelGrid[i] = cell;
-			}
-			// otherwise the cell
-		}
+		target_cells_[i].numberPoints = 0;
+		target_cells_[i].mean[0] = 0;
+		target_cells_[i].mean[1] = 0;
+		target_cells_[i].mean[2] = 0;
+		memset(target_cells_[i].invCovariance.data, 0, sizeof(double) * 3 * 3);
+		target_cells_[i].invCovariance.data[2][0] = 1.0;
+		target_cells_[i].invCovariance.data[1][1] = 1.0;
+		target_cells_[i].invCovariance.data[0][2] = 1.0;
 	}
-	omp_target_free(nextTarget, targetDeviceId);
+	// scatter the cloud onto the voxel grid
+	initComputeStep1(target_, target_cells_, target_size_);
+	// normalize the voxel grid
+	initComputeStep2(target_cells_, target_cells_size_);
+}
+
+void ndt_mapping::deinitCompute()
+{
+	omp_target_free(target_cells_, 0);
 }
 
 void ndt_mapping::ndt_align (const Matrix4f& guess)
@@ -1586,49 +1500,58 @@ void ndt_mapping::ndt_align (const Matrix4f& guess)
 	initCompute ();
 	// Resize the output dataset
 	output.resize (input_->size ());
-
 	// Copy the point data to output
 	for (size_t i = 0; i < input_->size (); ++i)
 		output[i] = (*input_)[i];
 	// Perform the actual transformation computation
 	converged_ = false;
 	final_transformation_ = transformation_ = previous_transformation_ = Matrix4f_Identity;
-	// Right before we estimate the transformation, we set all the point.data[3] values to 1 to aid the rigid
+	// Right before we estimate the transformation, we set all the point.data[3] values to 1 to aid the rigid 
 	// transformation
 	for (size_t i = 0; i < input_->size (); ++i)
 		output[i].data[3] = 1.0;
 	computeTransformation (output, guess);
-
+	deinitCompute ();
 }
 
-CallbackResult ndt_mapping::partial_points_callback(PointCloud &input_cloud, Matrix4f &init_guess, PointCloud& target_cloud)
+/**
+ * Helper function that calculates the squared euclidean distance between two points
+ */
+double distance_sqr(const PointXYZI& a, const PointXYZI& b)
+{
+	double dx = a.data[0]-b.data[0];
+	double dy = a.data[1]-b.data[1];
+	double dz = a.data[2]-b.data[2];
+	return dx*dx + dy*dy + dz*dz;
+}
+
+CallbackResult ndt_mapping::partial_points_callback(PointCloud &input_cloud, Matrix4f &init_guess, PointCloudArray target_cloud, int target_cloud_size)
 {
     CallbackResult result;
-
     input_ = &input_cloud;
-    target_ = &target_cloud;
-
+    target_ = target_cloud;
+    target_size_ = target_cloud_size;
     ndt_align(init_guess);
     result.final_transformation = final_transformation_;
     result.converged = converged_;
-
     return result;
 }
 
 void ndt_mapping::run(int p) {
+	// prepare to read the first data set
 	pause_func();
-	//omp_set_num_threads(corenum);
-	//std::cout << "Threads: " << omp_get_num_threads() << std::endl;
-
 	while (read_testcases < testcases)
 	{
+		// read the next data set while paused
 		int count = read_next_testcases(p);
+		// resume kernel runtime measurement
 		unpause_func();
 		for (int i = 0; i < count; i++)
 		{
 			// actual kernel invocation
-			results[i] = partial_points_callback(filtered_scan_ptr[i], init_guess[i], maps[i]);
+			results[i] = partial_points_callback(filtered_scan_ptr[i], init_guess[i], maps[i], maps_size_[i]);
 		}
+		// pause and compare results to reference
 		pause_func();
 		check_next_outputs(count);
 	}
@@ -1699,16 +1622,12 @@ void ndt_mapping::check_next_outputs(int count)
 bool ndt_mapping::check_output() {
 	std::cout << "checking output \n";
 	// complement to init()
-	omp_target_free(voxelGrid, targetDeviceId);
-	omp_target_free(neighborBuffer, targetDeviceId);
-	delete neighborStorage;
 	input_file.close();
 	output_file.close();
 	// check for error
 	std::cout << "max delta: " << max_delta << "\n";
 	return !error_so_far;
 }
-
 
 ndt_mapping a = ndt_mapping();
 kernel& myKernel = a;
