@@ -96,3 +96,5 @@ for Parallel Programming Models on Embedded Heterogeneous Platforms.** *In Proce
 * Sommer, L., Stock, F., Solis-Vasquez, L., and Koch, A. (2019). **EPHoS: Evaluation of Programming - Models for Heterogeneous Systems.** *FAT-Schriftenreihe 317. Forschungsvereinigung Automobiltechik.*
 
 * Sommer, L., Stock, F., Solis-Vasquez, L., and Koch, A. (2019). **Using Parallel Programming Models for Automotive Workloads on Heterogeneous Systems - a Case Study.** *In Proceedings of the 28th Euromicro International Conference on Parallel, Distributed and Network-based Processing, PDP '20.*
+
+* Sommer, L., Koch, A. (2020). **OpenMP Device Offloading for Embedded Heterogeneous Platforms - Work-in-Progress.** *In Proceedings of the International Conference on Embedded Software, EMSOFT ’20.*
