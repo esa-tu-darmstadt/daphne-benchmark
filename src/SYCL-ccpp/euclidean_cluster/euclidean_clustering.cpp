@@ -459,62 +459,6 @@ void euclidean_clustering::extractEuclideanClusters (
 	unsigned int min_pts_per_cluster, 
 	unsigned int max_pts_per_cluster)
 {
-// 	int nn_start_idx = 0;
-// 	int cloudSize = plainPointCloud.size();
-//
-// 	// indicates the processed status for each point
-// 	std::vector<bool> processed (cloudSize, false);
-// 	// temporary radius search results
-// 	std::vector<int> nn_indices;
-// 	// precompute the distance matrix
-// 	bool *sqr_distances;
-// 	initRadiusSearch(plainPointCloud, &sqr_distances, tolerance);
-//
-// 	// iterate for all points in the cloud
-// 	for (int i = 0; i < cloudSize; ++i)
-// 	{
-// 		// ignore if already tested
-// 		if (processed[i])
-// 			continue;
-// 		// begin a cluster candidate with one item
-// 		std::vector<int> seed_queue;
-// 		int sq_idx = 0;
-// 		seed_queue.push_back(i);
-// 		processed[i] = true;
-//
-// 		// grow the cluster candidate until all items have been searched through
-// 		while (sq_idx < seed_queue.size())
-// 		{
-// 			int ret = radiusSearch(seed_queue[sq_idx], nn_indices, sqr_distances, cloudSize);
-// 			if (!ret)
-// 			{
-// 				sq_idx++;
-// 				continue;
-// 			}
-// 			// add indices of near points to the cluster candidate
-// 			for (size_t j = nn_start_idx; j < nn_indices.size (); ++j)             // can't assume sorted (default isn't!)
-// 			{
-// 				if (nn_indices[j] == -1 || processed[nn_indices[j]])        // Has this point been processed before ?
-// 					continue;
-// 				seed_queue.push_back (nn_indices[j]);
-// 				processed[nn_indices[j]] = true;
-// 			}
-// 			sq_idx++;
-// 		}
-//
-// 		// add cluster candidate of fitting size to the resulting clusters
-// 		if (seed_queue.size() >= min_pts_per_cluster && seed_queue.size() <= max_pts_per_cluster)
-// 		{
-// 			PointIndices r;
-// 			r.indices.resize(seed_queue.size ());
-// 			for (size_t j = 0; j < seed_queue.size (); ++j)
-// 				r.indices[j] = seed_queue[j];
-// 			std::sort (r.indices.begin (), r.indices.end ());
-// 			clusters.push_back(r);
-// 		}
-// 	}
-// 	free(sqr_distances);
-
 	// indicates the processed status for each point
 	int pointNo = plainPointCloud.size();
 	std::vector<char> processed (pointNo, 0);
@@ -527,31 +471,31 @@ void euclidean_clustering::extractEuclideanClusters (
 
 	// init distance matrix
 	try {
-	computeEnv.cmdqueue.submit([&](cl::sycl::handler& h) {
-		auto cloud = cloudBuffer.get_access<cl::sycl::access::mode::read>(h);
-		auto distances = distanceBuffer.get_access<cl::sycl::access::mode::write>(h);
-		float radius = tolerance*tolerance;
-		int workGroupNo = pointNo/EPHOS_COMPUTE_GROUP_SIZE + 1;
-		//h.parallel_for<euclidean_clustering_init_radius_search>(
-			//cl::sycl::range<1>(pointNo),
-			//[=](cl::sycl::id<1> item) {
-		h.parallel_for<euclidean_clustering_init_radius_search>(
-			cl::sycl::nd_range<1>(workGroupNo*EPHOS_COMPUTE_GROUP_SIZE, EPHOS_COMPUTE_GROUP_SIZE),
-			[=](cl::sycl::nd_item<1> item) {
+		computeEnv.cmdqueue.submit([&](cl::sycl::handler& h) {
+			auto cloud = cloudBuffer.get_access<cl::sycl::access::mode::read>(h);
+			auto distances = distanceBuffer.get_access<cl::sycl::access::mode::write>(h);
+			float radius = tolerance*tolerance;
+			int workGroupNo = pointNo/EPHOS_COMPUTE_GROUP_SIZE + 1;
+			//h.parallel_for<euclidean_clustering_init_radius_search>(
+				//cl::sycl::range<1>(pointNo),
+				//[=](cl::sycl::id<1> item) {
+			h.parallel_for<euclidean_clustering_init_radius_search>(
+				cl::sycl::nd_range<1>(workGroupNo*EPHOS_COMPUTE_GROUP_SIZE, EPHOS_COMPUTE_GROUP_SIZE),
+				[=](cl::sycl::nd_item<1> item) {
 
-			//int iRow = item.get(0);
-			int iRow = item.get_global_id(0);
-			if (iRow < pointNo) {
-				for (int iCol = 0; iCol < pointNo; iCol++) {
-					float dx = cloud[iRow].x - cloud[iCol].x;
-					float dy = cloud[iRow].y - cloud[iCol].y;
-					float dz = cloud[iRow].z - cloud[iCol].z;
-					float dist = dx*dx + dy*dy + dz*dz;
-					distances[iRow][iCol] = (dist <= radius);
+				//int iRow = item.get(0);
+				int iRow = item.get_global_id(0);
+				if (iRow < pointNo) {
+					for (int iCol = 0; iCol < pointNo; iCol++) {
+						float dx = cloud[iRow].x - cloud[iCol].x;
+						float dy = cloud[iRow].y - cloud[iCol].y;
+						float dz = cloud[iRow].z - cloud[iCol].z;
+						float dist = dx*dx + dy*dy + dz*dz;
+						distances[iRow][iCol] = (dist <= radius);
+					}
 				}
-			}
+			});
 		});
-	});
 	} catch (cl::sycl::exception& e) {
 		std::cerr << e.what() << std::endl;
 		exit(-3);
@@ -576,62 +520,59 @@ void euclidean_clustering::extractEuclideanClusters (
 			int iQueueStart = oldQueueLength;
 			int fixedQueueLength = newQueueLength;
 			try {
-			computeEnv.cmdqueue.submit([&](cl::sycl::handler& h) {
-				auto distances = distanceBuffer.get_access<cl::sycl::access::mode::read>(h);
-				auto seedQueue = seedQueueBuffer.get_access<cl::sycl::access::mode::read_write>(h);
-				auto processed = processedBuffer.get_access<cl::sycl::access::mode::read_write>(h);
-				auto nextQueueLength = queueLengthBuffer.get_access<cl::sycl::access::mode::atomic>(h);
-				int workGroupNo = pointNo/EPHOS_COMPUTE_GROUP_SIZE + 1;
-				//h.parallel_for<euclidean_clustering_radius_search>(
-					//cl::sycl::range<1>(pointNo),
-					//[=](cl::sycl::id<1> item) {
-				h.parallel_for<euclidean_clustering_radius_search>(
-					cl::sycl::nd_range<1>(workGroupNo*EPHOS_COMPUTE_GROUP_SIZE, EPHOS_COMPUTE_GROUP_SIZE),
-					[=](cl::sycl::nd_item<1> item) {
+				computeEnv.cmdqueue.submit([&](cl::sycl::handler& h) {
+					auto distances = distanceBuffer.get_access<cl::sycl::access::mode::read>(h);
+					auto seedQueue = seedQueueBuffer.get_access<cl::sycl::access::mode::read_write>(h);
+					auto processed = processedBuffer.get_access<cl::sycl::access::mode::read_write>(h);
+					auto nextQueueLength = queueLengthBuffer.get_access<cl::sycl::access::mode::atomic>(h);
+					int workGroupNo = pointNo/EPHOS_COMPUTE_GROUP_SIZE + 1;
+					h.parallel_for<euclidean_clustering_radius_search>(
+						cl::sycl::nd_range<1>(workGroupNo*EPHOS_COMPUTE_GROUP_SIZE, EPHOS_COMPUTE_GROUP_SIZE),
+						[=](cl::sycl::nd_item<1> item) {
 
-					//int iCloud = item.get(0);
-					int iCloud = item.get_global_id(0);
-					if (iCloud < pointNo) {
-						if (iCloud == 0 && iQueueStart == 0) {
-							// make the device side consistent with the host
-							// this step is necessary on the first seed queue grow iteration
-							// initialization for first queue element
-							processed[iStart] = 1;
-							seedQueue[0] = iStart;
-						}
-						// find out whether a point is a member of the seed queue
-						// search through points that are not yet part of a cluster
-						// and avoid to add the initial element multiple times
-						if (processed[iCloud] == 0 && iCloud != iStart) {
-							bool near = false;
-							if (iQueueStart == 0) {
-								// the first seed queue element might not yet be a member of the seed queue
-								// as it is written by only one thread
-								// compare distance with the the initial seed queue element
-								if (distances[iCloud][iStart]) {
-									near = true;
-								}
-								// no more comparisons necessary as this is the only element
-								// in the seed queue in the first iteration
-							} else {
-								// use the standard search method for subsequent kernel calls
-								for (int iQueue = iQueueStart; iQueue < fixedQueueLength && !near; iQueue++) {
-									if (distances[iCloud][seedQueue[iQueue]]) {
+						//int iCloud = item.get(0);
+						int iCloud = item.get_global_id(0);
+						if (iCloud < pointNo) {
+							if (iCloud == 0 && iQueueStart == 0) {
+								// make the device side consistent with the host
+								// this step is necessary on the first seed queue grow iteration
+								// initialization for first queue element
+								processed[iStart] = 1;
+								seedQueue[0] = iStart;
+							}
+							// find out whether a point is a member of the seed queue
+							// search through points that are not yet part of a cluster
+							// and avoid to add the initial element multiple times
+							if (processed[iCloud] == 0 && iCloud != iStart) {
+								bool near = false;
+								if (iQueueStart == 0) {
+									// the first seed queue element might not yet be a member of the seed queue
+									// as it is written by only one thread
+									// compare distance with the the initial seed queue element
+									if (distances[iCloud][iStart]) {
 										near = true;
 									}
+									// no more comparisons necessary as this is the only element
+									// in the seed queue in the first iteration
+								} else {
+									// use the standard search method for subsequent kernel calls
+									for (int iQueue = iQueueStart; iQueue < fixedQueueLength && !near; iQueue++) {
+										if (distances[iCloud][seedQueue[iQueue]]) {
+											near = true;
+										}
+									}
+								}
+								if (near) {
+									// mark a near point as processed
+									// and add it to the seed queue
+									processed[iCloud] = 1;
+									int iQueue = atomic_fetch_add(nextQueueLength[0], 1);
+									seedQueue[iQueue] = iCloud;
 								}
 							}
-							if (near) {
-								// mark a near point as processed
-								// and add it to the seed queue
-								processed[iCloud] = 1;
-								int iQueue = atomic_fetch_add(nextQueueLength[0], 1);
-								seedQueue[iQueue] = iCloud;
-							}
 						}
-					}
+					});
 				});
-			});
 			} catch (cl::sycl::exception& e) {
 				std::cerr << e.what() << std::endl;
 				exit(-3);
@@ -838,43 +779,6 @@ void euclidean_clustering::segmentByDistance(
 	{
 		clusterAndColor(cloud_segments_array[i], colorPointCloud, clusterBoundingBoxes, clusterCentroids, thresholds[i]);
 	}
-// 	PlainPointCloud* cloud_segments_array[5];
-// 	double thresholds[5] = {0.5, 1.1, 1.6, 2.3, 2.6f};
-//
-// 	for(unsigned int i=0; i<5; i++)
-// 	{
-// 		PlainPointCloud *tmp_cloud = new PlainPointCloud();
-// 		cloud_segments_array[i] = tmp_cloud;
-// 	}
-// 	for (unsigned int i = 0; i < plainPointCloud.size(); i++)
-// 	{
-// 		Point current_point;
-// 		current_point.x = plainPointCloud[i].x;
-// 		current_point.y = plainPointCloud[i].y;
-// 		current_point.z = plainPointCloud[i].z;
-//
-// 		// categorize by distance from origin
-// 		float origin_distance = sqrt(current_point.x*current_point.x + current_point.y*current_point.y);
-// 		if (origin_distance < 15 ) {
-// 			cloud_segments_array[0]->push_back (current_point);
-// 		}
-// 		else if(origin_distance < 30) {
-// 			cloud_segments_array[1]->push_back (current_point);
-// 		}
-// 		else if(origin_distance < 45) {
-// 			cloud_segments_array[2]->push_back (current_point);
-// 		}
-// 		else if(origin_distance < 60) {
-// 			cloud_segments_array[3]->push_back (current_point);
-// 		} else {
-// 			cloud_segments_array[4]->push_back (current_point);
-// 		}
-// 	}
-// 	// perform clustering and coloring on the individual categories
-// 	for(unsigned int i=0; i<5; i++)
-// 	{
-// 		clusterAndColor(*cloud_segments_array[i], cloud_segments_array[i]->size(), colorPointCloud, in_clusterBoundingBoxes, in_clusterCentroids, thresholds[i]);
-// 	}
 }
 
 

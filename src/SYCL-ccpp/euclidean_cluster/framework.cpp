@@ -180,13 +180,12 @@ int euclidean_clustering::read_next_testcases(int count)
 	colorPointCloud.resize(count);
 	clusterBoundingBoxes.resize(count);
 	clusterCentroids.resize(count);
-	//plainCloudSize.resize(count);
 
 	// read the respective point clouds
 	for (i = 0; (i < count) && (read_testcases < testcases); i++,read_testcases++)
 	{
 		try {
-			parsePlainPointCloud(input_file, plainPointCloud[i]);//, plainCloudSize[i]);
+			parsePlainPointCloud(input_file, plainPointCloud[i]);
 		} catch (std::ios_base::failure& e) {
 			std::cerr << e.what() << std::endl;
 			exit(-3);
@@ -394,7 +393,6 @@ void euclidean_clustering::check_next_outputs(int count)
 	colorPointCloud.clear();
 	clusterBoundingBoxes.clear();
 	clusterCentroids.clear();
-	//plainCloudSize.clear();
 }
 
 void euclidean_clustering::run(int p) {
@@ -412,7 +410,6 @@ void euclidean_clustering::run(int p) {
 			// actual kernel invocation
 			segmentByDistance(
 				plainPointCloud[i],
-				//plainCloudSize[i],
 				colorPointCloud[i],
 				clusterBoundingBoxes[i],
 				clusterCentroids[i]
