@@ -85,10 +85,10 @@ ComputeEnv ComputeTools::find_compute_platform(
 	if (selectedDevices.size() == 0) {
 		throw std::logic_error("No device named " + deviceHint);
 	}
-	cl::sycl::queue cmdqueue(selectedDevices[0]);
 	ComputeEnv result = {
+		selectedDevices[0].get_platform(),
 		selectedDevices[0],
-		cmdqueue
+		cl::sycl::queue(selectedDevices[0])
 	};
 	return result;
 }

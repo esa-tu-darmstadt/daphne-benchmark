@@ -11,6 +11,7 @@
 
 
 typedef struct ComputeEnv {
+	cl::sycl::platform platform;
 	cl::sycl::device device;
 	cl::sycl::queue cmdqueue;
 } ComputeEnv;

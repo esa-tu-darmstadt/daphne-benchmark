@@ -27,30 +27,52 @@
   To compile all kernels in their default configuration:
   $ make
 
-  The same result can be achieved in the kernel subfolder (points2image/eucldiean_cluster/ndt_mapping):
+  The same result can be achieved in the respective kernel subfolder:
+  $ cd points2image
+  or $ cd euclidean_cluster
+  or $ cd ndt_mapping
   $ make
 
-  This operation requires a working Codeplay ComputeCpp installation and compute++ in PATH.
-  If the system does not find the sycl headers it can be pointed to it through the Makefile variable SYCL_INCLUDE_PATH.
-  The program is linked with libComputeCpp.so.
-  Like with the headers the system can be pointed to it with the SYCL_LIBRARY_PATH variable:
+  Compilation requires a working Codeplay ComputeCpp installation and compute++ in PATH.
+  If the system does not find the sycl headers automatically,
+  manual configuration can be achieved through the SYCL_INCLUDE_PATH variable.
+  The program is linked with the libComputeCpp.so shared library.
+  Like with the sycl headers, the location can be set manually with the SYCL_LIBRARY_PATH variable:
   $ make SYCL_LIBRARY_PATH=/my/directory/lib SYCL_INCLUDE_PATH=/my/directory/include
 
-
   The compute++ tool generates device specific kernel code.
-  By default the Makefile tasks it target spir64 compatible devices.
+  By default the Makefile tasks compute++ to target spir64 compatible devices.
   Since not all devices run spir64 code the kernel binary format can be specified with the SYCL_KERNEL_FORMAT variable.
-  It can take any value of spir, spirv, spir64, spirv64, ptx64.
+  Valid configuration values are: spir, spirv, spir64, spirv64, ptx64
   The target device is selected with the SYCL_DEVICE_TYPE variable which can be set to
   CPU, GPU or HOST.
-  In combination, to explicitly target our NVIDIA Graphics card we can type:
+  Put together, explicit targeting an NVIDIA graphics card can be achieved with:
   $ make SYCL_DEVICE_TYPE=GPU SYCL_KERNEL_FORMAT=ptx64
+
+  The selection can be further specialized by OpenCL-typical platform and device names with the
+  SYCL_DEVICE_NAME and SYCL_PLATFORM_NAME variables. The resulting command may look similar to:
+  $ make SYCL_PLATFORM_NAME=CUDA SYCL_DEVICE_NAME=RTX SYCL_KERNEL_FORMAT=ptx64
+
+  Other common configuration options:
+  * TESTCASE_LIMIT - limit the number of processed testcases
+    - provide an integer to only process a subset of available testcases
+  * ENABLE_LEGACY_TESTDATA - enable support for old test data format
+    - only use this option if legacy test data is actually supplied
+  * ENABLE_TESTDATA_GEN - enable reference data generation
+    - generated reference  data directory which can be used as reference data in subsequent executions
+  * ENABLE_SYCL_MEMCPY - enable SYCL memcpy/memset intrinsics instead of serial fallback functions
+    - enabling this option passes -no-serial-memop to compute++
+  * SYCL_WORK_GROUP_SIZE - specify a custom work group size for SYCL kernel calls
+    - can be used as a workaround to incompatibility with default values
+
+
 
 * Execute the benchmark
 
   In the kernel subfolder:
-  $ ./kernel
+  $ ./benchmark
 
-  This will print information about the kernel runtime, unexpected deviations and errors during execution.
-  The selection of an unsupported kernel format in combination with a device
-  usually results in a cl::sycl::compile_program_error exception at runtime.
+  This will print information about the runtime, unexpected deviations and errors during execution.
+
+  It is common to see error outputs in case of unavailable SYCL devices, usage of unsupported kernel formats
+  or missing hardware features.

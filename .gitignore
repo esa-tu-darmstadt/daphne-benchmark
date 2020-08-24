@@ -3,4 +3,8 @@ data/*
 *.o
 **/Makefile.deps
 **/kernel/kernel.h
+**/kernel/kernel.sycl
+**/kernel/points2image-sycl*
+**/kernel/euclidean_clustering-sycl*
+**/kernel/ndt_mapping-sycl*
 **/benchmark

@@ -929,7 +929,9 @@ void euclidean_clustering::init() {
 	try {
 		computeEnv = ComputeTools::find_compute_platform(EPHOS_PLATFORM_NAME_S, EPHOS_DEVICE_NAME_S,
 			EPHOS_DEVICE_TYPE_S);
-		std::cout << "SYCL device name: ";
+		std::cout << "SYCL platform: ";
+		std::cout << computeEnv.platform.get_info<cl::sycl::info::platform::name>() << std::endl;
+		std::cout << "SYCL device: ";
 		std::cout << computeEnv.device.get_info<cl::sycl::info::device::name>() << std::endl;
 	} catch (std::logic_error& e) {
 		std::cerr << "Failed to initialize SYCL: " << e.what() << std::endl;

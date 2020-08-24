@@ -5,6 +5,7 @@
 
 ifdef DEBUG
 	CXXFLAGS= -g
+	SYCLFLAGS= -g
 else
 	CXXFLAGS= -O3
 endif
@@ -35,7 +36,7 @@ ifdef SYCL_LIBRARY_PATH
 endif
 LDDFLAGS+= -lComputeCpp
 
-SYCLFLAGS= -sycl
+SYCLFLAGS+= -sycl
 ifdef SYCL_KERNEL_FORMAT
 $(info Compiling to kernel format $(SYCL_KERNEL_FORMAT))
 	SYCLFLAGS+= -sycl-target $(SYCL_KERNEL_FORMAT)
@@ -48,7 +49,11 @@ ifdef ENABLE_SYCL_MEMCPY
 $(info Enabled SYCL memcpy operations)
 	SYCLFLAGS+= -no-serial-memop
 endif
-
+ifdef CUDA_GPU_ARCH
+$(info Using $(CUDA_GPU_ARCH) GPU architecture)
+	# ignored during compilation
+	SYCLFLAGS+= --cuda-gpu-arch=$(CUDA_GPU_ARCH)
+endif
 
 
 # other settings
@@ -73,8 +78,16 @@ benchmark: ../common/main.o points2image.o framework.o ../common/compute_tools.o
 %.o: %.cpp
 	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
 
+points2image.o: points2image.cpp kernel/kernel.sycl
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -include kernel/kernel.sycl -c -o $@ $<
+
 kernel/kernel.h:
 	cd kernel && ./stringify_kernels.sh
+
+kernel/kernel.sycl: points2image.cpp
+	compute++ $(SYCLFLAGS) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) $<
+	mv points2image.sycl kernel/kernel.sycl
+	mv points2image-sycl* kernel/
 
 checkdata:
 ifeq ($(wildcard ../../../data/p2i_input.dat),)
@@ -87,6 +100,8 @@ endif
 clean:
 	rm -f benchmark points2image.o framework.o kernel/kernel.h \
 	../common/main.o  Makefile.deps
+	rm kernel/kernel.sycl
+	rm kernel/points2image-sycl*
 
 Makefile.deps:
 	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -MM -MG \
