@@ -1,67 +1,104 @@
 .DEFAULT_GOAL := all
-.PHONY: all clean checkdata
+.PHONY: all clean checkdata kernel/kernel.h
 
 -include Makefile.deps
 
-CXXFLAGS= -O3
-#CXXFLAGS= -g
+ifdef DEBUG
+	CXXFLAGS+= -g
+else
+	CXXFLAGS+= -O3
+endif
 CXXFLAGS+= -std=c++11
+CPPFLAGS+= -I./ -I../
 
-SYCL_DEVICE_TYPE=GPU
-SYCL_TARGET=ptx64
-CPPFLAGS+= -DEPHOS_DEVICE_TYPE=$(SYCL_DEVICE_TYPE)
-CPPFLAGS+= -I.
+# standard optimization
 
-SYCL_INCLUDE_PATH=
-SYCL_LIBRARY_PATH=
-ifneq ($(SYCL_INCLUDE_PATH),)
+# sycl platform flags
+ifdef SYCL_DEVICE_TYPE
+$(info Selecting SYCL device type $(SYCL_DEVICE_TYPE))
+	CPPFLAGS+= -DEPHOS_DEVICE_TYPE=$(SYCL_DEVICE_TYPE)
+endif
+ifdef SYCL_DEVICE_NAME
+$(info Selecting SYCL device $(SYCL_DEVICE_NAME))
+	CPPFLAGS+= -DEPHOS_DEVICE_NAME=$(SYCL_DEVICE_NAME)
+endif
+ifdef SYCL_PLATFORM_NAME
+$(info Selecting SYCL platform $(SYCL_PLATFORM_NAME))
+	CPPFLAGS+= -DEPHOS_PLATFORM_NAME=$(SYCL_PLATFORM_NAME)
+endif
+
+ifdef SYCL_INCLUDE_PATH
 	CPPFLAGS+= -I$(SYCL_INCLUDE_PATH)
 endif
-ifneq ($(SYCL_LIBRARY_PATH),)
+ifdef SYCL_LIBRARY_PATH
 	LDDFLAGS+= -L$(SYCL_LIBRARY_PATH)
 endif
 LDDFLAGS+= -lComputeCpp
-SYCLFLAGS=-sycl
-$(echo "ghfdojsaöjklfdaöslfjkadsöödsa $(SYCL_TARGET)")
-ifeq ($(SYCL_TARGET),spir64)
+SYCLFLAGS= -sycl
+ifdef SYCL_KERNEL_FORMAT
+$(info Compiling to kernel format $(SYCL_KERNEL_FORMAT))
+	SYCLFLAGS+= -sycl-target $(SYCL_KERNEL_FORMAT)
+else
 	SYCLFLAGS+= -sycl-target spir64
-else ifeq ($(SYCL_TARGET),ptx64)
-	SYCLFLAGS+= -sycl-target ptx64
+endif
+SYCLFLAGS+= -DCL_OPENCL_TARGET_VERSION=120
+CPPFLAGS+= -DCL_OPENCL_TARGET_VERSION=120
+
+# sycl optimization
+SYCL_WORK_GROUP_SIZE=512
+CPPFLAGS+= -DEPHOS_COMPUTE_GROUP_SIZE=$(SYCL_WORK_GROUP_SIZE)
+ifdef ENABLE_SYCL_MEMCPY
+$(info Enabled OpenCL memcpy/memset intrinsics)
+	SYCLFLAGS+= -no-serial-memop
 endif
 
+# other options
+ifdef DISABLE_SYCL_RADIUS_SEARCH
+$(info Disabling accelerated radius search)
+else
+	CPPFLAGS+= -DEPHOS_RADIUS_SEARCH_OFFLOAD
+endif
+ifdef TESTCASE_LIMIT
+$(info Limiting to $(TESTCASE_LIMIT) test cases)
+	CPPFLAGS+= -DEPHOS_TESTCASE_LIMIT=$(TESTCASE_LIMIT)
+endif
+ifdef ENABLE_TESTDATA_GEN
+$(info Enabled result data generation)
+	CPPFLAGS+= -DEPHOS_TESTDATA_GEN
+endif
 
-all: kernel checkdata
+all: benchmark checkdata
 
-kernel: ../common/main.o kernel.o sycl/sycl_tools.o
-	$(CXX) $(LDDFLAGS) $^ -o $@
+benchmark: ndt_mapping.o framework.o ../common/main.o ../common/compute_tools.o
+	$(CXX) $^ -o $@ $(LDDFLAGS)
 
-../common/main.o: ../common/main.cpp
-	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
+%.o: %.cpp
+	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -o $@ $<
 
-kernel.o: kernel.cpp sycl/kernel.sycl
-	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -include sycl/kernel.sycl -I../include $< -o $@
+ndt_mapping.o: ndt_mapping.cpp kernel/kernel.sycl
+	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -include kernel/kernel.sycl -o $@ $<
 
-sycl/kernel.sycl: kernel.cpp
-	compute++ $(SYCLFLAGS) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include kernel.cpp
-	mv kernel.sycl sycl/
-	mv kernel-sycl* sycl/
-
-sycl/sycl_tools.o: sycl/sycl_tools.cpp
-	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
+kernel/kernel.sycl: ndt_mapping.cpp
+	compute++ $(SYCLFLAGS) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) $<
+	mv ndt_mapping.sycl kernel/kernel.sycl
+	mv ndt_mapping-sycl* kernel/
 
 checkdata:
-ifeq ($(wildcard ../../../data/ec_input.dat),)
-	$(warning ec_input.dat not found. Did you forget to extract the test data?)
+ifeq ($(wildcard ../../../data/ndt_input.dat),)
+	$(warning ndt_input.dat not found. Did you forget to extract the test data?)
 endif
 ifeq ($(wildcard ../../../data/ec_output.dat),)
-	$(warning ec_output.dat not found. Did you forget to extract the test data?)
+	$(warning ndt_output.dat not found. Did you forget to extract the test data?)
 endif
 
 clean:
-	rm -f kernel kernel.o ../common/main.o \
-	sycl/kernel.sycl sycl/kernel-sycl* sycl/sycl_tools.o \
-	Makefile.deps
+	rm -f Makefile.deps benchmark ndt_mapping.o framework.o \
+	../common/main.o ../common/compute_tools.o \
+	kernel/kernel.sycl kernel/ndt_mapping-sycl*
 
 Makefile.deps:
-	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include -MM -MG \
-	../common/main.cpp *.cpp sycl/sycl_tools.cpp > Makefile.deps
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS)  -MM -MG \
+	ndt_mapping.cpp framework.cpp \
+	../common/main.cpp ../common/compute_tools.cpp > Makefile.deps
+
+
