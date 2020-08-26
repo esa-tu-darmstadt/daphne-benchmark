@@ -505,10 +505,10 @@ void ndt_mapping::updateHessian (Mat66 &hessian, Vec3 &x_trans, Mat33 &c_inv)
 }
 
 double ndt_mapping::computeDerivatives (
-	Vec6 &score_gradient,
-	Mat66 &hessian,
-	PointCloudSource &trans_cloud,
-	Vec6 &p,
+	Vec6& score_gradient,
+	Mat66& hessian,
+	PointCloudSource& trans_cloud,
+	Vec6& p,
 	bool compute_hessian)
 {
 	// initialization to 0
@@ -521,27 +521,37 @@ double ndt_mapping::computeDerivatives (
 #ifdef EPHOS_RADIUS_SEARCH_OFFLOAD
 	int voxelNo = 0;
 
-	cl::sycl::buffer<PointXYZI> cloudBuffer(trans_cloud.data(), cl::sycl::range<1>(trans_cloud.size()));
+	cl::sycl::buffer<PointXYZI> transCloudBuffer(trans_cloud.data(), cl::sycl::range<1>(trans_cloud.size()));
+	//cl::sycl::buffer<PointXYZI> sourceCloudBuffer(input_cloud->data(), cl::sycl::range<1>(input_cloud->size()));
 	cl::sycl::buffer<Voxel> voxelBuffer(cl::sycl::range<1>(trans_cloud.size()*9));
 	cl::sycl::buffer<int> voxelCountBuffer(cl::sycl::range<1>(1));
+	//cl::sycl::buffer<double> scoreBuffer(&score, cl::sycl::range<1>(1));
+	//cl::sycl::buffer<Vec6> scoreGradientStorage(&score_gradient, cl::sycl::range<1>(1));
+	//cl::sycl::buffer<
 
 	computeEnv.cmdqueue.submit([&](cl::sycl::handler& h) {
 		auto voxelGrid = voxelGridBuffer.get_access<cl::sycl::access::mode::read>(h);
-		auto cloud = cloudBuffer.get_access<cl::sycl::access::mode::read>(h);
+		auto transCloud = transCloudBuffer.get_access<cl::sycl::access::mode::read>(h);
+		//auto sourceCloud = sourceCloudBuffer.get_access<cl::sycl::access::mode::read>(h);
 		auto voxels = voxelBuffer.get_access<cl::sycl::access::mode::write>(h);
 		auto voxelCounter = voxelCountBuffer.get_access<cl::sycl::access::mode::atomic>(h);
+		//auto score = scoreBuffer.get_access<cl::sycl::access::mode::read_write>(h);
 		float resolution = resolution_;
 		float radius = resolution_;
 		float radiusFinal = radius + 0.001f;
 		PointXYZI voxelMin = minVoxel;
 		PointXYZI voxelMax = maxVoxel;
+		//Vec6 scoreGradientStorage;
+		//std::memcpy(scoreGradientStorage, score_gradient, sizeof(Vec6));
+		//Mat66 hessianStorage;
+		//std::memcpy(hessianStorage.data, hessian, sizeof(Mat66));
 		h.parallel_for<ndt_mapping_radius_search>(
 			cl::sycl::range<1>(trans_cloud.size()),
 			[=](cl::sycl::id<1> item) {
 
-			PointXYZI point = cloud[item];
+			PointXYZI point = transCloud[item];
 			int voxelNo = 0;
-			int iVoxel[9][3];
+			int iVoxels[9][3];
 			for (float z = point.data[2] - radius; z <= point.data[2] + radiusFinal; z += resolution) {
 				for (float y = point.data[1] - radius; y <= point.data[1] + radiusFinal; y += resolution) {
 					for (float x = point.data[0] - radius; x <= point.data[0] + radiusFinal; x += resolution) {
@@ -562,19 +572,155 @@ double ndt_mapping::computeDerivatives (
 
 							float r = dx*dx + dy*dy + dz*dz;
 							if (r < radius*radius) {
- 								iVoxel[voxelNo][0] = iVoxelX;
- 								iVoxel[voxelNo][1] = iVoxelY;
- 								iVoxel[voxelNo][2] = iVoxelZ;
+ 								iVoxels[voxelNo][0] = iVoxelX;
+ 								iVoxels[voxelNo][1] = iVoxelY;
+ 								iVoxels[voxelNo][2] = iVoxelZ;
  								voxelNo += 1;
 							}
 						}
 					}
 				}
 			}
+
 			if (voxelNo > 0) {
+// 				PointXYZI sPoint = sourceCloud[item];
+// 				for (int i = 0; i < voxelNo; i++) {
+// 					cl::sycl::id<3> iVoxel(iVoxels[i][0], iVoxels[i][1], iVoxels[i][2]);
+// 					Voxel voxel = voxelGrid[iVoxel];
+// 					Vec3 x = { sPoint.data[0], sPoint.data[1], sPoint.data[2] };
+// 					Vec3 x_trans = {
+// 						point.data[0] - voxel.mean[0],
+// 						point.data[1] - voxel.mean[1],
+// 						point.data[2] - voxel.mean[2]
+// 					};
+// 					Mat33 c_inv = voxel.invCovariance;
+// 					Mat36 point_gradient;
+// 					Mat186 point_hessian;
+// 					// compute point derivatives
+// 					point_gradient.data[1][3] = dot_product(x, j_ang_a_);
+// 					point_gradient.data[2][3] = dot_product(x, j_ang_b_);
+// 					point_gradient.data[0][4] = dot_product(x, j_ang_c_);
+// 					point_gradient.data[1][4] = dot_product(x, j_ang_d_);
+// 					point_gradient.data[2][4] = dot_product(x, j_ang_e_);
+// 					point_gradient.data[0][5] = dot_product(x, j_ang_f_);
+// 					point_gradient.data[1][5] = dot_product(x, j_ang_g_);
+// 					point_gradient.data[2][5] = dot_product(x, j_ang_h_);
+//
+// 					if (compute_hessian)
+// 					{
+// 						//equation 6.21 [Magnusson 2009]
+// 						Vec3 a, b, c, d, e, f;
+// 						a[0] = 0;
+// 						a[1] = dot_product(x, h_ang_a2_);
+// 						a[2] = dot_product(x, h_ang_a3_);
+// 						b[0] = 0;
+// 						b[1] = dot_product(x, h_ang_b2_);
+// 						b[2] = dot_product(x, h_ang_b3_);
+// 						c[0] = 0;
+// 						c[1] = dot_product(x, h_ang_c2_);
+// 						c[2] = dot_product(x, h_ang_c3_);
+// 						d[0] = dot_product(x, h_ang_d1_);
+// 						d[1] = dot_product(x, h_ang_d2_);
+// 						d[2] = dot_product(x, h_ang_d3_);
+// 						e[0] = dot_product(x, h_ang_e1_);
+// 						e[1] = dot_product(x, h_ang_e2_);
+// 						e[2] = dot_product(x, h_ang_e3_);
+// 						f[0] = dot_product(x, h_ang_f1_);
+// 						f[1] = dot_product(x, h_ang_f2_);
+// 						f[2] = dot_product(x, h_ang_f3_);
+// 						// second derivative of Transformation Equation 6.17 w.r.t. transform vector p.
+// 						// Derivative w.r.t. ith and jth elements of transform vector corresponds to the 3x1 block matrix starting at (3i,j), Equation 6.20 and 6.21 [Magnusson 2009]
+// 						point_hessian.data[9][3] = a[0];
+// 						point_hessian.data[10][3] = a[1];
+// 						point_hessian.data[11][3] = a[2];
+// 						point_hessian.data[12][3] = b[0];
+// 						point_hessian.data[13][3] = b[1];
+// 						point_hessian.data[14][3] = b[2];
+// 						point_hessian.data[15][3] = c[0];
+// 						point_hessian.data[16][3] = c[1];
+// 						point_hessian.data[17][3] = c[2];
+// 						point_hessian.data[9][4] = b[0];
+// 						point_hessian.data[10][4] = b[1];
+// 						point_hessian.data[11][4] = b[2];
+// 						point_hessian.data[12][4] = d[0];
+// 						point_hessian.data[13][4] = d[1];
+// 						point_hessian.data[14][4] = d[2];
+// 						point_hessian.data[15][4] = e[0];
+// 						point_hessian.data[16][4] = e[1];
+// 						point_hessian.data[17][4] = e[2];
+// 						point_hessian.data[9][5] = c[0];
+// 						point_hessian.data[10][5] = c[1];
+// 						point_hessian.data[11][5] = c[2];
+// 						point_hessian.data[12][5] = e[0];
+// 						point_hessian.data[13][5] = e[1];
+// 						point_hessian.data[14][5] = e[2];
+// 						point_hessian.data[15][5] = f[0];
+// 						point_hessian.data[16][5] = f[1];
+// 						point_hessian.data[17][5] = f[2];
+// 					}
+// 					// update derivatives
+// 					Vec3 cov_dxd_pi;
+//
+// 					// matrix preparation
+// 					double xCx = c_inv.data[0][0] * x_trans[0] * x_trans[0] +
+// 					c_inv.data[1][1] * x_trans[1] * x_trans[1] +
+// 					c_inv.data[2][2] * x_trans[2] * x_trans[2] +
+// 					(c_inv.data[0][1] + c_inv.data[1][0]) * x_trans[0] * x_trans[1] +
+// 					(c_inv.data[0][2] + c_inv.data[2][0]) * x_trans[0] * x_trans[2] +
+// 					(c_inv.data[1][2] + c_inv.data[2][1]) * x_trans[1] * x_trans[2];
+//
+// 					double e_x_cov_x = exp (-gauss_d2_ * (xCx) / 2);
+// 					// Calculate probability of transtormed points existance, Equation 6.9 [Magnusson 2009]
+// 					double score_inc = -gauss_d1_ * e_x_cov_x;
+// 					e_x_cov_x = gauss_d2_ * e_x_cov_x;
+// 					// Error checking for invalid values.
+// 					if (e_x_cov_x > 1 || e_x_cov_x < 0 || e_x_cov_x != e_x_cov_x)
+// 						return (0);
+// 					// Reusable portion of Equation 6.12 and 6.13 [Magnusson 2009]
+// 					e_x_cov_x *= gauss_d1_;
+// 					for (int i = 0; i < 6; i++)
+// 					{
+// 						// Sigma_k^-1 d(T(x,p))/dpi, Reusable portion of Equation 6.12 and 6.13 [Magnusson 2009]
+// 						//cov_dxd_pi = c_inv * point_gradient_.col (i);
+// 						for (int row = 0; row < 3; row++)
+// 						{
+// 							cov_dxd_pi[row] = 0;
+// 							for (int col = 0; col < 3; col++)
+// 							cov_dxd_pi[row] += c_inv.data[row][col] * point_gradient.data[col][i];
+// 						}
+// 						// Update gradient, Equation 6.12 [Magnusson 2009]
+// 						// TODO comment in line below
+// 						//scoreGradientStorage[i] += dot_product(x_trans, cov_dxd_pi) * e_x_cov_x;
+// 						if (compute_hessian)
+// 						{
+// 							for (int j = 0; j < 6; j++)
+// 							{
+// 								Vec3 colVec = { point_gradient.data[0][j], point_gradient.data[1][j], point_gradient_.data[2][j] };
+// 								Vec3 colVecHess = {colVec[0] + point_hessian.data[3*i][j], colVec[1] + point_hessian_.data[3*i+1][j], colVec[2] + point_hessian_.data[3*i+2][j] };
+// 								Vec3 matProd;
+// 								for (int row = 0; row < 3; row++)
+// 								{
+// 									matProd[row] = 0;
+// 									for (int col = 0; col < 3; col++)
+// 									matProd[row] += c_inv.data[row][col] * colVecHess[col];
+// 								}
+// 								// Update hessian, Equation 6.13 [Magnusson 2009]
+// 								// TODO comment in line below
+// // 								hessianStorage.data[i][j] += e_x_cov_x * (-gauss_d2_ * dot_product(x_trans, cov_dxd_pi) *
+// // 													dot_product(x_trans, matProd) +
+// // 													dot_product( colVec, cov_dxd_pi) );
+// 							}
+// 						}
+// 					}
+//
+// 					//return (score_inc);
+// 					score[0] = score[0] + score_inc;
+//
+// 				}
+
 				int iVoxelStart = atomic_fetch_add(voxelCounter[0], voxelNo);
 				for (int i = 0; i < voxelNo; i++) {
-					Voxel voxel = voxelGrid[cl::sycl::id<3>(iVoxel[i][0], iVoxel[i][1], iVoxel[i][2])];
+					Voxel voxel = voxelGrid[cl::sycl::id<3>(iVoxels[i][0], iVoxels[i][1], iVoxels[i][2])];
 					voxels[iVoxelStart + i] = (Voxel){
 						voxel.invCovariance,
 						{ voxel.mean[0], voxel.mean[1], voxel.mean[2] },
@@ -585,13 +731,12 @@ double ndt_mapping::computeDerivatives (
 		});
 
 	});
-
-	auto voxelCounter = voxelCountBuffer.get_access<cl::sycl::access::mode::atomic>();
-	voxelNo = cl::sycl::atomic_load(voxelCounter[0]);
+	auto voxelCountStorage = voxelCountBuffer.get_access<cl::sycl::access::mode::atomic>();
 	auto voxelStorage = voxelBuffer.get_access<cl::sycl::access::mode::read>();
+	voxelNo = cl::sycl::atomic_load(voxelCountStorage[0]);
 	for (int i = 0; i < voxelNo; i++) {
 		Voxel voxel = voxelStorage[i];
-		int iInput = voxel.numberPoints;
+		int iInput = voxel.numberPoints; // index of point instead of number
 		PointXYZI& sourcePoint = input_cloud->at(iInput);
 		PointXYZI& transPoint = trans_cloud.at(iInput);
 		Mat33 cInv = voxel.invCovariance;
@@ -634,7 +779,7 @@ std::cout << "host radius search" << std::endl;
 			// Equations 6.18 and 6.20 [Magnusson 2009]
 			computePointDerivatives (x);
 			// Equations 6.10, 6.12 and 6.13, respectively [Magnusson 2009]
-			score += updateDerivatives (score_gradient, hessian, x_trans, c_inv, compute_hessian);
+			score += updateDerivatives(score_gradient, hessian, x_trans, c_inv, compute_hessian);
 		}
 	}
 #endif
@@ -1324,6 +1469,9 @@ void ndt_mapping::initCompute()
 	computeEnv.cmdqueue.submit([&](cl::sycl::handler& h) {
 		auto cloud = cloudBuffer.get_access<cl::sycl::access::mode::read>(h);
 		auto queueStart = queueStartBuffer.get_access<cl::sycl::access::mode::atomic>(h);
+		// if we do not access this buffer atomically we get randomly deviating results
+		// which indicates a data race and multiple work items are probably executed in parallel
+		//auto queueStart = queueStartBuffer.get_access<cl::sycl::access::mode::read_write>(h);
 		auto queueContinue = queueContinueBuffer.get_access<cl::sycl::access::mode::write>(h);
 		PointXYZI voxelMin = minVoxel;
 		int voxelDimX = voxelDimension[0];
@@ -1342,9 +1490,9 @@ void ndt_mapping::initCompute()
 			//atomic_store(queueStart[iVoxel], iCloud);
 			//int iNext = atomic_exchange(queueStart[iVoxel], iCloud);
 			int iNext = atomic_exchange(queueStart[cl::sycl::id<3>(iVoxelX, iVoxelY, iVoxelZ)], iCloud);
+			//int iNext = queueStart[cl::sycl::id<3>(iVoxelX, iVoxelY, iVoxelZ)];
+			//queueStart[cl::sycl::id<3>(iVoxelX, iVoxelY, iVoxelZ)] = iCloud;
 			queueContinue[iCloud] = iNext;
-			//cloud[iCloud].data[3] = *((float*)&iNext);
-
 		});
 	});
 	computeEnv.cmdqueue.submit([&](cl::sycl::handler& h) {
