@@ -5,7 +5,6 @@
 
 ifdef DEBUG
 	CXXFLAGS= -g
-	SYCLFLAGS= -g
 else
 	CXXFLAGS= -O3
 endif
@@ -18,11 +17,11 @@ $(info Selecting SYCL device type $(SYCL_DEVICE_TYPE))
 	CPPFLAGS+= -DEPHOS_DEVICE_TYPE=$(SYCL_DEVICE_TYPE)
 endif
 ifdef SYCL_DEVICE_NAME
-$(info Selecting SYCL device name $(SYCL_DEVICE_NAME))
+$(info Selecting SYCL device $(SYCL_DEVICE_NAME))
 	CPPFLAGS+= -DEPHOS_DEVICE_NAME=$(SYCL_DEVICE_NAME)
 endif
 ifdef SYCL_PLATFORM_NAME
-$(info Selecting SYCL platform name $(SYCL_PLATFORM_NAME))
+$(info Selecting SYCL platform $(SYCL_PLATFORM_NAME))
 	CPPFLAGS+= -DEPHOS_PLATFORM_NAME=$(SYCL_PLATFORM_NAME)
 endif
 SYCL_WORK_GROUP_SIZE=512
@@ -36,7 +35,7 @@ ifdef SYCL_LIBRARY_PATH
 endif
 LDDFLAGS+= -lComputeCpp
 
-SYCLFLAGS+= -sycl
+SYCLFLAGS= -sycl
 ifdef SYCL_KERNEL_FORMAT
 $(info Compiling to kernel format $(SYCL_KERNEL_FORMAT))
 	SYCLFLAGS+= -sycl-target $(SYCL_KERNEL_FORMAT)

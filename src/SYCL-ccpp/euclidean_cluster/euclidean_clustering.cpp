@@ -839,6 +839,7 @@ void euclidean_clustering::init() {
 		std::cout << computeEnv.device.get_info<cl::sycl::info::device::name>() << std::endl;
 	} catch (std::logic_error& e) {
 		std::cerr << "Failed to initialize SYCL: " << e.what() << std::endl;
+		exit(-3);
 	}
 
 	std::cout << "done" << std::endl;
