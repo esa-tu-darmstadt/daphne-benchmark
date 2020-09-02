@@ -9,14 +9,14 @@ else
 	CXXFLAGS= -O3
 endif
 CXXFLAGS+= -std=c++11
-CPPFLAGS+= -I./ -I../
+CPPFLAGS+= -I./ -I../../common/benchmark -I../../common/points2image
 
 # other settings
 ifdef TESTCASE_LIMIT
 	CPPFLAGS+= -DEPHOS_TESTCASE_LIMIT=$(TESTCASE_LIMIT)
 endif
 # whether to use a sparse reference image representation for improved read speeds
-ifdef ENABLE_LEGACY_TESTDATA
+ifdef ENABLE_TESTDATA_LEGACY
 $(info Indicated legacy reference data)
 	CPPFLAGS+= -DEPHOS_TESTDATA_LEGACY
 endif
@@ -27,14 +27,17 @@ endif
 
 all: benchmark checkdata
 
-benchmark: ../common/main.o points2image.o framework.o
+benchmark: main.o points2image_base.o points2image.o
 	$(CXX) $^ -o $@ $(LDDFLAGS)
 
 %.o: %.cpp
 	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
 
-kernel/kernel.h:
-	cd kernel && ./stringify_kernels.sh
+%.o: ../../common/points2image/common/%.cpp
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
+
+%.o: ../../common/benchmark/%.cpp
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
 
 checkdata:
 ifeq ($(wildcard ../../../data/p2i_input.dat),)
@@ -45,10 +48,10 @@ ifeq ($(wildcard ../../../data/p2i_output.dat),)
 endif
 
 clean:
-	rm -f benchmark points2image.o framework.o kernel/kernel.h \
-	../common/main.o  Makefile.deps
+	rm -f benchmark points2image.o points2image_base.o main.o Makefile.deps
 
 Makefile.deps:
 	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -MM -MG \
-	../common/main.cpp points2image.cpp framework.cpp > Makefile.deps
+	../../common/benchmark/main.cpp ../../common/points2image/common/points2image_base.cpp \
+	points2image.cpp > Makefile.deps
 

@@ -13,13 +13,26 @@
 #include <cstring>
 #include <string>
 
-#include "points2image.h"
-#include "datatypes.h"
-#include "common/benchmark.h"
+#include "common/points2image_base.h"
+#include "common/datatypes_base.h"
+#include "benchmark.h"
 
 
+points2image_base::points2image_base() :
+	error_so_far(false),
+	max_delta(0.0),
+	pointcloud(),
+	cameraExtrinsicMat(),
+	cameraMat(),
+	distCoeff(),
+	imageSize(),
+	results() {
 
-void  points2image::parsePointCloud(std::ifstream& input_file, PointCloud& pointcloud) {
+}
+points2image_base::~points2image_base() {
+
+}
+void  points2image_base::parsePointCloud(std::ifstream& input_file, PointCloud& pointcloud) {
 	try {
 		input_file.read((char*)&pointcloud.height, sizeof(int32_t));
 		input_file.read((char*)&pointcloud.width, sizeof(int32_t));
@@ -34,7 +47,7 @@ void  points2image::parsePointCloud(std::ifstream& input_file, PointCloud& point
     }
 }
 
-void  points2image::parseCameraExtrinsicMat(std::ifstream& input_file, Mat44& cameraExtrinsicMat) {
+void  points2image_base::parseCameraExtrinsicMat(std::ifstream& input_file, Mat44& cameraExtrinsicMat) {
 	try {
 		for (int h = 0; h < 4; h++)
 			for (int w = 0; w < 4; w++)
@@ -44,7 +57,7 @@ void  points2image::parseCameraExtrinsicMat(std::ifstream& input_file, Mat44& ca
 	}
 }
 
-void points2image::parseCameraMat(std::ifstream& input_file, Mat33& cameraMat ) {
+void points2image_base::parseCameraMat(std::ifstream& input_file, Mat33& cameraMat ) {
 	try {
 	for (int h = 0; h < 3; h++)
 		for (int w = 0; w < 3; w++)
@@ -54,7 +67,7 @@ void points2image::parseCameraMat(std::ifstream& input_file, Mat33& cameraMat ) 
     }
 }
 
-void  points2image::parseDistCoeff(std::ifstream& input_file, Vec5& distCoeff) {
+void  points2image_base::parseDistCoeff(std::ifstream& input_file, Vec5& distCoeff) {
 	try {
 		for (int w = 0; w < 5; w++)
 			input_file.read((char*)&distCoeff.data[w], sizeof(double));
@@ -63,7 +76,7 @@ void  points2image::parseDistCoeff(std::ifstream& input_file, Vec5& distCoeff) {
 	}
 }
 
-void  points2image::parseImageSize(std::ifstream& input_file, ImageSize& imageSize) {
+void  points2image_base::parseImageSize(std::ifstream& input_file, ImageSize& imageSize) {
 	try {
 		input_file.read((char*)&imageSize.width, sizeof(int32_t));
 		input_file.read((char*)&imageSize.height, sizeof(int32_t));
@@ -73,7 +86,7 @@ void  points2image::parseImageSize(std::ifstream& input_file, ImageSize& imageSi
 }
 
 #ifdef EPHOS_TESTDATA_LEGACY
-void points2image::parsePointsImage(std::ifstream& output_file, PointsImage& image) {
+void points2image_base::parsePointsImage(std::ifstream& output_file, PointsImage& image) {
 	try {
 		int32_t width;
 		output_file.read((char*)&width, sizeof(int32_t));
@@ -112,7 +125,7 @@ void points2image::parsePointsImage(std::ifstream& output_file, PointsImage& ima
 	}
 }
 #else // !EPHOS_TESTDATA_LEGACY
-void points2image::parsePointsImage(std::ifstream& output_file, PointsImage& image) {
+void points2image_base::parsePointsImage(std::ifstream& output_file, PointsImage& image) {
 	try {
 		// read data of static size
 		int32_t width;
@@ -154,7 +167,7 @@ void points2image::parsePointsImage(std::ifstream& output_file, PointsImage& ima
 	}
 }
 #endif // !EPHOS_TESTDATA_LEGACY
-void points2image::writePointsImage(std::ofstream& output_file, PointsImage& image) {
+void points2image_base::writePointsImage(std::ofstream& output_file, PointsImage& image) {
 	try {
 		// read data of static size
 		int32_t width = image.image_width;
@@ -196,7 +209,7 @@ void points2image::writePointsImage(std::ofstream& output_file, PointsImage& ima
 }
 
 
-int points2image::read_next_testcases(int count)
+int points2image_base::read_next_testcases(int count)
 {
 	// and allocate new for the currently required data sizes
 	// free counterparts are found in check_next_outputs()
@@ -232,7 +245,7 @@ int points2image::read_next_testcases(int count)
 	return i;
 }
 
-int points2image::read_number_testcases(std::ifstream& input_file)
+int points2image_base::read_number_testcases(std::ifstream& input_file)
 {
 	// reads the number of testcases in the data stream
 	int32_t number;
@@ -244,7 +257,7 @@ int points2image::read_number_testcases(std::ifstream& input_file)
 
 	return number;
 }
-void points2image::check_next_outputs(int count)
+void points2image_base::check_next_outputs(int count)
 {
 	PointsImage reference;
 	// parse the next reference image
@@ -353,7 +366,7 @@ void points2image::check_next_outputs(int count)
 	pointcloud.clear();
 }
 
-void points2image::run(int p) {
+void points2image_base::run(int p) {
 	std::cout << "executing for " << testcases << " test cases" << std::endl;
 	// do not measure setup time
 	start_timer();
@@ -376,7 +389,7 @@ void points2image::run(int p) {
 	stop_timer();
 }
 
-bool points2image::check_output() {
+bool points2image_base::check_output() {
 	std::cout << "checking output \n";
 	std::cout << "max delta: " << max_delta << "\n";
 	if ((max_delta > MAX_EPS) || error_so_far) {
@@ -385,6 +398,3 @@ bool points2image::check_output() {
 		return true;
 	}
 }
-// set the external kernel instance used in main()
-points2image a;
-benchmark& myKernel = a;
