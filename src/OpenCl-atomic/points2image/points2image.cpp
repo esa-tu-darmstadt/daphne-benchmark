@@ -4,7 +4,7 @@
  * Author:  Leonardo Solis, Technische Universität Darmstadt,
  * Embedded Systems & Applications Group 2018
  * Author:  Thilo Gabel, Technische Universität Darmstadt,
- * Embedded Systems & Applications Group 2019
+ * Embedded Systems & Applications Group 2019 - 2020
  * License: Apache 2.0 (see attachached File)
  */
 #include <cmath>
@@ -21,15 +21,8 @@
 #include "kernel/kernel.h"
 
 points2image::points2image() :
+	points2image_base(),
 
-	error_so_far(false),
-	max_delta(0.0),
-	pointcloud(),
-	cameraExtrinsicMat(),
-	cameraMat(),
-	distCoeff(),
-	imageSize(),
-	results(),
 	computeEnv(),
 	computeProgram(),
 	transformKernel(),
@@ -46,6 +39,8 @@ points2image::points2image() :
 	{}
 
 points2image::~points2image() {}
+
+
 
 void points2image::init() {
 	std::cout << "init\n";
@@ -192,6 +187,20 @@ void points2image::quit() {
 	computeEnv.cmdqueue = cl::CommandQueue();
 	computeEnv.device = cl::Device();
 	computeEnv.context = cl::Context();
+}
+
+void  points2image::parsePointCloud(std::ifstream& input_file, PointCloud& pointcloud) {
+	try {
+		input_file.read((char*)&pointcloud.height, sizeof(int32_t));
+		input_file.read((char*)&pointcloud.width, sizeof(int32_t));
+		input_file.read((char*)&pointcloud.point_step, sizeof(uint32_t));
+
+		prepare_compute_buffers(pointcloud);
+
+		input_file.read((char*)pointcloud.data, pointcloud.height*pointcloud.width*pointcloud.point_step);
+    }  catch (std::ifstream::failure) {
+		throw std::ios_base::failure("Error reading the next point cloud.");
+    }
 }
 
 PointsImage points2image::cloud2Image(
@@ -465,4 +474,6 @@ void points2image::prepare_compute_buffers(PointCloud& pointcloud) {
 #endif // !EPHOS_PINNED_MEMORY
 }
 
-
+// create the benchmark to be run
+points2image a;
+benchmark& myKernel = a;
