@@ -49,27 +49,6 @@
 
 class points2image : public points2image_base {
 private:
-// 	// the number of testcases read
-// 	int read_testcases = 0;
-// 	// testcase and reference data streams
-// 	std::ifstream input_file, output_file;
-// 	std::ofstream datagen_file;
-// 	// whether critical deviation from the reference data has been detected
-// 	bool error_so_far = false;
-// 	// deviation from the reference data
-// 	double max_delta = 0.0;
-// 	// the point clouds to process in one iteration
-// 	std::vector<PointCloud> pointcloud;
-// 	// the associated camera extrinsic matrices
-// 	std::vector<Mat44> cameraExtrinsicMat;
-// 	// the associated camera intrinsic matrices
-// 	std::vector<Mat33> cameraMat;
-// 	// distance coefficients for the current iteration
-// 	std::vector<Vec5> distCoeff;
-// 	// image sizes for the current iteration
-// 	std::vector<ImageSize> imageSize;
-// 	// Algorithm results for the current iteration
-// 	std::vector<PointsImage> results;
 	// opencl members
 	ComputeEnv computeEnv;
 	cl::Program computeProgram;
@@ -95,21 +74,6 @@ public:
 	virtual void quit();
 
 protected:
-// 	/**
-// 	* Reads the next test cases.
-// 	* count: the number of testcases to read
-// 	* returns: the number of testcases actually read
-// 	*/
-// 	virtual int read_next_testcases(int count);
-// 	/**
-// 	 * Compares the results from the algorithm with the reference data.
-// 	 * count: the number of testcases processed
-// 	 */
-// 	virtual void check_next_outputs(int count);
-// 	/**
-// 	 * Reads the number of testcases in the data set.
-// 	 */
-// 	int read_number_testcases(std::ifstream& input_file);
 	/**
 	 * Transforms the given point cloud and produces the result as a two dimensional image.
 	 * cloud: input point cloud

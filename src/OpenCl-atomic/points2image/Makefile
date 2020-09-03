@@ -9,7 +9,7 @@ else
 	CXXFLAGS= -O3
 endif
 CXXFLAGS+= -std=c++11
-CPPFLAGS+= -I.. -I../../common/benchmark -I../../common/points2image
+CPPFLAGS+= -I.. -I../../base/benchmark -I../../base/points2image
 
 # opencl library
 ifdef OPENCL_INCLUDE_PATH
@@ -84,10 +84,10 @@ benchmark: main.o compute_tools.o points2image_base.o points2image.o
 %.o: %.cpp
 	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
 
-%.o: ../../common/benchmark/%.cpp
+%.o: ../../base/benchmark/common/%.cpp
 	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
 
-%.o: ../../common/points2image/common/%.cpp
+%.o: ../../base/points2image/common/%.cpp
 	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
 
 %.o: ../common/%.cpp
@@ -110,7 +110,7 @@ clean:
 
 Makefile.deps:
 	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -MM -MG \
-	../../common/benchmark/main.cpp ../common/compute_tools.cpp \
-	../../common/points2image/common/points2image_base.cpp \
+	../../base/benchmark/common/main.cpp ../common/compute_tools.cpp \
+	../../base/points2image/common/points2image_base.cpp \
 	points2image.cpp > Makefile.deps
 

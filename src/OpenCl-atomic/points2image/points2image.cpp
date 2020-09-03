@@ -16,8 +16,6 @@
 #include <string>
 
 #include "points2image.h"
-#include "datatypes.h"
-#include "common/compute_tools.h"
 #include "kernel/kernel.h"
 
 points2image::points2image() :
@@ -44,38 +42,8 @@ points2image::~points2image() {}
 
 void points2image::init() {
 	std::cout << "init\n";
+	points2image_base::init();
 	
-	// open testcase and reference data streams
-	input_file.exceptions ( std::ifstream::failbit | std::ifstream::badbit );
-	output_file.exceptions ( std::ifstream::failbit | std::ifstream::badbit );
-	try {
-		input_file.open("../../../data/p2i_input.dat", std::ios::binary);
-	} catch (std::ifstream::failure) {
-		std::cerr << "Error opening the input data file" << std::endl;
-		exit(-2);
-	}
-	try {
-		output_file.open("../../../data/p2i_output.dat", std::ios::binary);
-	} catch (std::ifstream::failure) {
-		std::cerr << "Error opening the output data file" << std::endl;
-		exit(-2);
-	}
-// 	try {
-// 		datagen_file.open("../../../data/p2i_output.dat.gen", std::ios::binary);
-// 	} catch (std::ofstream::failure) {
-// 		std::cerr << "Error opening datagen file" << std::endl;
-// 		exit(-2);
-// 	}
-	try {
-	// consume the total number of testcases
-		testcases = read_number_testcases(input_file);
-	} catch (std::ios_base::failure& e) {
-		std::cerr << e.what() << std::endl;
-		exit(-3);
-	}
-#ifdef EPHOS_TESTCASE_LIMIT
-	testcases = std::min(testcases, (uint32_t)EPHOS_TESTCASE_LIMIT);
-#endif
 	// create an opencl environment
 	try {
 	    std::vector<std::vector<std::string>> extensions = { {"cl_khr_fp64", "cl_amd_fp64" } };
@@ -84,8 +52,9 @@ void points2image::init() {
 	} catch (std::logic_error& e) {
 	    std::cerr << "OpenCL setup failed. " << e.what() << std::endl;
 	}
-	//std::cout << "OpenCL platform: " << computeEnv.platform.getInfo<CL_PLATFORM_NAME>() << std::endl;
-	std::cout << "OpenCL device: " << computeEnv.device.getInfo<CL_DEVICE_NAME>() << std::endl;
+	std::cout << "OpenCL device: ";
+	std::cout << computeEnv.device.getInfo<CL_DEVICE_NAME>() << std::endl;
+
 	// compile opencl program and create the transformation kernel
 	std::vector<cl::Kernel> kernels;
 	try {
@@ -117,37 +86,12 @@ void points2image::init() {
 		exit(EXIT_FAILURE);
 	}
 	transformKernel = kernels[0];
-
-	// prepare the first iteration
-	error_so_far = false;
-	max_delta = 0.0;
-
-	/*pointcloud = nullptr;
-	cameraExtrinsicMat = nullptr;
-	cameraMat = nullptr;
-	distCoeff = nullptr;
-	imageSize = nullptr;
-	results = nullptr;*/
 	maxCloudElementNo = 0;
 	std::cout << "done" << std::endl;
 }
 
 void points2image::quit() {
-	// close files
-	try {
-		input_file.close();
-	} catch (std::ifstream::failure& e) {
-	}
-	try {
-		output_file.close();
-
-	} catch (std::ofstream::failure& e) {
-	}
-	try {
-		datagen_file.close();
-	} catch (std::ofstream::failure& e) {
-	}
-
+	points2image_base::quit();
 
 	if (maxCloudElementNo > 0) {
 		// buffer cleanup

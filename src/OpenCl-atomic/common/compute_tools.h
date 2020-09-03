@@ -22,7 +22,6 @@
 
 // Struct for passing OpenCL objects
 typedef struct ComputeEnv {
-	cl::Platform platform;
 	cl::Device device;
 	cl::Context context;
 	cl::CommandQueue cmdqueue;

@@ -14,8 +14,8 @@
 #include <fstream>
 #include <string>
 
-#include "common/datatypes_base.h"
-#include "benchmark.h"
+#include "datatypes_base.h"
+#include "common/benchmark.h"
 
 // maximum allowed deviation from the reference results
 #define MAX_EPS 0.001
@@ -49,8 +49,8 @@ protected:
 	virtual ~points2image_base();
 
 public:
-	virtual void init() = 0;
-	virtual void quit() = 0;
+	virtual void init();
+	virtual void quit();
 	virtual void run(int p = 1);
 	virtual bool check_output();
 
@@ -116,4 +116,4 @@ protected:
 
 };
 
-#endif // POINTS2IMAGE_BASE_H
+#endif // EPHOS_POINTS2IMAGE_BASE_H

@@ -2,7 +2,7 @@
  * Author:  Florian Stock, Technische Universität Darmstadt,
  * Embedded Systems & Applications Group 2018
  * Author:  Thilo Gabel, Technische Universität Darmstadt,
- * Embedded Systems & Applications Group 2019
+ * Embedded Systems & Applications Group 2019 - 2020
  * License: Apache 2.0 (see attached files)
  */
 #include <cmath>
@@ -13,9 +13,9 @@
 #include <cstring>
 #include <string>
 
-#include "common/points2image_base.h"
-#include "common/datatypes_base.h"
-#include "benchmark.h"
+#include "points2image_base.h"
+#include "datatypes_base.h"
+#include "common/benchmark.h"
 
 
 points2image_base::points2image_base() :
@@ -31,6 +31,67 @@ points2image_base::points2image_base() :
 }
 points2image_base::~points2image_base() {
 
+}
+void points2image_base::init() {
+	// open testcase and reference data streams
+	input_file.exceptions ( std::ifstream::failbit | std::ifstream::badbit );
+	output_file.exceptions ( std::ifstream::failbit | std::ifstream::badbit );
+	try {
+		input_file.open("../../../data/p2i_input.dat", std::ios::binary);
+	} catch (std::ifstream::failure) {
+		std::cerr << "Error opening the input data file" << std::endl;
+		exit(-2);
+	}
+	try {
+		output_file.open("../../../data/p2i_output.dat", std::ios::binary);
+	} catch (std::ifstream::failure) {
+		std::cerr << "Error opening the output data file" << std::endl;
+		exit(-2);
+	}
+#ifdef EPHOS_TESTDATA_GEN
+ 	try {
+ 		datagen_file.open("../../../data/p2i_output.dat.gen", std::ios::binary);
+ 	} catch (std::ofstream::failure) {
+ 		std::cerr << "Error opening datagen file" << std::endl;
+ 		exit(-2);
+ 	}
+#endif
+	try {
+	// consume the total number of testcases
+		testcases = read_number_testcases(input_file);
+	} catch (std::ios_base::failure& e) {
+		std::cerr << e.what() << std::endl;
+		exit(-3);
+	}
+#ifdef EPHOS_TESTCASE_LIMIT
+	testcases = std::min(testcases, (uint32_t)EPHOS_TESTCASE_LIMIT);
+#endif
+	// prepare the first iteration
+	error_so_far = false;
+	max_delta = 0.0;
+
+	pointcloud.clear();
+	cameraExtrinsicMat.clear();
+	cameraMat.clear();
+	distCoeff.clear();
+	imageSize.clear();
+	results.clear();
+}
+void points2image_base::quit() {
+	// close files
+	try {
+		input_file.close();
+	} catch (std::ifstream::failure& e) {
+	}
+	try {
+		output_file.close();
+
+	} catch (std::ofstream::failure& e) {
+	}
+	try {
+		datagen_file.close();
+	} catch (std::ofstream::failure& e) {
+	}
 }
 void  points2image_base::parsePointCloud(std::ifstream& input_file, PointCloud& pointcloud) {
 	try {
