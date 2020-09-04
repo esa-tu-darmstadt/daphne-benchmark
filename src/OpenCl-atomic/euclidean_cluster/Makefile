@@ -9,7 +9,7 @@ else
 	CXXFLAGS+= -O3
 endif
 CXXFLAGS+= -std=c++11
-CPPFLAGS+= -I./ -I../
+CPPFLAGS+= -I../ -I../../base/benchmark -I../../base/euclidean_cluster
 
 # opencl headers and library
 ifdef OPENCL_INCLUDE_PATH
@@ -70,23 +70,34 @@ $(info Enabled OpenCL page locked memory)
 	CPPFLAGS+= -DEPHOS_PINNED_MEMORY
 endif
 
-
 # other options
 ifdef TESTCASE_LIMIT
 	CPPFLAGS+= -DTESTCASE_LIMIT=$(TESTCASE_LIMIT)
 endif
+ifdef ENABLE_TESTDATA_GEN
+$(info Enabled result data generation)
+	CPPFLAGS+= -DEPHOS_TESTDATA_GEN
+endif
 
 all: benchmark checkdata
 
-benchmark: euclidean_clustering.o framework.o ../common/main.o ../common/compute_tools.o
+benchmark: euclidean_clustering.o euclidean_clustering_base.o main.o compute_tools.o
 	$(CXX) $^ -o $@ $(LDDFLAGS)
 
 kernel/kernel.h:
 	cd kernel && ./stringify_kernels.sh
 
-
 %.o: %.cpp
-	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -o $@ $<
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
+
+%.o: ../../base/benchmark/common/%.cpp
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
+
+%.o: ../../base/euclidean_cluster/common/%.cpp
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
+
+%.o: ../common/%.cpp
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
 
 checkdata:
 ifeq ($(wildcard ../../../data/ec_input.dat),)
@@ -97,11 +108,12 @@ ifeq ($(wildcard ../../../data/ec_output.dat),)
 endif
 
 clean:
-	rm -f Makefile.deps benchmark euclidean_clustering.o framework.o \
-	../common/main.o ../common/compute_tools.o kernel/kernel.h
+	rm -f Makefile.deps benchmark euclidean_clustering.o euclidean_clustering_base.o \
+	main.o compute_tools.o kernel/kernel.h
 
 Makefile.deps:
 	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS)  -MM -MG \
-	../common/main.cpp ../common/compute_tools.cpp euclidean_clustering.cpp framework.cpp > Makefile.deps
+	../../base/benchmark/common/main.cpp ../common/compute_tools.cpp euclidean_clustering.cpp \
+	../../base/euclidean_cluster/common/euclidean_clustering_base.cpp > Makefile.deps
 
 

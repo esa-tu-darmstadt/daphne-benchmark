@@ -150,7 +150,7 @@ void euclidean_clustering::clusterAndColor(
 	double max_cluster_distance=0.5)
 {
 	std::vector<PointIndices> cluster_indices;
-	extract (plainPointCloud,
+	extract(plainPointCloud,
 		cluster_indices,
 		max_cluster_distance);
 

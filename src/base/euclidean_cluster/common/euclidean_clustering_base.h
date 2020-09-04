@@ -11,11 +11,7 @@
 
 #include <iostream>
 #include <fstream>
-#include <sstream>
 #include <vector>
-#include <limits>
-#include <cmath>
-#include <algorithm>
 #include <cstring>
 
 #include "common/benchmark.h"
@@ -75,31 +71,6 @@ protected:
 	* return: the rotation angle in degrees
 	*/
 	virtual float minAreaRectAngle(std::vector<Point2D>& points);
-
-	//void initRadiusSearch(const PlainPointCloud& points, bool**  sqr_distances, float radius);
-
-	//int radiusSearch(const int point_index, std::vector<int>& indices, const bool* sqr_distances, int total_points);
-
-	/**
-	* Finds all clusters in the given point cloud that are conformant to the given parameters.
-	* plainPointCloud: point cloud to cluster
-	* tolerance: search radius around a single point
-	* clusters: list of resulting clusters
-	* min_pts_per_cluster: lower cluster size restriction
-	* max_pts_per_cluster: higher cluster size restriction
-	*/
-// 	void extractEuclideanClusters(
-// 		const PlainPointCloud& plainPointCloud,
-// 		float tolerance,
-// 		std::vector<PointIndices> &clusters,
-// 		unsigned int min_pts_per_cluster,
-// 		unsigned int max_pts_per_cluster);
-
-// 	void extract(
-// 		const PlainPointCloud& plainPointCloud,
-// 		std::vector<PointIndices> &clusters,
-// 		double tolerance);
-
 
 	virtual void clusterAndColor(
 		const PlainPointCloud& plainPointCloud,
