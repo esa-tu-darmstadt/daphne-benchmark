@@ -4,9 +4,9 @@
 -include Makefile.deps
 
 ifdef DEBUG
-	CXXFLAGS= -g
+	CXXFLAGS+= -g
 else
-	CXXFLAGS= -O3
+	CXXFLAGS+= -O3
 endif
 CXXFLAGS+= -std=c++11
 CPPFLAGS+= -I../../base/benchmark -I../../base/points2image
