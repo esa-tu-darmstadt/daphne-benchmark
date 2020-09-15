@@ -9,10 +9,9 @@ else
 	CXXFLAGS=-O3
 endif
 CXXFLAGS+= -std=c++11
-CPPFLAGS+= -I./ -I../
+CPPFLAGS+= -I../../base/benchmark -I../../base/ndt_mapping
 CPPFLAGS+= -fopenmp
 LDDFLAGS+= -fopenmp
-
 
 # other options
 ifdef TESTCASE_LIMIT
@@ -25,11 +24,17 @@ $(info Enabled result data generation)
 endif
 all: benchmark checkdata
 
-benchmark: ndt_mapping.o framework.o ../common/main.o
+benchmark: ndt_mapping.o ndt_mapping_base.o main.o
 	$(CXX) $^ -o $@ $(LDDFLAGS)
 
 %.o: %.cpp
-	$(CXX) -c $(CLFAGS) $(CPPFLAGS) $(CXXFLAGS) -o $@ $<
+	$(CXX) $(CLFAGS) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
+
+%.o: ../../base/benchmark/common/%.cpp
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
+
+%.o: ../../base/ndt_mapping/common/%.cpp
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
 
 checkdata:
 ifeq ($(wildcard ../../../data/ndt_input.dat),)
@@ -40,9 +45,9 @@ ifeq ($(wildcard ../../../data/ndt_output.dat),)
 endif
 
 clean:
-	rm -f Makefile.deps benchmark ndt_mapping.o ../common/main.o framework.o \
-	../common/main.o
+	rm -f Makefile.deps benchmark ndt_mapping.o ndt_mapping_base.o main.o
 
 Makefile.deps:
 	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -MM -MG \
-	../common/main.cpp ndt_mapping.cpp framework.cpp > Makefile.deps
+	../../base/benchmark/common/main.cpp ../../base/ndt_mapping/common/ndt_mapping_base.cpp \
+	ndt_mapping.cpp > Makefile.deps
