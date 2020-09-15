@@ -9,7 +9,7 @@ else
 	CXXFLAGS+= -O3
 endif
 CXXFLAGS+= -std=c++11
-CPPFLAGS+= -I./ -I../
+CPPFLAGS+= -I../../base/benchmark -I../../base/euclidean_cluster
 CPPFLAGS+= -fopenmp
 LDDFLAGS+= -fopenmp
 
@@ -31,11 +31,17 @@ endif
 
 all: benchmark checkdata
 
-benchmark: euclidean_clustering.o framework.o ../common/main.o
+benchmark: euclidean_clustering.o euclidean_clustering_base.o main.o
 	$(CXX) $^ -o $@ $(LDDFLAGS)
 
 %.o: %.cpp
-	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -o $@ $<
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
+
+%.o: ../../base/benchmark/common/%.cpp
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
+
+%.o: ../../base/euclidean_cluster/common/%.cpp
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
 
 checkdata:
 ifeq ($(wildcard ../../../data/ec_input.dat),)
@@ -46,11 +52,12 @@ ifeq ($(wildcard ../../../data/ec_output.dat),)
 endif
 
 clean:
-	rm -f Makefile.deps benchmark euclidean_clustering.o framework.o \
-	../common/main.o
+	rm -f Makefile.deps benchmark euclidean_clustering.o euclidean_clustering_base.o \
+	main.o benchmark
 
 Makefile.deps:
 	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS)  -MM -MG \
-	../common/main.cpp euclidean_clustering.cpp framework.cpp > Makefile.deps
+	euclidean_clustering.cpp ../../base/benchmark/common/main.cpp \
+	../../base/euclidean_cluster/common/euclidean_clustering_base.cpp > Makefile.deps
 
 
