@@ -2,7 +2,7 @@
  * Author:  Florian Stock, Technische Universität Darmstadt,
  * Embedded Systems & Applications Group 2018
  * Author:  Thilo Gabel, Technische Universität Darmstadt,
- * Embedded Systems & Applications Group 2019
+ * Embedded Systems & Applications Group 2019 - 2020
  * License: Apache 2.0 (see attached files)
  */
 #include <cmath>
@@ -15,85 +15,19 @@
 #include <omp.h>
 
 #include "points2image.h"
-#include "datatypes.h"
 
-points2image::points2image() :
-	error_so_far(false),
-	max_delta(0.0),
-	pointcloud(),
-	cameraExtrinsicMat(),
-	cameraMat(),
-	distCoeff(),
-	imageSize(),
-	results()
-	{}
+points2image::points2image() : points2image_base() {}
 
 points2image::~points2image() {}
 
 void points2image::init() {
 	std::cout << "init\n";
-	
-	// open testcase and reference data streams
-	input_file.exceptions ( std::ifstream::failbit | std::ifstream::badbit );
-	output_file.exceptions ( std::ifstream::failbit | std::ifstream::badbit );
-	try {
-		input_file.open("../../../data/p2i_input.dat", std::ios::binary);
-	} catch (std::ifstream::failure) {
-		std::cerr << "Error opening the input data file" << std::endl;
-		exit(-2);
-	}
-	try {
-		output_file.open("../../../data/p2i_output.dat", std::ios::binary);
-	} catch (std::ifstream::failure) {
-		std::cerr << "Error opening the output data file" << std::endl;
-		exit(-2);
-	}
-#ifdef EPHOS_TESTDATA_GEN
- 	try {
- 		datagen_file.open("../../../data/p2i_output.dat.gen", std::ios::binary);
- 	} catch (std::ofstream::failure) {
- 		std::cerr << "Error opening datagen file" << std::endl;
- 		exit(-2);
- 	}
-#endif
-	try {
-	// consume the total number of testcases
-		testcases = read_number_testcases(input_file);
-	} catch (std::ios_base::failure& e) {
-		std::cerr << e.what() << std::endl;
-		exit(-3);
-	}
-#ifdef EPHOS_TESTCASE_LIMIT
-	testcases = std::min(testcases, (uint32_t)EPHOS_TESTCASE_LIMIT);
-#endif
-	// prepare the first iteration
-	error_so_far = false;
-	max_delta = 0.0;
-
-	pointcloud.clear();
-	cameraExtrinsicMat.clear();
-	cameraMat.clear();
-	distCoeff.clear();
-	imageSize.clear();
-	results.clear();
+	points2image_base::init();
 	std::cout << "done" << std::endl;
 }
 
 void points2image::quit() {
-	// close files
-	try {
-		input_file.close();
-	} catch (std::ifstream::failure& e) {
-	}
-	try {
-		output_file.close();
-
-	} catch (std::ofstream::failure& e) {
-	}
-	try {
-		datagen_file.close();
-	} catch (std::ofstream::failure& e) {
-	}
+	points2image_base::quit();
 }
 
 PointsImage points2image::cloud2Image(
@@ -193,24 +127,24 @@ PointsImage points2image::cloud2Image(
 				// replace unset pixels as well as pixels with a higher distance value
 #pragma omp critical
 				{
-				if(msg.distance[pid] == 0.0 ||
-					msg.distance[pid] >= float(point.data[2] * 100.0))
-				{
-					// make the result always deterministic and independent from the point order
-					// in case two points get the same distance, take the one with higher intensity
-					if (((msg.distance[pid] == float(point.data[2] * 100.0)) &&  msg.intensity[pid] < float(intensity)) ||
-						(msg.distance[pid] > float(point.data[2] * 100.0)) ||
-						msg.distance[pid] == 0)
+					if(msg.distance[pid] == 0.0 ||
+						msg.distance[pid] >= float(point.data[2] * 100.0))
 					{
-						msg.intensity[pid] = float(intensity);
+						// make the result always deterministic and independent from the point order
+						// in case two points get the same distance, take the one with higher intensity
+						if (((msg.distance[pid] == float(point.data[2] * 100.0)) &&  msg.intensity[pid] < float(intensity)) ||
+							(msg.distance[pid] > float(point.data[2] * 100.0)) ||
+							msg.distance[pid] == 0)
+						{
+							msg.intensity[pid] = float(intensity);
+						}
+						msg.distance[pid] = float(point.data[2] * 100.0);
+						msg.min_height[pid] = -1.25;
+						msg.max_height[pid] = 0;
+						// update image usage extends
+						max_y = py > max_y ? py : max_y;
+						min_y = py < min_y ? py : min_y;
 					}
-					msg.distance[pid] = float(point.data[2] * 100.0);
-					msg.min_height[pid] = -1.25;
-					msg.max_height[pid] = 0;
-					// update image usage extends
-					max_y = py > max_y ? py : max_y;
-					min_y = py < min_y ? py : min_y;
-				}
 				}
 			}
 		}
@@ -220,3 +154,6 @@ PointsImage points2image::cloud2Image(
 	msg.min_y = min_y;
 	return msg;
 }
+// create benchmark to run
+points2image a;
+benchmark& myKernel = a;
