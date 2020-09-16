@@ -1,25 +1,49 @@
 .DEFAULT_GOAL := all
-.PHONY: all clean checkdata
+.PHONY: all clean checkdata kernel/kernel.h
 
 -include Makefile.deps
 
-CXXFLAGS=-O3
-CXXFLAGS+= -std c++11
-CXX=nvcc
-# cuda device capability
+NXX=nvcc
+ifdef DEBUG
+	CXXFLAGS= -g
+else
+	CXXFLAGS= -O3
+endif
+CXXFLAGS+= -std=c++11
+CPPFLAGS+= -I../../base/benchmark -I../../base/points2image
+
+# cuda specific options
 CUDA_DEVICE_ARCH=compute_62
-CXXFLAGS+= -arch $(CUDA_DEVICE_ARCH)
+NXXFLAGS+= -arch $(CUDA_DEVICE_ARCH)
 
-all: kernel checkdata
+# other settings
+ifdef TESTCASE_LIMIT
+	CPPFLAGS+= -DEPHOS_TESTCASE_LIMIT=$(TESTCASE_LIMIT)
+endif
 
-kernel: ../common/main.o kernel.o
-	$(CXX) $(CXXFLAGS) $^ -o $@
+# whether to use a sparse reference image representation for improved read speeds
+ifdef ENABLE_TESTDATA_LEGACY
+$(info Indicated legacy reference data)
+	CPPFLAGS+= -DEPHOS_TESTDATA_LEGACY
+endif
+ifdef ENABLE_TESTDATA_GEN
+$(info Enabled result data generation)
+	CPPFLAGS+= -DEPHOS_TESTDATA_GEN
+endif
 
-../common/main.o: ../common/main.cpp
-	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
+all: benchmark checkdata
 
-kernel.o: kernel.cu
-	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
+benchmark: main.o points2image_base.o points2image.o
+	$(NXX) $^ -o $@ $(LDDFLAGS)
+
+%.o: %.cu
+	$(NXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) $(NXXFLAGS) -c -o $@ $<
+
+%.o: ../../base/points2image/common/%.cpp
+	$(NXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) $(NXXFLAGS) -c -o $@ $<
+
+%.o: ../../base/benchmark/common/%.cpp
+	$(NXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) $(NXXFLAGS) -c -o $@ $<
 
 checkdata:
 ifeq ($(wildcard ../../../data/p2i_input.dat),)
@@ -30,8 +54,10 @@ ifeq ($(wildcard ../../../data/p2i_output.dat),)
 endif
 
 clean:
-	rm -f kernel kernel.o ../common/main.o Makefile.deps
+	rm -f benchmark points2image.o points2image_base.o main.o Makefile.deps
 
 Makefile.deps:
-	g++ $(CFLAGS) $(CPPFLAGS)  -I../include -MM ../common/main.cpp *.cu > Makefile.deps
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -MM -MG \
+	../../base/benchmark/common/main.cpp ../../base/points2image/common/points2image_base.cpp \
+	points2image.cu > Makefile.deps
 
