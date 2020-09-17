@@ -48,13 +48,15 @@ void points2image::quit() {
 	points2image_base::quit();
 }
 /**
- * Improvised atomic min function for floats in Cuda
+ * Improvised atomic min/max functions for floats in Cuda
  * Does only work for positive values.
  */
-__device__ __forceinline__ float atomicFloatMin(float * addr, float value) {
-	return  __int_as_float(atomicMin((int *)addr, __float_as_int(value)));
+__device__ __forceinline__ float atomicFloatMin(float* addr, float value) {
+	return __int_as_float(atomicMin((int*)addr, __float_as_int(value)));
 }
-
+__device__ __forceinline__ float atomicFloatMax(float* addr, float value) {
+	return __int_as_float(atomicMax((int*)addr, __float_as_int(value)));
+}
 /** 
  * The Cuda kernel to execute.
  * Performs the transformation for a single point.
@@ -127,26 +129,33 @@ __global__ void compute_point_from_pointcloud(
 	int px = int(imagepoint.x + 0.5);
 	int py = int(imagepoint.y + 0.5);
 	
-	float cm_point;
+	float depth;
 	int pid;
 	// safe point characteristics in the image
 	if (0 <= px && px < w && 0 <= py && py < h)
 	{
 		pid = py * w + px;
-		cm_point = point.data[2] * 100.0;
-		atomicCAS((int*)&msg_distance[pid], 0, __float_as_int(cm_point));
-		atomicFloatMin(&msg_distance[pid], cm_point);
+		depth = point.data[2] * 100.0;
+		atomicCAS((int*)&msg_distance[pid], 0, __float_as_int(depth));
+		atomicFloatMin(&msg_distance[pid], depth);
 	}
 	// synchronize required for deterministic intensity in the image
 	__syncthreads();
+	// note: we do not expect to have multiple devices, so __threadfence() should be enough here
 	__threadfence_system();
-	float newvalue = msg_distance[pid];
+	float finalDistance = msg_distance[pid];
 	if (0 <= px && px < w && 0 <= py && py < h)
 	{
+		// note: since we get issues with too high intensity values it seems like
+		// too many threads satisfy the condition below
+		// maybe the see different final distance values?
+		// what if we use the volatile keyword? -> we alread do
 		// update intensity, height and image extends
-		if ( newvalue>= cm_point)
+		if (finalDistance == depth)
 		{
-			msg_intensity[pid] = float(intensity);
+// 			atomicCAS((int*)&msg_intensity[pid], 0, __float_as_int(float(intensity)));
+			atomicFloatMax(&msg_intensity[pid], float(intensity));
+			//msg_intensity[pid] = float(intensity);
 			atomicMax(max_y, py);
 			atomicMin(min_y, py);
 		}
@@ -186,6 +195,7 @@ PointsImage points2image::cloud2Image(
 	msg.min_height = msg.distance + h*w;
 	msg.max_height = msg.min_height + h*w;
 	std::memset(msg.intensity, 0, sizeof(float)*w*h);
+	//std::fill(msg.intensity, msg.intensity + w*h, 256.0f);
 	std::memset(msg.distance, 0, sizeof(float)*w*h);
 	std::memset(msg.min_height, 0, sizeof(float)*w*h);
 	std::memset(msg.max_height, 0, sizeof(float)*w*h);
@@ -228,6 +238,14 @@ PointsImage points2image::cloud2Image(
 	cudaFree(cuda_max_y);
 	cudaFree(cuda_min_y);
 	
+// 	for (int y = 0; y < h; y++) {
+// 		for (int x = 0; x < w; x++) {
+// 			int pid = w*y + x;
+// 			if (msg.distance[pid] == 0.0f) {
+//  				msg.intensity[pid] = 0.0f;
+// 			}
+// 		}
+// 	}
 	return msg;
 }
 
@@ -281,6 +299,7 @@ void points2image::check_next_outputs(int count)
 					max_delta = delta;
 				}
 				if (delta > MAX_EPS) {
+					sError << " with distance " << reference.distance[pos];
 					sError << " at [" << w << " " << h << "]: Intensity " << results[i].intensity[pos];
 					sError << " should be " << reference.intensity[pos] << std::endl;
 					caseErrorNo += 1;
