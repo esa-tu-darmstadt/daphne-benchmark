@@ -18,17 +18,17 @@
 
 #include "euclidean_clustering.h"
 
-void euclidean_clustering::initRadiusSearch(const PlainPointCloud& points, bool**  sqr_distances, float radius)
+void euclidean_clustering::initRadiusSearch(const PlainPointCloud& cloud, bool**  sqr_distances, float radius)
 {
-	int n = points.size();
+	int n = cloud.capacity;
 	float radius_sqr = radius * radius;
 	*sqr_distances = (bool*) malloc(n * n * sizeof(bool));
 	for (int j = 0; j < n; j++)
 		for (int i = 0; i < n; i++)
 		{
-			float dx = points[i].x - points[j].x;
-			float dy = points[i].y - points[j].y;
-			float dz = points[i].z - points[j].z;
+			float dx = cloud.data[i].x - cloud.data[j].x;
+			float dy = cloud.data[i].y - cloud.data[j].y;
+			float dz = cloud.data[i].z - cloud.data[j].z;
 			float sqr_distance = dx*dx + dy*dy + dz*dz;
 			(*sqr_distances)[j*n+i] = sqr_distance <= radius_sqr;
 		}
@@ -58,7 +58,7 @@ void euclidean_clustering::extractEuclideanClusters (
 	unsigned int max_pts_per_cluster)
 {
 	int nn_start_idx = 0;
-	int cloudSize = plainPointCloud.size();
+	int cloudSize = plainPointCloud.capacity;
 
 	// indicates the processed status for each point
 	std::vector<bool> processed (cloudSize, false);
@@ -130,7 +130,7 @@ void euclidean_clustering::extract(
 	std::vector<PointIndices> &clusters, 
 	double tolerance)
 {
-	if (plainPointCloud.size() == 0)
+	if (plainPointCloud.capacity == 0)
 	{
 	    clusters.clear ();
 	    return;
@@ -145,6 +145,7 @@ void euclidean_clustering::extract(
 void euclidean_clustering::clusterAndColor(
 	const PlainPointCloud& plainPointCloud,
 	ColorPointCloud& colorPointCloud,
+	int& colorPointCount,
 	BoundingboxArray& clusterBoundingBoxes,
 	Centroid& clusterCentroids,
 	double max_cluster_distance=0.5)
@@ -167,15 +168,15 @@ void euclidean_clustering::clusterAndColor(
 		{
 			// fill new colored cluster point by point
 			PointRGB p;
-			p.x = (plainPointCloud)[*pit].x;
-			p.y = (plainPointCloud)[*pit].y;
-			p.z = (plainPointCloud)[*pit].z;
+			p.x = (plainPointCloud.data)[*pit].x;
+			p.y = (plainPointCloud.data)[*pit].y;
+			p.z = (plainPointCloud.data)[*pit].z;
 			p.r = 10;
 			p.g = 20;
 			p.b = 30;
-			centroid.x += (plainPointCloud)[*pit].x;
-			centroid.y += (plainPointCloud)[*pit].y;
-			centroid.z += (plainPointCloud)[*pit].z;
+			centroid.x += (plainPointCloud.data)[*pit].x;
+			centroid.y += (plainPointCloud.data)[*pit].y;
+			centroid.z += (plainPointCloud.data)[*pit].z;
 
 			current_cluster.push_back(p);
 		}
@@ -245,6 +246,7 @@ void euclidean_clustering::clusterAndColor(
 			clusterCentroids.points.push_back(centroid);
 		}
 		colorPointCloud.insert(colorPointCloud.end(), current_cluster.begin(), current_cluster.end());
+		colorPointCount += current_cluster.size();
 		j++; k++;
 	}
 

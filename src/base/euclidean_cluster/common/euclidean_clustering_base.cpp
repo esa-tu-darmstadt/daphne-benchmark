@@ -487,52 +487,99 @@ void euclidean_clustering_base::segmentByDistance(
 	BoundingboxArray& clusterBoundingBoxes,
 	Centroid& clusterCentroids)
 {
-	PlainPointCloud cloud_segments_array[5];
-	double thresholds[5] = {0.5, 1.1, 1.6, 2.3, 2.6f};
-
-	for (const Point& p : plainPointCloud) {
-
+	// find out about the segment target sizes
+	PlainPointCloud cloudSegments[5] = {
+		{ nullptr, 0 },
+		{ nullptr, 0 },
+		{ nullptr, 0 },
+		{ nullptr, 0 },
+		{ nullptr, 0 }
+	};
+	//for (const Point* p = plainPointCloud.data; p < plainPointCloud.data + plainPointCloud.capacity; p++) {
+	for (int i = 0; i < plainPointCloud.capacity; i++) {
+		Point p = plainPointCloud.data[i];
 		// categorize by distance from origin
 		float origin_distance = p.x*p.x + p.y*p.y;
 		if (origin_distance < 15*15 ) {
-			cloud_segments_array[0].push_back(p);
+			cloudSegments[0].capacity += 1;
 		}
 		else if(origin_distance < 30*30) {
-			cloud_segments_array[1].push_back(p);
+			cloudSegments[1].capacity += 1;
 		}
 		else if(origin_distance < 45*45) {
-			cloud_segments_array[2].push_back(p);
+			cloudSegments[2].capacity += 1;
 		}
 		else if(origin_distance < 60*60) {
-			cloud_segments_array[3].push_back(p);
+			cloudSegments[3].capacity += 1;
 		} else {
-			cloud_segments_array[4].push_back(p);
+			cloudSegments[4].capacity += 1;
 		}
 	}
-	// perform clustering and coloring on the individual categories
+	// allocate memory and distribute it to the differently sized segments
+	Point* cloudSegmentStorage = new Point[plainPointCloud.capacity];
+	unsigned int nextCloudSegmentStart = 0;
+	for (int i = 0; i < 5; i++) {
+		cloudSegments[i].data = cloudSegmentStorage + nextCloudSegmentStart;
+		nextCloudSegmentStart += cloudSegments[i].capacity;
+	}
+	// copy points over into the segmnets
+	unsigned int segmentFill[5] = { 0, 0, 0, 0, 0 };
+	//for (const Point* p = plainPointCloud.data; p < plainPointCloud.data + plainPointCloud.capacity; p++) {
+	for (int i = 0; i < plainPointCloud.capacity; i++) {
+		Point p = plainPointCloud.data[i];
+		// categorize by distance from origin
+		float origin_distance = p.x*p.x + p.y*p.y;
+		if (origin_distance < 15*15 ) {
+			cloudSegments[0].data[segmentFill[0]] = p;
+			segmentFill[0] += 1;
+		}
+		else if(origin_distance < 30*30) {
+			cloudSegments[1].data[segmentFill[1]] = p;
+			segmentFill[1] += 1;
+		}
+		else if(origin_distance < 45*45) {
+			cloudSegments[2].data[segmentFill[2]] = p;
+			segmentFill[2] += 1;
+		}
+		else if(origin_distance < 60*60) {
+			cloudSegments[3].data[segmentFill[3]] = p;
+			segmentFill[3] += 1;
+		} else {
+			cloudSegments[4].data[segmentFill[4]] = p;
+			segmentFill[4] += 1;
+		}
+	}
+	// perform clustering and coloring on the individual segments
+	double thresholds[5] = { 0.5, 1.1, 1.6, 2.3, 2.6 };
+	int colorPointCount = 0;
 	for(unsigned int i=0; i<5; i++)
 	{
-		clusterAndColor(cloud_segments_array[i], colorPointCloud, clusterBoundingBoxes, clusterCentroids, thresholds[i]);
+		clusterAndColor(cloudSegments[i], colorPointCloud, colorPointCount,
+			clusterBoundingBoxes, clusterCentroids, thresholds[i]);
 	}
+	if (colorPointCloud.size() != colorPointCount) {
+		//colorPointCloud.capacity = colorPointCount;
+	}
+	delete[] cloudSegmentStorage;
 }
 
 
 void euclidean_clustering_base::parsePlainPointCloud(std::ifstream& input_file, PlainPointCloud& cloud)
 {
-	cloud.clear();
-	int cloudSize = 0;
-	input_file.read((char*)&cloudSize, sizeof(int));
-	//*cloud = (Point*) malloc(sizeof(Point) * (*cloudSize));
-
-	//cloud = new Point[cloudSize];
 	try {
+		int cloudSize = 0;
+		input_file.read((char*)&cloudSize, sizeof(int));
+		// TODO deallocate
+		cloud.data = new Point[cloudSize];
+		cloud.capacity = cloudSize;
+
 		for (int i = 0; i < cloudSize; i++)
 		{
 			Point point;
 			input_file.read((char*)&(point.x), sizeof(float));
 			input_file.read((char*)&(point.y), sizeof(float));
 			input_file.read((char*)&(point.z), sizeof(float));
-			cloud.push_back(point);
+			cloud.data[i] = point;
 		}
 	} catch (std::ifstream::failure& e) {
 		throw std::ios_base::failure("Error reading point cloud");
@@ -888,7 +935,7 @@ void euclidean_clustering_base::check_next_outputs(int count)
 		refBoundingBoxes.boxes.clear();
 		refPointCloud.clear();
 		refClusterCentroids.points.clear();
-		plainPointCloud[i].clear();
+		delete[] plainPointCloud[i].data;
 	}
 	plainPointCloud.clear();
 	colorPointCloud.clear();
