@@ -160,7 +160,8 @@ void euclidean_clustering::clusterAndColor(
 	for (auto it = cluster_indices.begin(); it != cluster_indices.end(); ++it)
 	{
 		//ColorPointCloud* current_cluster = new ColorPointCloud;//coord + color cluster
-		ColorPointCloud current_cluster;
+		//ColorPointCloud current_cluster;
+		std::vector<PointRGB> current_cluster;
 		// assign color to each cluster
 		PointDouble centroid = {0.0, 0.0, 0.0};
 		for (auto pit = it->indices.begin(); pit != it->indices.end(); ++pit)
@@ -244,7 +245,13 @@ void euclidean_clustering::clusterAndColor(
 			clusterBoundingBoxes.boxes.push_back(bounding_box);
 			clusterCentroids.points.push_back(centroid);
 		}
-		colorPointCloud.insert(colorPointCloud.end(), current_cluster.begin(), current_cluster.end());
+		//colorPointCloud.insert(colorPointCloud.end(), current_cluster.begin(), current_cluster.end());
+		//std::memcpy(colorPointCloud.data + colorPointCloud.size, current_cluster.data(), current_cluster.size());
+		// TODO replace
+		for (int iPoint = 0; iPoint < current_cluster.size(); iPoint++) {
+			colorPointCloud.data[colorPointCloud.size + iPoint] = current_cluster[iPoint];
+		}
+		colorPointCloud.size += current_cluster.size();
 		j++; k++;
 	}
 

@@ -48,8 +48,14 @@ typedef struct PlainPointCloud {
 	unsigned int capacity;
 } PlainPointCloud;
 
+typedef struct ColorPointCloud {
+	PointRGB* data;
+	unsigned int size;
+	unsigned int capacity;
+} ColorPointCloud;
+
 //typedef std::vector<Point> PlainPointCloud;
-typedef std::vector<PointRGB> ColorPointCloud;
+//typedef std::vector<PointRGB> ColorPointCloud;
 
 typedef struct {
     std::vector<PointDouble> points;

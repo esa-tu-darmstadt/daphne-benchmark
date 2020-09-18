@@ -487,6 +487,10 @@ void euclidean_clustering_base::segmentByDistance(
 	BoundingboxArray& clusterBoundingBoxes,
 	Centroid& clusterCentroids)
 {
+	// allocate result memory
+	colorPointCloud.data = new PointRGB[plainPointCloud.size];
+	colorPointCloud.capacity = plainPointCloud.size;
+	colorPointCloud.size = 0;
 	// find out about the segment target sizes
 	PlainPointCloud cloudSegments[5] = {
 		{ nullptr, 0, 0 },
@@ -586,20 +590,23 @@ void euclidean_clustering_base::parsePlainPointCloud(std::ifstream& input_file, 
  */
 void euclidean_clustering_base::parseColorPointCloud(std::ifstream& input_file, ColorPointCloud& cloud)
 {
-    int size = 0;
-    PointRGB p;
     try {
-	input_file.read((char*)&(size), sizeof(int));
+		int cloudSize = 0;
+		input_file.read((char*)&cloudSize, sizeof(int));
+		cloud.data = new PointRGB[cloudSize];
+		cloud.capacity = cloudSize;
+		cloud.size = cloudSize;
 
-	for (int i = 0; i < size; i++)
+		for (int i = 0; i < cloudSize; i++)
 	    {
-		input_file.read((char*)&p.x, sizeof(float));
-		input_file.read((char*)&p.y, sizeof(float));
-		input_file.read((char*)&p.z, sizeof(float));
-		input_file.read((char*)&p.r, sizeof(uint8_t));
-		input_file.read((char*)&p.g, sizeof(uint8_t));
-		input_file.read((char*)&p.b, sizeof(uint8_t));
-		cloud.push_back(p);
+			PointRGB p;
+			input_file.read((char*)&p.x, sizeof(float));
+			input_file.read((char*)&p.y, sizeof(float));
+			input_file.read((char*)&p.z, sizeof(float));
+			input_file.read((char*)&p.r, sizeof(uint8_t));
+			input_file.read((char*)&p.g, sizeof(uint8_t));
+			input_file.read((char*)&p.b, sizeof(uint8_t));
+			cloud.data[i] = p;
 	    }
     }  catch (std::ifstream::failure&) {
 		throw std::ios_base::failure("Error reading reference cloud");
@@ -609,21 +616,21 @@ void euclidean_clustering_base::parseColorPointCloud(std::ifstream& input_file, 
 
 void euclidean_clustering_base::parseBoundingboxArray(std::ifstream& input_file, BoundingboxArray& bb_array)
 {
-	int size = 0;
-	Boundingbox bba;
 	try {
-		input_file.read((char*)&(size), sizeof(int));
-		for (int i = 0; i < size; i++)
+		int boxNo = 0;
+		input_file.read((char*)&boxNo, sizeof(int));
+		for (int i = 0; i < boxNo; i++)
 		{
-			input_file.read((char*)&bba.position.x, sizeof(double));
-			input_file.read((char*)&bba.position.y, sizeof(double));
-			input_file.read((char*)&bba.orientation.x, sizeof(double));
-			input_file.read((char*)&bba.orientation.y, sizeof(double));
-			input_file.read((char*)&bba.orientation.z, sizeof(double));
-			input_file.read((char*)&bba.orientation.w, sizeof(double));
-			input_file.read((char*)&bba.dimensions.x, sizeof(double));
-			input_file.read((char*)&bba.dimensions.y, sizeof(double));
-			bb_array.boxes.push_back(bba);
+			Boundingbox box;
+			input_file.read((char*)&box.position.x, sizeof(double));
+			input_file.read((char*)&box.position.y, sizeof(double));
+			input_file.read((char*)&box.orientation.x, sizeof(double));
+			input_file.read((char*)&box.orientation.y, sizeof(double));
+			input_file.read((char*)&box.orientation.z, sizeof(double));
+			input_file.read((char*)&box.orientation.w, sizeof(double));
+			input_file.read((char*)&box.dimensions.x, sizeof(double));
+			input_file.read((char*)&box.dimensions.y, sizeof(double));
+			bb_array.boxes.push_back(box);
 		}
 	}  catch (std::ifstream::failure& e) {
 		throw std::ios_base::failure("Error reading reference bounding boxes");
@@ -635,12 +642,12 @@ void euclidean_clustering_base::parseBoundingboxArray(std::ifstream& input_file,
  */
 void euclidean_clustering_base::parseCentroids(std::ifstream& input_file, Centroid& centroids)
 {
-	int size = 0;
-	PointDouble p;
 	try {
-	input_file.read((char*)&(size), sizeof(int));
-		for (int i = 0; i < size; i++)
+		int centroidNo = 0;
+		input_file.read((char*)&centroidNo, sizeof(int));
+		for (int i = 0; i < centroidNo; i++)
 		{
+			PointDouble p;
 			input_file.read((char*)&p.x, sizeof(double));
 			input_file.read((char*)&p.y, sizeof(double));
 			input_file.read((char*)&p.z, sizeof(double));
@@ -653,9 +660,10 @@ void euclidean_clustering_base::parseCentroids(std::ifstream& input_file, Centro
 
 void euclidean_clustering_base::writeColorPointCloud(std::ofstream& datagen_file, ColorPointCloud& cloud) {
 	try {
-		int pointNo = cloud.size();
+		int pointNo = cloud.size;
 		datagen_file.write((char*)&pointNo, sizeof(int));
-		for (PointRGB p : cloud) {
+		for (int i = 0; i < pointNo; i++) {
+			PointRGB p = cloud.data[i];
 			datagen_file.write((char*)&p.x, sizeof(float));
 			datagen_file.write((char*)&p.y, sizeof(float));
 			datagen_file.write((char*)&p.z, sizeof(float));
@@ -810,8 +818,10 @@ void euclidean_clustering_base::check_next_outputs(int count)
 
 		// as the result is still right when points/boxes/centroids are in different order,
 		// we sort the result and reference to normalize it and we can compare it
-		std::sort(refPointCloud.begin(), refPointCloud.end(), compareRGBPoints);
-		std::sort(colorPointCloud[i].begin(), colorPointCloud[i].end(), compareRGBPoints);
+		//std::sort(refPointCloud.begin(), refPointCloud.end(), compareRGBPoints);
+		//std::sort(colorPointCloud[i].begin(), colorPointCloud[i].end(), compareRGBPoints);
+		std::sort(refPointCloud.data, refPointCloud.data + refPointCloud.size, compareRGBPoints);
+		std::sort(colorPointCloud[i].data, colorPointCloud[i].data + colorPointCloud[i].size, compareRGBPoints);
 		std::sort(refBoundingBoxes.boxes.begin(), refBoundingBoxes.boxes.end(), compareBBs);
 		std::sort(clusterBoundingBoxes[i].boxes.begin(), clusterBoundingBoxes[i].boxes.end(), compareBBs);
 		std::sort(refClusterCentroids.points.begin(), refClusterCentroids.points.end(), comparePoints);
@@ -820,12 +830,12 @@ void euclidean_clustering_base::check_next_outputs(int count)
 		std::ostringstream sError;
 		int caseErrorNo = 0;
 		// test for size differences
-		if (refPointCloud.size() != colorPointCloud[i].size())
+		if (refPointCloud.size != colorPointCloud[i].size)
 		{
 			error_so_far = true;
 			caseErrorNo += 1;
-			sError << " invalid point number: " << colorPointCloud[i].size();
-			sError << " should be " << refPointCloud.size() << std::endl;
+			sError << " invalid point number: " << colorPointCloud[i].size;
+			sError << " should be " << refPointCloud.size << std::endl;
 		}
 		if (refBoundingBoxes.boxes.size() != clusterBoundingBoxes[i].boxes.size())
 		{
@@ -843,18 +853,19 @@ void euclidean_clustering_base::check_next_outputs(int count)
 		}
 		if (caseErrorNo == 0) {
 			// test for content divergence
-			for (int j = 0; j < refPointCloud.size(); j++)
+			for (int j = 0; j < refPointCloud.size; j++)
 			{
-				float deltaX = std::abs(colorPointCloud[i][j].x - refPointCloud[j].x);
-				float deltaY = std::abs(colorPointCloud[i][j].y - refPointCloud[j].y);
-				float deltaZ = std::abs(colorPointCloud[i][j].z - refPointCloud[j].z);
+				float deltaX = std::abs(colorPointCloud[i].data[j].x - refPointCloud.data[j].x);
+				float deltaY = std::abs(colorPointCloud[i].data[j].y - refPointCloud.data[j].y);
+				float deltaZ = std::abs(colorPointCloud[i].data[j].z - refPointCloud.data[j].z);
 				float delta = std::fmax(deltaX, std::fmax(deltaY, deltaZ));
 				if (delta > MAX_EPS) {
 					caseErrorNo += 1;
 					sError << " deviating point " << j << ": (";
-					sError << colorPointCloud[i][j].x << " " << colorPointCloud[i][j].y << " " << colorPointCloud[i][j].z;
-					sError << ") should be (" << refPointCloud[j].x << " ";
-					sError << refPointCloud[j].y << " " << refPointCloud[j].z << ")" << std::endl;
+					sError << colorPointCloud[i].data[j].x << " " << colorPointCloud[i].data[j].y;
+					sError << " " << colorPointCloud[i].data[j].z << ") should be (";
+					sError << refPointCloud.data[j].x << " " << refPointCloud.data[j].y << " ";
+					sError << refPointCloud.data[j].z << ")" << std::endl;
 					if (delta > max_delta) {
 						max_delta = delta;
 					}
@@ -929,15 +940,15 @@ void euclidean_clustering_base::check_next_outputs(int count)
 		}
 		// finishing steps for the next iteration
 		refBoundingBoxes.boxes.clear();
-		refPointCloud.clear();
 		refClusterCentroids.points.clear();
+		delete[] refPointCloud.data;
 		delete[] plainPointCloud[i].data;
+		delete[] colorPointCloud[i].data;
 	}
 	plainPointCloud.clear();
 	colorPointCloud.clear();
 	clusterBoundingBoxes.clear();
 	clusterCentroids.clear();
-	//plainCloudSize.clear();
 }
 
 void euclidean_clustering_base::run(int p) {
