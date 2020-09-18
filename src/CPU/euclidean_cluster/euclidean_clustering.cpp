@@ -20,7 +20,7 @@
 
 void euclidean_clustering::initRadiusSearch(const PlainPointCloud& cloud, bool**  sqr_distances, float radius)
 {
-	int n = cloud.capacity;
+	int n = cloud.size;
 	float radius_sqr = radius * radius;
 	*sqr_distances = (bool*) malloc(n * n * sizeof(bool));
 	for (int j = 0; j < n; j++)
@@ -58,7 +58,7 @@ void euclidean_clustering::extractEuclideanClusters (
 	unsigned int max_pts_per_cluster)
 {
 	int nn_start_idx = 0;
-	int cloudSize = plainPointCloud.capacity;
+	int cloudSize = plainPointCloud.size;
 
 	// indicates the processed status for each point
 	std::vector<bool> processed (cloudSize, false);
@@ -130,7 +130,7 @@ void euclidean_clustering::extract(
 	std::vector<PointIndices> &clusters, 
 	double tolerance)
 {
-	if (plainPointCloud.capacity == 0)
+	if (plainPointCloud.size == 0)
 	{
 	    clusters.clear ();
 	    return;
@@ -145,7 +145,6 @@ void euclidean_clustering::extract(
 void euclidean_clustering::clusterAndColor(
 	const PlainPointCloud& plainPointCloud,
 	ColorPointCloud& colorPointCloud,
-	int& colorPointCount,
 	BoundingboxArray& clusterBoundingBoxes,
 	Centroid& clusterCentroids,
 	double max_cluster_distance=0.5)
@@ -246,7 +245,6 @@ void euclidean_clustering::clusterAndColor(
 			clusterCentroids.points.push_back(centroid);
 		}
 		colorPointCloud.insert(colorPointCloud.end(), current_cluster.begin(), current_cluster.end());
-		colorPointCount += current_cluster.size();
 		j++; k++;
 	}
 

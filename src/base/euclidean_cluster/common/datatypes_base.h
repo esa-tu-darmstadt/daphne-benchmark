@@ -44,6 +44,7 @@ typedef struct{
 
 typedef struct PlainPointCloud {
 	Point* data;
+	unsigned int size;
 	unsigned int capacity;
 } PlainPointCloud;
 

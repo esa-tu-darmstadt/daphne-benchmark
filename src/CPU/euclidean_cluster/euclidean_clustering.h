@@ -58,7 +58,6 @@ protected:
 	virtual void clusterAndColor(
 		const PlainPointCloud& plainPointCloud,
 		ColorPointCloud& colorPointCloud,
-		int& colorPointCount,
 		BoundingboxArray& clusterBoundingBoxes,
 		Centroid& clusterCentroids,
 		double max_cluster_distance);
