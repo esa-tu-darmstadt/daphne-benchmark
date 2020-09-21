@@ -3,24 +3,48 @@
 
 -include Makefile.deps
 
-CXXFLAGS=-O3
-CXXFLAGS+= -std c++11
-CXX=nvcc
+NXX=nvcc
+ifdef DEBUG
+	CXXFLAGS= -g
+else
+	CXXFLAGS= -O3
+endif
+CXXFLAGS+= -std=c++11
+CPPFLAGS+= -I../../base/benchmark -I../../base/euclidean_cluster
 
-# cuda device capability
-CUDA_DEVICE_ARCH=compute_60
-CXXFLAGS += -arch $(CUDA_DEVICE_ARCH)
+# cuda specific options
+CUDA_DEVICE_ARCH=compute_62
+NXXFLAGS+= -arch $(CUDA_DEVICE_ARCH)
 
-all: kernel checkdata
+CLOUD_DISTANCES_PER_PACKET=8
+ifneq ($(CLOUD_DISTANCES_PER_PACKET),8)
+$(info Working with distance packets with $(CLOUD_DISTANCES_PER_PACKET) elements)
+endif
+CPPFLAGS+= -DEPHOS_CLOUD_DISTANCES_PER_PACKET=$(CLOUD_DISTANCES_PER_PACKET)
 
-kernel: ../common/main.o kernel.o
-	$(CXX) $(CXXFLAGS) $^ -o $@
+# other options
+ifdef TESTCASE_LIMIT
+$(info Limiting to $(TESTCASE_LIMIT) test cases)
+	CPPFLAGS+= -DEPHOS_TESTCASE_LIMIT=$(TESTCASE_LIMIT)
+endif
+ifdef ENABLE_TESTDATA_GEN
+$(info Enabled result data generation)
+	CPPFLAGS+= -DEPHOS_TESTDATA_GEN
+endif
 
-../common/main.o: ../common/main.cpp
-	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
+all: benchmark checkdata
 
-kernel.o: kernel.cu
-	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
+benchmark: euclidean_clustering.o euclidean_clustering_base.o main.o
+	$(NXX) $^ -o $@ $(LDDFLAGS)
+
+%.o: %.cu
+	$(NXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) $(NXXFLAGS) -c -o $@ $<
+
+%.o: ../../base/benchmark/common/%.cpp
+	$(NXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) $(NXXFLAGS) -c -o $@ $<
+
+%.o: ../../base/euclidean_cluster/common/%.cpp
+	$(NXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) $(NXXFLAGS) -c -o $@ $<
 
 checkdata:
 ifeq ($(wildcard ../../../data/ec_input.dat),)
@@ -31,8 +55,11 @@ ifeq ($(wildcard ../../../data/ec_output.dat),)
 endif
 
 clean:
-	rm -f kernel kernel.o ../common/main.o Makefile.deps
+	rm -f Makefile.deps benchmark euclidean_clustering.o euclidean_clustering_base.o \
+	main.o
 
 Makefile.deps:
-	g++ $(CFLAGS) $(CPPFLAGS)  -I../include -MM ../common/main.cpp *.cu > Makefile.deps
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS)  -MM -MG \
+	euclidean_clustering.cu ../../base/benchmark/common/main.cpp \
+	../../base/euclidean_cluster/common/euclidean_clustering_base.cpp > Makefile.deps
 
