@@ -22,22 +22,23 @@ euclidean_clustering::euclidean_clustering() : euclidean_clustering_base() {}
 
 euclidean_clustering::~euclidean_clustering() {}
 
-void euclidean_clustering::initRadiusSearch(const PlainPointCloud& points, bool**  sqr_distances, float radius)
+void euclidean_clustering::initRadiusSearch(const PlainPointCloud& cloud, bool**  sqr_distances, float radius)
 {
-	int n = points.size();
-	*sqr_distances = (bool*) malloc(n * n * sizeof(bool));
+	int n = cloud.size;
 	float sqr_radius = radius * radius;
-	#pragma omp parallel for default(none) shared(points, sqr_distances, n, sqr_radius) schedule(dynamic)
-	for (int j = 0; j < n; j++){
-		for (int i = 0; i < n; i++){
-			float dx = points[i].x - points[j].x;
-			float dy = points[i].y - points[j].y;
-			float dz = points[i].z - points[j].z;
+	*sqr_distances = (bool*) malloc(n * n * sizeof(bool));
+	#pragma omp parallel for default(none) shared(cloud, sqr_distances, n, sqr_radius) schedule(dynamic)
+	for (int j = 0; j < n; j++) {
+		for (int i = 0; i < n; i++) {
+			float dx = cloud.data[i].x - cloud.data[j].x;
+			float dy = cloud.data[i].y - cloud.data[j].y;
+			float dz = cloud.data[i].z - cloud.data[j].z;
 			float sqr_dist = dx*dx + dy*dy + dz*dz;
 			(*sqr_distances)[j*n+i] = sqr_dist <= sqr_radius;
 		}
 	}
 }
+
 int euclidean_clustering::radiusSearch(
 	const int point_index, std::vector<int>& indices, const bool* sqr_distances, int total_points)
 {
@@ -59,11 +60,11 @@ void euclidean_clustering::extractEuclideanClusters (
 	const PlainPointCloud& plainPointCloud,
 	float tolerance,
 	std::vector<PointIndices> &clusters,
-	unsigned int min_pts_per_cluster, 
+	unsigned int min_pts_per_cluster,
 	unsigned int max_pts_per_cluster)
 {
 	int nn_start_idx = 0;
-	int cloudSize = plainPointCloud.size();
+	int cloudSize = plainPointCloud.size;
 
 	// indicates the processed status for each point
 	std::vector<bool> processed (cloudSize, false);
@@ -127,15 +128,12 @@ inline bool comparePointClusters (const PointIndices &a, const PointIndices &b)
 	return (a.indices.size () < b.indices.size ());
 }
 
-/**
- * Computes euclidean clustering and sorts the resulting clusters.
- */
 void euclidean_clustering::extract(
 	const PlainPointCloud& plainPointCloud,
-	std::vector<PointIndices> &clusters, 
+	std::vector<PointIndices> &clusters,
 	double tolerance)
 {
-	if (plainPointCloud.size() == 0)
+	if (plainPointCloud.size == 0)
 	{
 	    clusters.clear ();
 	    return;
@@ -155,7 +153,7 @@ void euclidean_clustering::clusterAndColor(
 	double max_cluster_distance=0.5)
 {
 	std::vector<PointIndices> cluster_indices;
-	extract (plainPointCloud,
+	extract(plainPointCloud,
 		cluster_indices,
 		max_cluster_distance);
 
@@ -165,22 +163,23 @@ void euclidean_clustering::clusterAndColor(
 	for (auto it = cluster_indices.begin(); it != cluster_indices.end(); ++it)
 	{
 		//ColorPointCloud* current_cluster = new ColorPointCloud;//coord + color cluster
-		ColorPointCloud current_cluster;
+		//ColorPointCloud current_cluster;
+		std::vector<PointRGB> current_cluster;
 		// assign color to each cluster
 		PointDouble centroid = {0.0, 0.0, 0.0};
 		for (auto pit = it->indices.begin(); pit != it->indices.end(); ++pit)
 		{
 			// fill new colored cluster point by point
 			PointRGB p;
-			p.x = (plainPointCloud)[*pit].x;
-			p.y = (plainPointCloud)[*pit].y;
-			p.z = (plainPointCloud)[*pit].z;
+			p.x = (plainPointCloud.data)[*pit].x;
+			p.y = (plainPointCloud.data)[*pit].y;
+			p.z = (plainPointCloud.data)[*pit].z;
 			p.r = 10;
 			p.g = 20;
 			p.b = 30;
-			centroid.x += (plainPointCloud)[*pit].x;
-			centroid.y += (plainPointCloud)[*pit].y;
-			centroid.z += (plainPointCloud)[*pit].z;
+			centroid.x += (plainPointCloud.data)[*pit].x;
+			centroid.y += (plainPointCloud.data)[*pit].y;
+			centroid.z += (plainPointCloud.data)[*pit].z;
 
 			current_cluster.push_back(p);
 		}
@@ -216,7 +215,7 @@ void euclidean_clustering::clusterAndColor(
 
 		double rz = 0;
 		// estimate pose
-		if (_pose_estimation) 
+		if (_pose_estimation)
 		{
 			std::vector<Point2D> inner_points;
 			for (unsigned int i=0; i < current_cluster.size(); i++)
@@ -234,7 +233,7 @@ void euclidean_clustering::clusterAndColor(
 		}
 
 		// quaternion for rotation stored in bounding box
-		double halfYaw = rz * 0.5;  
+		double halfYaw = rz * 0.5;
 		double cosYaw = cos(halfYaw);
 		double sinYaw = sin(halfYaw);
 		bounding_box.orientation.x = 0.0;
@@ -249,10 +248,15 @@ void euclidean_clustering::clusterAndColor(
 			clusterBoundingBoxes.boxes.push_back(bounding_box);
 			clusterCentroids.points.push_back(centroid);
 		}
-		colorPointCloud.insert(colorPointCloud.end(), current_cluster.begin(), current_cluster.end());
+		//colorPointCloud.insert(colorPointCloud.end(), current_cluster.begin(), current_cluster.end());
+		//std::memcpy(colorPointCloud.data + colorPointCloud.size, current_cluster.data(), current_cluster.size());
+		// TODO replace
+		for (int iPoint = 0; iPoint < current_cluster.size(); iPoint++) {
+			colorPointCloud.data[colorPointCloud.size + iPoint] = current_cluster[iPoint];
+		}
+		colorPointCloud.size += current_cluster.size();
 		j++; k++;
 	}
-
 }
 
 void euclidean_clustering::init() {
