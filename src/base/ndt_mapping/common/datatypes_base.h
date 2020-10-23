@@ -45,8 +45,14 @@ typedef struct Point4d {
     float x,y,z,i;
 } Point4d;
 
-typedef std::vector<PointXYZI> PointCloudSource;
-typedef PointCloudSource PointCloud;
+// typedef std::vector<PointXYZI> PointCloudSource;
+// typedef PointCloudSource PointCloud;
+
+typedef struct PointCloud {
+	PointXYZI* data;
+	int size;
+	int capacity;
+} PointCloud;
 
 typedef struct CallbackResult {
 	bool converged;
@@ -61,8 +67,13 @@ typedef struct Voxel {
     int numberPoints;
 } Voxel;
 
+typedef struct VoxelGrid {
+	Voxel* data;
+	double start[3];
+	int dimension[3];
+} VoxelGrid;
 
-typedef std::vector<Voxel> VoxelGrid;
+//typedef std::vector<Voxel> VoxelGrid;
 
 #define PI 3.1415926535897932384626433832795
 

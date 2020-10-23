@@ -15,6 +15,7 @@
 #include <cstring>
 #include <chrono>
 #include <stdexcept>
+#include <cassert>
 
 #include "ndt_mapping_base.h"
 #include "common/benchmark.h"
@@ -45,23 +46,25 @@ ndt_mapping_base::ndt_mapping_base() :
 	j_ang_a_(), j_ang_b_(), j_ang_c_(), j_ang_d_(), j_ang_e_(), j_ang_f_(), j_ang_g_(), j_ang_h_(),
 	transformation_probability_(0.0), transformation_epsilon_(0.1),
 	filtered_scan(), maps(), init_guess(), results(), grids(),
-	input_cloud(nullptr), target_cloud(nullptr), target_grid(),
-	minVoxel(), maxVoxel(), voxelDimension() {
+	input_cloud(nullptr), target_cloud(nullptr), target_grid() {
+	//,
+	//minVoxel(), maxVoxel(), voxelDimension() {
 }
 ndt_mapping_base::~ndt_mapping_base() {}
 
-int ndt_mapping_base::linearizeAddr(const int x, const int y, const int z)
-{
-	return  (x + voxelDimension[0] * (y + voxelDimension[1] * z));
-}
+// int ndt_mapping_base::linearizeAddr(const int x, const int y, const int z)
+// {
+// 	return  (x + voxelDimension[0] * (y + voxelDimension[1] * z));
+// }
+//
+// int ndt_mapping_base::linearizeCoord(const float x, const float y, const float z)
+// {
+// 	int idx_x = (x - minVoxel.data[0]) / resolution_;
+// 	int idx_y = (y - minVoxel.data[1]) / resolution_;
+// 	int idx_z = (z - minVoxel.data[2]) / resolution_;
+// 	return linearizeAddr(idx_x, idx_y, idx_z);
+// }
 
-int ndt_mapping_base::linearizeCoord(const float x, const float y, const float z)
-{
-	int idx_x = (x - minVoxel.data[0]) / resolution_;
-	int idx_y = (y - minVoxel.data[1]) / resolution_;
-	int idx_z = (z - minVoxel.data[2]) / resolution_;
-	return linearizeAddr(idx_x, idx_y, idx_z);
-}
 // int ndt_mapping_base::linearizeCoord(const float x, const float y, const float z) {
 // 	int idx_x = (x - minVoxel.data[0]) / resolution_;
 // 	int idx_y = (y - minVoxel.data[1]) / resolution_;
@@ -226,22 +229,26 @@ void ndt_mapping_base::quit() {
  */
 void transformPointCloud(const PointCloud& input, PointCloud &output, Matrix4f transform)
 {
-	if (&input != &output)
-	{
-		output.clear();
-		output.resize(input.size());
-	}
-	for (auto it = 0 ; it < input.size(); ++it)
+	assert((input.size == output.size) && "Input and output sizes do not match");
+	// TODO: make sure the sizes match before this function call
+// 	if (&input != &output)
+// 	{
+// 		output.clear();
+// 		output.resize(input.size());
+// 	}
+	//for (auto it = 0 ; it < input.size(); ++it)
+	for (int i = 0; i < input.size; i++)
 	{
 		PointXYZI transformed;
 		for (int row = 0; row < 3; row++)
 		{
-			transformed.data[row] = transform.data[row][0] * input[it].data[0]
-			+ transform.data[row][1] * input[it].data[1]
-			+ transform.data[row][2] * input[it].data[2]
-			+ transform.data[row][3];
+			transformed.data[row] =
+				transform.data[row][0]*input.data[i].data[0] +
+				transform.data[row][1]*input.data[i].data[1] +
+				transform.data[row][2]*input.data[i].data[2] +
+				transform.data[row][3];
 		}
-		output[it] = transformed;
+		output.data[i] = transformed;
 	}
 }
 
@@ -437,7 +444,7 @@ void ndt_mapping_base::buildTransformationMatrix(Matrix4f &matrix, Vec6 transfor
 double ndt_mapping_base::computeStepLengthMT (
 	const Vec6 &x, Vec6 &step_dir, double step_init, double step_max,
 	double step_min, double &score, Vec6 &score_gradient, Mat66 &hessian,
-	PointCloudSource &trans_cloud)
+	PointCloud& trans_cloud)
 {
 	// Set the value of phi(0), Equation 1.3 [More, Thuente 1994]
 	double phi_0 = -score;
@@ -661,7 +668,7 @@ void ndt_mapping_base::computeTransformation(PointCloud &output, const Matrix4f 
 		delta_p_norm = 1;
 		if (delta_p_norm == 0 || delta_p_norm != delta_p_norm)
 		{
-			transformation_probability_ = score / static_cast<double> (input_cloud->size());
+			transformation_probability_ = score / static_cast<double> (input_cloud->size);
 			converged_ = delta_p_norm == delta_p_norm;
 			return;
 		}
@@ -699,7 +706,7 @@ void ndt_mapping_base::computeTransformation(PointCloud &output, const Matrix4f 
 
 	// Store transformation probability.  The realtive differences within each scan registration are accurate
 	// but the normalization constants need to be modified for it to be globally accurate
-	transformation_probability_ = score / static_cast<double> (input_cloud->size());
+	transformation_probability_ = score / static_cast<double>(input_cloud->size);
 }
 
 
@@ -709,7 +716,14 @@ void ndt_mapping_base::ndt_align(const Matrix4f& guess)
 
 	initCompute();
 	// Copy the point data to output
-	PointCloud output(*input_cloud);
+	//PointCloud output(*input_cloud);
+	// TODO check correctness
+	PointCloud output = {
+		new PointXYZI[input_cloud->capacity],
+		input_cloud->size,
+		input_cloud->capacity
+	};
+	std::memcpy(output.data, input_cloud->data, sizeof(PointXYZI)*input_cloud->size);
 	// Perform the actual transformation computation
 	converged_ = false;
 	final_transformation_ = transformation_ = previous_transformation_ = {
@@ -720,9 +734,13 @@ void ndt_mapping_base::ndt_align(const Matrix4f& guess)
 	};
 	// Right before we estimate the transformation, we set all the point.data[3] values to 1
 	// to aid the rigid transformation
-	for (size_t i = 0; i < input_cloud->size (); ++i)
-		output[i].data[3] = 1.0;
-	computeTransformation (output, guess);
+	for (int i = 0; i < output.size; i++) {
+		output.data[i].data[3] = 1.0;
+	}
+	computeTransformation(output, guess);
+	// free allocated memory
+	cleanupCompute();
+	delete[] output.data;
 }
 
 
@@ -764,20 +782,36 @@ int ndt_mapping_base::read_next_testcases(int count)
 	}
 	return i;
 }
-
+void ndt_mapping_base::cleanupTestcases(int count) {
+	// free memory allocated by parsers
+	for (int i = 0; i < count; i++) {
+		delete[] filtered_scan[i].data;
+	}
+	filtered_scan.resize(0);
+	for (int i = 0; i < count; i++) {
+		delete[] maps[i].data;
+	}
+	maps.resize(0);
+	init_guess.resize(0);
+	results.resize(0);
+}
 void  ndt_mapping_base::parseFilteredScan(std::ifstream& input_file, PointCloud& pointcloud) {
-	int32_t size;
+	int32_t cloudSize;
 	try {
-		input_file.read((char*)&size, sizeof(int32_t));
-		pointcloud.clear();
-		for (int i = 0; i < size; i++)
+		input_file.read((char*)&cloudSize, sizeof(int32_t));
+		// TODO make sure to not create a memory leak here
+		//pointcloud.clear();
+		pointcloud.data = new PointXYZI[cloudSize];
+		pointcloud.size = cloudSize;
+		pointcloud.capacity = cloudSize;
+		for (int i = 0; i < cloudSize; i++)
 		{
 			PointXYZI p;
 			input_file.read((char*)&p.data[0], sizeof(float));
 			input_file.read((char*)&p.data[1], sizeof(float));
 			input_file.read((char*)&p.data[2], sizeof(float));
 			input_file.read((char*)&p.data[3], sizeof(float));
-			pointcloud.push_back(p);
+			pointcloud.data[i] = p;
 		}
 	}  catch (std::ifstream::failure& e) {
 		throw std::ios_base::failure("Error reading filtered scan");
@@ -900,6 +934,7 @@ void ndt_mapping_base::run(int p) {
 		}
 		pause_timer();
 		check_next_outputs(count);
+		cleanupTestcases(count);
 	}
 	stop_timer();
 }

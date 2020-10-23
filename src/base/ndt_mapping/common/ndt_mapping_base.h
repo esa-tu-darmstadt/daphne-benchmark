@@ -77,8 +77,8 @@ protected:
 	//PointCloud* filtered_scan_ptr = nullptr;
 
 	// voxel grid extends
-	PointXYZI minVoxel, maxVoxel;
-	int voxelDimension[3];
+	//PointXYZI minVoxel, maxVoxel;
+	//int voxelDimension[3];
 public:
 	ndt_mapping_base();
 	virtual ~ndt_mapping_base();
@@ -128,6 +128,11 @@ protected:
 	 */
 	virtual void check_next_outputs(int count);
 	/**
+	 * Frees resources used during processing of a batch of test cases.
+	 * count: number of cases in the test batch
+	 */
+	virtual void cleanupTestcases(int count);
+	/**
 	 * Reduces a multi dimensional voxel grid index to one dimension.
 	 */
 	int linearizeAddr(const int x, const int y, const int z);
@@ -154,29 +159,47 @@ protected:
 //
 // 	void computePointDerivatives (Vec3 &x, bool compute_hessian = true);
 	virtual void computeHessian (Mat66 &hessian,
-		PointCloudSource &trans_cloud, Vec6 &) = 0;
+		PointCloud& trans_cloud, Vec6 &) = 0;
 // 	void updateHessian (Mat66 &hessian, Vec3 &x_trans, Mat33 &c_inv);
 //
-	virtual double computeDerivatives (Vec6 &score_gradient,
-		Mat66 &hessian,
-		PointCloudSource &trans_cloud,
-		Vec6 &p,
+	virtual double computeDerivatives(Vec6& score_gradient,
+		Mat66& hessian,
+		PointCloud& trans_cloud,
+		Vec6& p,
 		bool compute_hessian = true) = 0;
 
+	/**
+	 * Initializes the transformation computation for a test case.
+	 */
 	virtual void initCompute() = 0;
+	/**
+	 * Frees resources used during the transformation computation of a test case.
+	 */
+	virtual void cleanupCompute() = 0;
 
 	virtual bool updateIntervalMT (double &a_l, double &f_l, double &g_l,
 		double &a_u, double &f_u, double &g_u,
 		double a_t, double f_t, double g_t);
+
 	virtual double trialValueSelectionMT (double a_l, double f_l, double g_l,
 		double a_u, double f_u, double g_u,
 		double a_t, double f_t, double g_t);
+
 	virtual double computeStepLengthMT (const Vec6 &x, Vec6 &step_dir, double step_init, double step_max,
 		double step_min, double &score, Vec6 &score_gradient, Mat66 &hessian,
-		PointCloudSource &trans_cloud);
-
+		PointCloud& trans_cloud);
+	/**
+	 * Entry point for actually computing the transformation matrix
+	 * after setup of all input, output and intermediate structures.
+	 * output: output point cloud
+	 * guess: transformation to start with
+	 */
 	virtual void computeTransformation(PointCloud &output, const Matrix4f &guess);
-
+	/**
+	 * Second entry point for a test case.
+	 * Sets up structures and calls computeTransformation().
+	 * guess: transformation to start with
+	 */
 	virtual void ndt_align(const Matrix4f& guess);
 
 	virtual void buildTransformationMatrix(Matrix4f &matrix, Vec6 transform);
@@ -184,7 +207,10 @@ protected:
 	 * Computes the eulerangles from an rotation matrix.
 	 */
 	virtual void eulerAngles(Matrix4f transform, Vec3 &result);
-
+	/**
+	 * Entry point for a test case.
+	 * Sets up pointers and calls ndt_align()
+	 */
 	virtual CallbackResult partial_points_callback(
 		PointCloud &input_cloud,
 		Matrix4f &init_guess,
