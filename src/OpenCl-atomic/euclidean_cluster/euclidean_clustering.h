@@ -74,6 +74,11 @@ protected:
 		Centroid& clusterCentroids,
 		double max_cluster_distance) override;
 
+	virtual void segmentByDistance(
+		const PlainPointCloud& plainPointCloud,
+		ColorPointCloud& colorPointCloud,
+		BoundingboxArray& clusterBoundingBoxes,
+		Centroid& clusterCentroids) override;
 	/**
 	* Segments the cloud into categories representing distance ranges from the origin
 	* and performs clustering and coloring on the individual categories.
@@ -83,11 +88,11 @@ protected:
 	* in_clusterCentroids: resulting cluster centroids
 	* in_max_cluster_distance: distance threshold
 	*/
-	virtual void segmentByDistance(
-		const PlainPointCloud& plainPointCloud,
-		ColorPointCloud& colorPointCloud,
-		BoundingboxArray& clusterBoundingBoxes,
-		Centroid& clusterCentroids) override;
+// 	virtual void segmentByDistance(
+// 		const PlainPointCloud& plainPointCloud,
+// 		ColorPointCloud& colorPointCloud,
+// 		BoundingboxArray& clusterBoundingBoxes,
+// 		Centroid& clusterCentroids) override;
 private:
 	/**
 	* Finds all clusters in the given point cloud that are conformant to the given parameters.

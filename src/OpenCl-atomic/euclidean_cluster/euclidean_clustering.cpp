@@ -70,7 +70,7 @@ void euclidean_clustering::extractEuclideanClusters(
 {
 	cl_int err;
 	// calculate cloud size aligned to distances per item
-	int cloudSize = plainPointCloud.size();
+	int cloudSize = plainPointCloud.size;
 	int alignedCloudSize;
 	int alignTo = EPHOS_KERNEL_DISTANCES_PER_PACKET*EPHOS_KERNEL_DISTANCE_PACKETS_PER_ITEM;
 	if ((cloudSize%alignTo) == 0) {
@@ -87,7 +87,7 @@ void euclidean_clustering::extractEuclideanClusters(
 #ifdef EPHOS_ZERO_COPY
 	Point* cloudStorage = (Point *) computeEnv.cmdqueue.enqueueMapBuffer(pointCloudBuffer, CL_TRUE,
 		CL_MAP_WRITE_INVALIDATE_REGION, 0, sizeof(Point)*cloudSize);
-	std::memcpy(cloudStorage, plainPointCloud.data(), sizeof(Point)*cloudSize);
+	std::memcpy(cloudStorage, plainPointCloud.data, sizeof(Point)*cloudSize);
 	computeEnv.cmdqueue.enqueueUnmapMemObject(pointCloudBuffer, cloudStorage);
 
 #else // !EPHOS_ZERO_COPY
@@ -104,7 +104,7 @@ void euclidean_clustering::extractEuclideanClusters(
 // 			sizeof(Point)*cloudSize, sizeof(Point)*(alignedCloudSize - cloudSize), farAway.data());
 // 	}
 	computeEnv.cmdqueue.enqueueWriteBuffer(pointCloudBuffer, CL_FALSE,
-		0, sizeof(Point)*cloudSize, plainPointCloud.data());
+		0, sizeof(Point)*cloudSize, plainPointCloud.data);
 #endif // !EPHOS_ZERO_COPY
 
 
@@ -223,7 +223,7 @@ void euclidean_clustering::extract(
 	std::vector<PointIndices> &clusters,
 	double tolerance)
 {
-	if (plainPointCloud.size() == 0)
+	if (plainPointCloud.size == 0)
 	{
 	    clusters.clear ();
 	    return;
@@ -235,6 +235,113 @@ void euclidean_clustering::extract(
 	std::sort (clusters.rbegin (), clusters.rend (), comparePointClusters);
 }
 
+// void euclidean_clustering::clusterAndColor(
+// 	const PlainPointCloud& plainPointCloud,
+// 	ColorPointCloud& colorPointCloud,
+// 	BoundingboxArray& clusterBoundingBoxes,
+// 	Centroid& clusterCentroids,
+// 	double max_cluster_distance=0.5)
+// {
+// 	std::vector<PointIndices> cluster_indices;
+// 	extract(plainPointCloud,
+// 		cluster_indices,
+// 		max_cluster_distance);
+//
+// 	// assign colors
+// 	int j = 0;
+// 	unsigned int k = 0;
+// 	for (auto it = cluster_indices.begin(); it != cluster_indices.end(); ++it)
+// 	{
+// 		//ColorPointCloud* current_cluster = new ColorPointCloud;//coord + color cluster
+// 		ColorPointCloud current_cluster;
+// 		// assign color to each cluster
+// 		PointDouble centroid = {0.0, 0.0, 0.0};
+// 		for (auto pit = it->indices.begin(); pit != it->indices.end(); ++pit)
+// 		{
+// 			// fill new colored cluster point by point
+// 			PointRGB p;
+// 			p.x = (plainPointCloud)[*pit].x;
+// 			p.y = (plainPointCloud)[*pit].y;
+// 			p.z = (plainPointCloud)[*pit].z;
+// 			p.r = 10;
+// 			p.g = 20;
+// 			p.b = 30;
+// 			centroid.x += (plainPointCloud)[*pit].x;
+// 			centroid.y += (plainPointCloud)[*pit].y;
+// 			centroid.z += (plainPointCloud)[*pit].z;
+//
+// 			current_cluster.push_back(p);
+// 		}
+//
+// 		centroid.x /= it->indices.size();
+// 		centroid.y /= it->indices.size();
+// 		centroid.z /= it->indices.size();
+//
+// 		// get extends
+// 		float min_x=std::numeric_limits<float>::max();float max_x=-std::numeric_limits<float>::max();
+// 		float min_y=std::numeric_limits<float>::max();float max_y=-std::numeric_limits<float>::max();
+// 		float min_z=std::numeric_limits<float>::max();float max_z=-std::numeric_limits<float>::max();
+// 		for(unsigned int i=0; i<current_cluster.size();i++)
+// 		{
+// 			if(current_cluster[i].x<min_x)  min_x = current_cluster[i].x;
+// 			if(current_cluster[i].y<min_y)  min_y = current_cluster[i].y;
+// 			if(current_cluster[i].z<min_z)  min_z = current_cluster[i].z;
+// 			if(current_cluster[i].x>max_x)  max_x = current_cluster[i].x;
+// 			if(current_cluster[i].y>max_y)  max_y = current_cluster[i].y;
+// 			if(current_cluster[i].z>max_z)  max_z = current_cluster[i].z;
+// 		}
+// 		float l = max_x - min_x;
+// 		float w = max_y - min_y;
+// 		float h = max_z - min_z;
+// 		// create a bounding box from cluster extends
+// 		Boundingbox bounding_box;
+// 		bounding_box.position.x = min_x + l/2;
+// 		bounding_box.position.y = min_y + w/2;
+// 		bounding_box.position.z = min_z + h/2;
+// 		bounding_box.dimensions.x = ((l<0)?-1*l:l);
+// 		bounding_box.dimensions.y = ((w<0)?-1*w:w);
+// 		bounding_box.dimensions.z = ((h<0)?-1*h:h);
+//
+// 		double rz = 0;
+// 		// estimate pose
+// 		if (_pose_estimation)
+// 		{
+// 			std::vector<Point2D> inner_points;
+// 			for (unsigned int i=0; i < current_cluster.size(); i++)
+// 			{
+// 				Point2D ip;
+// 				ip.x = (current_cluster[i].x + fabs(min_x))*8;
+// 				ip.y = (current_cluster[i].y + fabs(min_y))*8;
+// 				inner_points.push_back(ip);
+// 			}
+//
+// 			if (inner_points.size() > 0)
+// 			{
+// 				rz = minAreaRectAngle(inner_points) * PI / 180.0;
+// 			}
+// 		}
+//
+// 		// quaternion for rotation stored in bounding box
+// 		double halfYaw = rz * 0.5;
+// 		double cosYaw = cos(halfYaw);
+// 		double sinYaw = sin(halfYaw);
+// 		bounding_box.orientation.x = 0.0;
+// 		bounding_box.orientation.y = 0.0;
+// 		bounding_box.orientation.z = sinYaw;
+// 		bounding_box.orientation.w = cosYaw;
+//
+// 		if (bounding_box.dimensions.x >0 && bounding_box.dimensions.y >0 && bounding_box.dimensions.z > 0 &&
+// 			bounding_box.dimensions.x < 15 && bounding_box.dimensions.y >0 && bounding_box.dimensions.y < 15 &&
+// 			max_z > -1.5 && min_z > -1.5 && min_z < 1.0 )
+// 		{
+// 			clusterBoundingBoxes.boxes.push_back(bounding_box);
+// 			clusterCentroids.points.push_back(centroid);
+// 		}
+// 		colorPointCloud.insert(colorPointCloud.end(), current_cluster.begin(), current_cluster.end());
+// 		j++; k++;
+// 	}
+//
+// }
 void euclidean_clustering::clusterAndColor(
 	const PlainPointCloud& plainPointCloud,
 	ColorPointCloud& colorPointCloud,
@@ -253,22 +360,23 @@ void euclidean_clustering::clusterAndColor(
 	for (auto it = cluster_indices.begin(); it != cluster_indices.end(); ++it)
 	{
 		//ColorPointCloud* current_cluster = new ColorPointCloud;//coord + color cluster
-		ColorPointCloud current_cluster;
+		//ColorPointCloud current_cluster;
+		std::vector<PointRGB> current_cluster;
 		// assign color to each cluster
 		PointDouble centroid = {0.0, 0.0, 0.0};
 		for (auto pit = it->indices.begin(); pit != it->indices.end(); ++pit)
 		{
 			// fill new colored cluster point by point
 			PointRGB p;
-			p.x = (plainPointCloud)[*pit].x;
-			p.y = (plainPointCloud)[*pit].y;
-			p.z = (plainPointCloud)[*pit].z;
+			p.x = (plainPointCloud.data)[*pit].x;
+			p.y = (plainPointCloud.data)[*pit].y;
+			p.z = (plainPointCloud.data)[*pit].z;
 			p.r = 10;
 			p.g = 20;
 			p.b = 30;
-			centroid.x += (plainPointCloud)[*pit].x;
-			centroid.y += (plainPointCloud)[*pit].y;
-			centroid.z += (plainPointCloud)[*pit].z;
+			centroid.x += (plainPointCloud.data)[*pit].x;
+			centroid.y += (plainPointCloud.data)[*pit].y;
+			centroid.z += (plainPointCloud.data)[*pit].z;
 
 			current_cluster.push_back(p);
 		}
@@ -337,55 +445,152 @@ void euclidean_clustering::clusterAndColor(
 			clusterBoundingBoxes.boxes.push_back(bounding_box);
 			clusterCentroids.points.push_back(centroid);
 		}
-		colorPointCloud.insert(colorPointCloud.end(), current_cluster.begin(), current_cluster.end());
+		//colorPointCloud.insert(colorPointCloud.end(), current_cluster.begin(), current_cluster.end());
+		//std::memcpy(colorPointCloud.data + colorPointCloud.size, current_cluster.data(), current_cluster.size());
+		// TODO replace
+		for (int iPoint = 0; iPoint < current_cluster.size(); iPoint++) {
+			colorPointCloud.data[colorPointCloud.size + iPoint] = current_cluster[iPoint];
+		}
+		colorPointCloud.size += current_cluster.size();
 		j++; k++;
 	}
 
 }
+
 void euclidean_clustering::segmentByDistance(
 	const PlainPointCloud& plainPointCloud,
 	ColorPointCloud& colorPointCloud,
 	BoundingboxArray& clusterBoundingBoxes,
 	Centroid& clusterCentroids)
 {
-	PlainPointCloud cloud_segments_array[5];
-	double thresholds[5] = {0.5, 1.1, 1.6, 2.3, 2.6f};
-
-	for (const Point& p : plainPointCloud) {
-
+	// allocate result memory
+	colorPointCloud.data = new PointRGB[plainPointCloud.size];
+	colorPointCloud.capacity = plainPointCloud.size;
+	colorPointCloud.size = 0;
+	// find out about the segment target sizes
+	PlainPointCloud cloudSegments[5] = {
+		{ nullptr, 0, 0 },
+		{ nullptr, 0, 0 },
+		{ nullptr, 0, 0 },
+		{ nullptr, 0, 0 },
+		{ nullptr, 0, 0 }
+	};
+	//for (const Point* p = plainPointCloud.data; p < plainPointCloud.data + plainPointCloud.capacity; p++) {
+	for (int i = 0; i < plainPointCloud.size; i++) {
+		Point p = plainPointCloud.data[i];
 		// categorize by distance from origin
 		float origin_distance = p.x*p.x + p.y*p.y;
 		if (origin_distance < 15*15 ) {
-			cloud_segments_array[0].push_back(p);
+			cloudSegments[0].capacity += 1;
 		}
 		else if(origin_distance < 30*30) {
-			cloud_segments_array[1].push_back(p);
+			cloudSegments[1].capacity += 1;
 		}
 		else if(origin_distance < 45*45) {
-			cloud_segments_array[2].push_back(p);
+			cloudSegments[2].capacity += 1;
 		}
 		else if(origin_distance < 60*60) {
-			cloud_segments_array[3].push_back(p);
+			cloudSegments[3].capacity += 1;
 		} else {
-			cloud_segments_array[4].push_back(p);
+			cloudSegments[4].capacity += 1;
 		}
 	}
-	// find biggest segment and prepare compute resources
+	// allocate memory and distribute it to the differently sized segments
+	Point* cloudSegmentStorage = new Point[plainPointCloud.size];
+	unsigned int nextCloudSegmentStart = 0;
+	for (int i = 0; i < 5; i++) {
+		cloudSegments[i].data = cloudSegmentStorage + nextCloudSegmentStart;
+		nextCloudSegmentStart += cloudSegments[i].capacity;
+	}
+	// copy points over into the segmnets
+	//for (const Point* p = plainPointCloud.data; p < plainPointCloud.data + plainPointCloud.capacity; p++) {
+	for (int i = 0; i < plainPointCloud.size; i++) {
+		Point p = plainPointCloud.data[i];
+		// categorize by distance from origin
+		float origin_distance = p.x*p.x + p.y*p.y;
+		if (origin_distance < 15*15 ) {
+			cloudSegments[0].data[cloudSegments[0].size] = p;
+			cloudSegments[0].size += 1;
+		}
+		else if(origin_distance < 30*30) {
+			cloudSegments[1].data[cloudSegments[1].size] = p;
+			cloudSegments[1].size += 1;
+		}
+		else if(origin_distance < 45*45) {
+			cloudSegments[2].data[cloudSegments[2].size] = p;
+			cloudSegments[2].size += 1;
+		}
+		else if(origin_distance < 60*60) {
+			cloudSegments[3].data[cloudSegments[3].size] = p;
+			cloudSegments[3].size += 1;
+		} else {
+			cloudSegments[4].data[cloudSegments[4].size] = p;
+			cloudSegments[4].size += 1;
+		}
+	}
+	// preparation for kernel calls
 	int iBigSegment = 0;
-	int bigSegmentSize = cloud_segments_array[0].size();
+	int bigSegmentSize = cloudSegments[0].size;
 	for (int s = 1; s < 5; s++) {
-		if (cloud_segments_array[s].size() > bigSegmentSize) {
+		if (cloudSegments[s].size > bigSegmentSize) {
 			iBigSegment = s;
-			bigSegmentSize = cloud_segments_array[s].size();
+			bigSegmentSize = cloudSegments[s].size;
 		}
 	}
-	prepare_compute_buffers(cloud_segments_array[iBigSegment], bigSegmentSize);
-	// perform clustering and coloring on the individual categories
+	prepare_compute_buffers(cloudSegments[iBigSegment], bigSegmentSize);
+	// perform clustering and coloring on the individual segments
+	double thresholds[5] = { 0.5, 1.1, 1.6, 2.3, 2.6 };
 	for(unsigned int i=0; i<5; i++)
 	{
-		clusterAndColor(cloud_segments_array[i], colorPointCloud, clusterBoundingBoxes, clusterCentroids, thresholds[i]);
+		clusterAndColor(cloudSegments[i], colorPointCloud,
+			clusterBoundingBoxes, clusterCentroids, thresholds[i]);
 	}
+	delete[] cloudSegmentStorage;
 }
+// void euclidean_clustering::segmentByDistance(
+// 	const PlainPointCloud& plainPointCloud,
+// 	ColorPointCloud& colorPointCloud,
+// 	BoundingboxArray& clusterBoundingBoxes,
+// 	Centroid& clusterCentroids)
+// {
+// 	PlainPointCloud cloud_segments_array[5];
+// 	double thresholds[5] = {0.5, 1.1, 1.6, 2.3, 2.6f};
+//
+// 	for (const Point& p : plainPointCloud) {
+//
+// 		// categorize by distance from origin
+// 		float origin_distance = p.x*p.x + p.y*p.y;
+// 		if (origin_distance < 15*15 ) {
+// 			cloud_segments_array[0].push_back(p);
+// 		}
+// 		else if(origin_distance < 30*30) {
+// 			cloud_segments_array[1].push_back(p);
+// 		}
+// 		else if(origin_distance < 45*45) {
+// 			cloud_segments_array[2].push_back(p);
+// 		}
+// 		else if(origin_distance < 60*60) {
+// 			cloud_segments_array[3].push_back(p);
+// 		} else {
+// 			cloud_segments_array[4].push_back(p);
+// 		}
+// 	}
+// 	// find biggest segment and prepare compute resources
+// 	int iBigSegment = 0;
+// 	int bigSegmentSize = cloud_segments_array[0].size();
+// 	for (int s = 1; s < 5; s++) {
+// 		if (cloud_segments_array[s].size() > bigSegmentSize) {
+// 			iBigSegment = s;
+// 			bigSegmentSize = cloud_segments_array[s].size();
+// 		}
+// 	}
+// 	prepare_compute_buffers(cloud_segments_array[iBigSegment], bigSegmentSize);
+// 	// perform clustering and coloring on the individual categories
+// 	for(unsigned int i=0; i<5; i++)
+// 	{
+// 		clusterAndColor(cloud_segments_array[i], colorPointCloud, clusterBoundingBoxes, clusterCentroids, thresholds[i]);
+// 	}
+// }
 
 void euclidean_clustering::init() {
 	std::cout << "init\n";

@@ -72,7 +72,8 @@ endif
 
 # other options
 ifdef TESTCASE_LIMIT
-	CPPFLAGS+= -DTESTCASE_LIMIT=$(TESTCASE_LIMIT)
+$(info Limiting testcases to $(TESTCASE_LIMIT))
+	CPPFLAGS+= -DEPHOS_TESTCASE_LIMIT=$(TESTCASE_LIMIT)
 endif
 ifdef ENABLE_TESTDATA_GEN
 $(info Enabled result data generation)
