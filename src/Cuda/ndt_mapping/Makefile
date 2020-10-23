@@ -1,25 +1,43 @@
 .DEFAULT_GOAL := all
-.PHONY: all clean checkdata
-
-CXX=nvcc
-CXXFLAGS=-O3
-CXXFLAGS+= -std c++11
-
-CUDA_DEVICE_ARCH=compute_72
-CXXFLAGS+= -arch $(CUDA_DEVICE_ARCH)
+.PHONY: all clean kernel/kernel.h checkdata
 
 -include Makefile.deps
 
-all: kernel checkdata
+ifdef DEBUG
+	CXXFLAGS+= -g
+else
+	CXXFLAGS=-O3
+endif
+CXXFLAGS+= -std=c++11
+CPPFLAGS+= -I../../base/benchmark -I../../base/ndt_mapping
 
-kernel: ../common/main.o kernel.o
-	$(CXX) $(CXXFLAGS) $^ -o $@
+# cuda compiler options
+NXX=nvcc
+CUDA_DEVICE_ARCH=compute_72
+NXXFLAGS+= -arch $(CUDA_DEVICE_ARCH)
 
-../common/main.o: ../common/main.cpp
-	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
+# other options
+ifdef TESTCASE_LIMIT
+$(info Testcase limit set to $(TESTCASE_LIMIT))
+	CPPFLAGS+= -DEPHOS_TESTCASE_LIMIT=$(TESTCASE_LIMIT)
+endif
+ifdef ENABLE_DATAGEN
+$(info Enabled result data generation)
+	CPPFLAGS+= -DEPHOS_DATAGEN
+endif
+all: benchmark checkdata
 
-kernel.o: kernel.cu
-	$(CXX) -c $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -I../include $< -o $@
+benchmark: ndt_mapping.o ndt_mapping_base.o framework.o main.o
+	$(NXX) $^ -o $@ $(LDDFLAGS)
+
+%.o: %.cu
+	$(NXX) $(CLFAGS) $(CPPFLAGS) $(CXXFLAGS) $(NXXFLAGS) -c -o $@ $<
+
+%.o: ../../base/benchmark/common/%.cpp
+	$(NXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) $(NXXFLAGS) -c -o $@ $<
+
+%.o: ../../base/ndt_mapping/common/%.cpp
+	$(NXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) $(NXXFLAGS) -c -o $@ $<
 
 checkdata:
 ifeq ($(wildcard ../../../data/ndt_input.dat),)
@@ -30,8 +48,9 @@ ifeq ($(wildcard ../../../data/ndt_output.dat),)
 endif
 
 clean:
-	rm -f kernel kernel.o ../common/main.o Makefile.deps
+	rm -f Makefile.deps benchmark ndt_mapping.o ndt_mapping_base.o main.o
 
 Makefile.deps:
-	g++ $(CFLAGS) $(CPPFLAGS)  -I../include -MM ../common/main.cpp *.cu > Makefile.deps
-
+	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -MM -MG \
+	../../base/benchmark/common/main.cpp ../../base/ndt_mapping/common/ndt_mapping_base.cpp \
+	ndt_mapping.cu > Makefile.deps
