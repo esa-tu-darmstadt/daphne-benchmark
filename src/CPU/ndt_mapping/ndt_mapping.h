@@ -47,12 +47,12 @@ protected:
 	void computePointDerivatives (Vec3 &x, bool compute_hessian = true);
 
 	virtual void computeHessian (Mat66 &hessian,
-				PointCloudSource &trans_cloud, Vec6 &);
+				PointCloud &trans_cloud, Vec6 &);
 	void updateHessian (Mat66 &hessian, Vec3 &x_trans, Mat33 &c_inv);
 
 	double computeDerivatives (Vec6 &score_gradient,
 						Mat66 &hessian,
-						PointCloudSource &trans_cloud,
+						PointCloud& trans_cloud,
 						Vec6 &p,
 						bool compute_hessian = true );
 
@@ -62,6 +62,7 @@ protected:
 	 * Performs point cloud specific voxel grid initialization.
 	 */
 	virtual void initCompute();
+	virtual void cleanupCompute();
 };
 
 

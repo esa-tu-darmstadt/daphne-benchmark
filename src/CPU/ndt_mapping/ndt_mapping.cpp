@@ -17,7 +17,6 @@
 #include <stdexcept>
 
 #include "ndt_mapping.h"
-#include "datatypes.h"
 
 #include "common/benchmark.h"
 
@@ -79,18 +78,31 @@ int ndt_mapping::voxelRadiusSearch(VoxelGrid& grid, const PointXYZI& point,
 			for (float x = point.data[0] - radius; x < point.data[0] + radiusFinal; x+= resolution_)
 			{
 				// avoid accesses out of bounds
-				if ((x < minVoxel.data[0]) ||
-					(x > maxVoxel.data[0]) ||
-					(y < minVoxel.data[1]) ||
-					(y > maxVoxel.data[1]) ||
-					(z < minVoxel.data[2]) ||
-					(z > maxVoxel.data[2])) {
+// 				if ((x < minVoxel.data[0]) ||
+// 					(x > maxVoxel.data[0]) ||
+// 					(y < minVoxel.data[1]) ||
+// 					(y > maxVoxel.data[1]) ||
+// 					(z < minVoxel.data[2]) ||
+// 					(z > maxVoxel.data[2])) {
+//
+// 					continue;
+// 				}
+				if ((x < grid.start[0]) ||
+					(x > grid.start[0] + grid.dimension[0]) ||
+					(y < grid.start[1]) ||
+					(y > grid.start[1] + grid.dimension[1]) ||
+					(z < grid.start[2]) ||
+					(z > grid.start[2] + grid.dimension[2])) {
 
 					continue;
 				}
 				// determine the distance to the voxel mean
-				int iCell =  linearizeCoord(x, y, z);
-				Voxel* cell = grid.data() + iCell;
+				int iCellX = (x - grid.start[0])/resolution_;
+				int iCellY = (y - grid.start[1])/resolution_;
+				int iCellZ = (z - grid.start[2])/resolution_;
+				int iCell = iCellX + grid.dimension[0]*(iCellY + iCellZ*grid.dimension[1]);
+				//int iCell =  linearizeCoord(x, y, z);
+				Voxel* cell = grid.data + iCell;
 				if (cell->numberPoints > 0) {
 					float dx = cell->mean[0] - point.data[0];
 					float dy = cell->mean[1] - point.data[1];
@@ -240,11 +252,11 @@ void ndt_mapping::computeHessian(
 	// temporary data structures
 	memset(&(hessian.data[0][0]), 0, sizeof(double) * 6 * 6);
 	// Update hessian for each point, line 17 in Algorithm 2 [Magnusson 2009]
-	int pointNo = input_cloud->size();
+	int pointNo = input_cloud->size;
 	for (size_t i = 0; i < pointNo; i++)
 	{
-		PointXYZI& x_trans_pt = trans_cloud[i];
-		PointXYZI& x_pt = input_cloud->at(i);
+		PointXYZI& x_trans_pt = trans_cloud.data[i];
+		PointXYZI& x_pt = input_cloud->data[i];
 		// Find neighbors
 		std::vector<Voxel*> neighborhood;
 		voxelRadiusSearch (target_grid, x_trans_pt, resolution_, neighborhood);
@@ -258,9 +270,9 @@ void ndt_mapping::computeHessian(
 				x_pt.data[2]
 			};
 			Vec3 x_trans = {
-				trans_cloud[i].data[0] - cell->mean[0],
-				trans_cloud[i].data[1] - cell->mean[1],
-				trans_cloud[i].data[2] - cell->mean[2]
+				trans_cloud.data[i].data[0] - cell->mean[0],
+				trans_cloud.data[i].data[1] - cell->mean[1],
+				trans_cloud.data[i].data[2] - cell->mean[2]
 			};
 			Mat33 c_inv = cell->invCovariance;
 			// Compute derivative of transform function w.r.t. transform vector, J_E and H_E in Equations 6.18 and 6.20 [Magnusson 2009]
@@ -321,7 +333,7 @@ void ndt_mapping::updateHessian (Mat66 &hessian, Vec3 &x_trans, Mat33 &c_inv)
 double ndt_mapping::computeDerivatives (
 	Vec6 &score_gradient,
 	Mat66 &hessian,
-	PointCloudSource &trans_cloud,
+	PointCloud &trans_cloud,
 	Vec6 &p,
 	bool compute_hessian)
 {
@@ -332,17 +344,16 @@ double ndt_mapping::computeDerivatives (
 	// Precompute Angular Derivatives (eq. 6.19 and 6.21)[Magnusson 2009]
 	computeAngleDerivatives (p);
 	// Update gradient and hessian for each point, line 17 in Algorithm 2 [Magnusson 2009]
-	for (size_t idx = 0; idx < input_cloud->size (); idx++)
+	for (size_t idx = 0; idx < input_cloud->size; idx++)
 	{
-		PointXYZI& x_trans_pt = trans_cloud[idx];
-		PointXYZI& x_pt = input_cloud->at(idx);
+		PointXYZI& x_trans_pt = trans_cloud.data[idx];
+		PointXYZI& x_pt = input_cloud->data[idx];
 
 		// Find nieghbors (Radius search has been experimentally faster than direct neighbor checking.
 		std::vector<Voxel*> neighborhood;
 		voxelRadiusSearch (target_grid, x_trans_pt, resolution_, neighborhood);
 
 		for (Voxel* cell : neighborhood) {
-			PointXYZI& x_pt = input_cloud->at(idx);
 			Vec3 x = {
 				x_pt.data[0],
 				x_pt.data[1],
@@ -517,13 +528,16 @@ void invertMatrix(Mat33 &m)
 void ndt_mapping::initCompute()
 {
 	// measure the cloud
-	minVoxel = target_cloud->at(0);
-	maxVoxel = minVoxel;
-	int pointNo = target_cloud->size();
+
+	PointXYZI minVoxel = target_cloud->data[0];
+	PointXYZI maxVoxel = minVoxel;
+	//int voxelDimension[3];
+
+	int pointNo = target_cloud->size;
 
 	for (int i = 1; i < pointNo; i++)
 	{
-		PointXYZI* point = target_cloud->data() + i;
+		PointXYZI* point = target_cloud->data + i;
 		for (int elem = 0; elem < 3; elem++)
 		{
 			if (point->data[elem] > maxVoxel.data[elem]) {
@@ -539,18 +553,21 @@ void ndt_mapping::initCompute()
 		//minVoxel.data[i] -= resolution_*0.5f;
 		minVoxel.data[i] -= 0.01f;
 		maxVoxel.data[i] += 0.01f;
-		voxelDimension[i] = (maxVoxel.data[i] - minVoxel.data[i])/resolution_ + 1;
+		//voxelDimension[i] = (maxVoxel.data[i] - minVoxel.data[i])/resolution_ + 1;
+		target_grid.dimension[i] = (maxVoxel.data[i] - minVoxel.data[i])/resolution_ + 1;
+		target_grid.start[i] = minVoxel.data[i];
 	}
 
 	// initialize the voxel grid
 	// spans over the point cloud
-	target_grid.clear();
-	int cellNo = voxelDimension[0]*voxelDimension[1]*voxelDimension[2];
-	target_grid.resize(cellNo);
+	int cellNo = target_grid.dimension[0]*target_grid.dimension[1]*target_grid.dimension[2];
+	//voxelDimension[0]*voxelDimension[1]*voxelDimension[2];
+	target_grid.data = new Voxel[cellNo];
+
 
 	for (int i = 0; i < cellNo; i++)
 	{
-		target_grid[i] = (Voxel){
+		target_grid.data[i] = (Voxel){
 			{ 0.0, 0.0, 1.0,
 			  0.0, 1.0, 0.0,
 			  1.0, 0.0, 0.0 },
@@ -562,9 +579,13 @@ void ndt_mapping::initCompute()
 	// assign the points to their respective voxel
 	for (int i = 0; i < pointNo; i++)
 	{
-		PointXYZI* point = target_cloud->data() + i;
-		int iVoxel = linearizeCoord( point->data[0], point->data[1], point->data[2]);
-		Voxel* cell = target_grid.data() + iVoxel;
+		PointXYZI* point = target_cloud->data + i;
+		//int iVoxel = linearizeCoord( point->data[0], point->data[1], point->data[2]);
+		int iCellX = (point->data[0] - target_grid.start[0])/resolution_;
+		int iCellY = (point->data[1] - target_grid.start[1])/resolution_;
+		int iCellZ = (point->data[2] - target_grid.start[2])/resolution_;
+		int iCell = iCellX + target_grid.dimension[0]*(iCellY + iCellZ*target_grid.dimension[1]);
+		Voxel* cell = target_grid.data + iCell;
 
 		cell->mean[0] += point->data[0];
 		cell->mean[1] += point->data[1];
@@ -579,7 +600,7 @@ void ndt_mapping::initCompute()
 	// perform normalization
 	for (int i = 0; i < cellNo; i++)
 	{
-		Voxel* cell = target_grid.data() + i;
+		Voxel* cell = target_grid.data + i;
 		if (cell->numberPoints > 2) {
 			Vec3 pointSum = {cell->mean[0], cell->mean[1], cell->mean[2]};
 			double invPointNo = 1.0/cell->numberPoints;
@@ -603,6 +624,10 @@ void ndt_mapping::initCompute()
 			cell->numberPoints = 0;
 		}
 	}
+}
+void ndt_mapping::cleanupCompute() {
+	delete[] target_grid.data;
+	target_grid.data = nullptr;
 }
 
 // create benchmark to execute

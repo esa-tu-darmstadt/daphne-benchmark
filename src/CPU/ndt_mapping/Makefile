@@ -11,7 +11,6 @@ endif
 CXXFLAGS+= -std=c++11
 CPPFLAGS+= -I../../base/benchmark -I../../base/ndt_mapping
 
-
 # other options
 ifdef TESTCASE_LIMIT
 $(info Testcase limit set to $(TESTCASE_LIMIT))
@@ -49,4 +48,4 @@ clean:
 Makefile.deps:
 	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -MM -MG \
 	../../base/benchmark/common/main.cpp ../../base/ndt_mapping/common/ndt_mapping_base.cpp \
-	ndt_mapping.cpp > Makefile.deps
+	ndt_mapping.cu > Makefile.deps
