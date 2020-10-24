@@ -30,25 +30,13 @@ typedef struct Mat33 {
   double data[3][3];
 } Mat33;
 
-typedef struct Vec3 {
-	double data[3];
-} Vec3;
-
-typedef struct VoxelCovariance {
-	double data[3][3];
-} VoxelCovariance;
-
-typedef struct VoxelMean {
-	double data[3];
-} VoxelMean;
-
 typedef struct {
     float data[4];
 } PointXYZI;
 
 typedef struct {
-    VoxelCovariance invCovariance;
-    VoxelMean mean;
+    Mat33 invCovariance;
+    double mean[3];
 	int pointListBegin;
 #ifdef EPHOS_VOXEL_POINT_STORAGE
 	int pointStorageLevel;
@@ -57,8 +45,8 @@ typedef struct {
 } Voxel;
 
 typedef struct {
-	VoxelCovariance invCovariance;
-	VoxelMean mean;
+	Mat33 invCovariance;
+	double mean[3];
 	int point;
 } PointVoxel;
 
@@ -69,29 +57,24 @@ typedef struct {
 	int iNext;
 } PointQueue;
 
-typedef struct VoxelGridCorner {
-	float data[3];
-} VoxelGridCorner;
 
-typedef struct PackedVoxelGridCorner{
-	int data[4];
-} PackedVoxelGridCorner;
+// typedef struct PackedVoxelGridCorner{
+// 	int data[3];
+// } PackedVoxelGridCorner;
 
-typedef struct VoxelGridDimension {
-	int data[2];
-} VoxelGridDimension;
+typedef int PackedVoxelGridCorner[3];
+
 
 typedef struct VoxelGridInfo {
 	int cloudSize;
 	int gridSize;
-	VoxelGridCorner minCorner;
-	VoxelGridCorner maxCorner;
-	VoxelGridDimension gridDimension;
+	float minCorner[3];
+	int gridDimension[3];
 } VoxelGridInfo;
 
 typedef struct PackedVoxelGridInfo {
 	int cloudSize;
 	int gridSize;
-	PackedVoxelGridCorner minCorner;
-	PackedVoxelGridCorner maxCorner;
+	int minCorner[3];
+	int maxCorner[3];
 } PackedVoxelGridInfo;

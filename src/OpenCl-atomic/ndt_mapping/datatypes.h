@@ -60,21 +60,13 @@
 // 	double fitness_score;
 // } CallbackResult;
 //
-typedef struct VoxelMean {
-	double data[3];
-} VoxelMean;
 
-typedef struct VoxelGridCorner {
-	float data[3];
-} VoxelGridCorner;
 
-typedef struct PackedVoxelGridCorner {
-	int data[3];
-} PackedVoxelGridCorner;
+// typedef struct PackedVoxelGridCorner {
+// 	int data[3];
+// } PackedVoxelGridCorner;
 
-typedef struct VoxelGridDimension {
-	int data[2];
-} VoxelGridDimension;
+
 
 // typedef struct Voxel {
 // 	Mat33 invCovariance;
@@ -88,23 +80,22 @@ typedef struct VoxelGridDimension {
 
 typedef struct PointVoxel {
 	Mat33 invCovariance;
-	VoxelMean mean;
+	double mean[3];
 	int point;
 } PointVoxel;
 
 typedef struct VoxelGridInfo {
 	int cloudSize;
 	int gridSize;
-	VoxelGridCorner minCorner;
-	VoxelGridCorner maxCorner;
-	VoxelGridDimension gridDimension;
+	float minCorner[3];
+	int gridDimension[3];
 } VoxelGridInfo;
 
 typedef struct PackedVoxelGridInfo {
 	int cloudSize;
 	int gridSize;
-	PackedVoxelGridCorner minCorner;
-	PackedVoxelGridCorner maxCorner;
+	int minCorner[3];
+	int maxCorner[3];
 } PackedVoxelGridInfo;
 
 //typedef std::vector<Voxel> VoxelGrid;

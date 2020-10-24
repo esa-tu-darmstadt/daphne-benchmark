@@ -315,12 +315,12 @@ void ndt_mapping::computeHessian(
 			x_pt.data[2]
 		};
 		computePointDerivatives(x);
-		VoxelMean* mean = &storage_subvoxel[i].mean;
+		double* mean = storage_subvoxel[i].mean;
 		PointXYZI& x_trans_pt = trans_cloud.data[iPoint];
 		Vec3 x_trans = {
-			x_trans_pt.data[0] - mean->data[0],
-			x_trans_pt.data[1] - mean->data[1],
-			x_trans_pt.data[2] - mean->data[2]
+			x_trans_pt.data[0] - mean[0],
+			x_trans_pt.data[1] - mean[1],
+			x_trans_pt.data[2] - mean[2]
 		};
 		Mat33& c_inv = storage_subvoxel[i].invCovariance;
 		updateHessian(hessian, x_trans, c_inv);
@@ -435,12 +435,12 @@ double ndt_mapping::computeDerivatives (
 			x_pt.data[2]
 		};
 		computePointDerivatives(x);
-		VoxelMean* mean = &subvoxelStorage[i].mean;
+		double* mean = subvoxelStorage[i].mean;
 		PointXYZI& x_trans_pt = trans_cloud.data[iPoint];
 		Vec3 x_trans = {
-			x_trans_pt.data[0] - mean->data[0],
-			x_trans_pt.data[1] - mean->data[1],
-			x_trans_pt.data[2] - mean->data[2]
+			x_trans_pt.data[0] - mean[0],
+			x_trans_pt.data[1] - mean[1],
+			x_trans_pt.data[2] - mean[2]
 		};
 		Mat33& c_inv = subvoxelStorage[i].invCovariance;
 		score += updateDerivatives(score_gradient, hessian, x_trans, c_inv, compute_hessian);
@@ -631,9 +631,6 @@ void ndt_mapping::initCompute()
 	// create the point cloud buffers
 	int pointNo = target_cloud->size;
 	prepare_compute_buffers(pointNo, nullptr);
-	PointXYZI minVoxel = target_cloud->data[0];
-	PointXYZI maxVoxel = target_cloud->data[0];
-	int voxelDimension[3];
 	// move point cloud to device
 #ifdef EPHOS_PINNED_MEMORY
 	computeEnv.cmdqueue.enqueueWriteBuffer(pointCloudBuffer, CL_FALSE,
@@ -666,8 +663,8 @@ void ndt_mapping::initCompute()
 		0, sizeof(PackedVoxelGridInfo), &gridInfo1);
 	measureCloudKernel.setArg(0, gridInfoBuffer);
 	measureCloudKernel.setArg(1, pointCloudBuffer);
-	measureCloudKernel.setArg(2, cl::Local(sizeof(PointXYZI)));
-	measureCloudKernel.setArg(3, cl::Local(sizeof(PointXYZI)));
+	measureCloudKernel.setArg(2, cl::Local(sizeof(int[3])));
+	measureCloudKernel.setArg(3, cl::Local(sizeof(int[3])));
 //
 
 	computeEnv.cmdqueue.enqueueNDRangeKernel(
@@ -680,42 +677,63 @@ void ndt_mapping::initCompute()
 	computeEnv.cmdqueue.enqueueReadBuffer(gridInfoBuffer, CL_TRUE,
 		0, sizeof(PackedVoxelGridInfo), &gridInfo1);
 	for (int i = 0; i < 3; i++) {
-		minVoxel.data[i] = unpack_minmaxf(gridInfo1.minCorner.data[i]) - transformation_epsilon_;
-		maxVoxel.data[i] = unpack_minmaxf(gridInfo1.maxCorner.data[i]) + transformation_epsilon_;
-		voxelDimension[i] = (maxVoxel.data[i] - minVoxel.data[i]) / resolution_ + 1;
+		target_grid.start[i] = unpack_minmaxf(gridInfo1.minCorner[i]) - transformation_epsilon_;
+		double end = unpack_minmaxf(gridInfo1.maxCorner[i]) + transformation_epsilon_;
+		target_grid.dimension[i] = (end - target_grid.start[i])/resolution_ + 1;
+		//minVoxel.data[i] = unpack_minmaxf(gridInfo1.minCorner[i]) - transformation_epsilon_;
+		//maxVoxel.data[i] = unpack_minmaxf(gridInfo1.maxCorner[i]) + transformation_epsilon_;
+		//voxelDimension[i] = (maxVoxel.data[i] - minVoxel.data[i]) / resolution_ + 1;
 	}
 
 #else // !EPHOS_KERNEL_CLOUD_MEASURE
+	float minCorner[3] = {
+		target_cloud->data[0].data[0],
+		target_cloud->data[0].data[1],
+		target_cloud->data[0].data[2]
+	};
+	float maxCorner[3] = {
+		minCorner[0],
+		minCorner[1],
+		minCorner[2]
+	};
+
 	for (int i = 1; i < pointNo; i++)
 	{
 		for (int elem = 0; elem < 3; elem++)
 		{
-			if ( target_cloud->data[i].data[elem] > maxVoxel.data[elem] )
-				maxVoxel.data[elem] = target_cloud->data[i].data[elem];
-			if ( target_cloud->data[i].data[elem] < minVoxel.data[elem] )
-				minVoxel.data[elem] = target_cloud->data[i].data[elem];
+			if (target_cloud->data[i].data[elem] > maxCorner[elem])
+				maxCorner[elem] = target_cloud->data[i].data[elem];
+			if (target_cloud->data[i].data[elem] < minCorner[elem])
+				minCorner[elem] = target_cloud->data[i].data[elem];
 		}
 	}
 	for (int i = 0; i < 3; i++) {
-		minVoxel.data[i] = minVoxel.data[i] - transformation_epsilon_;
-		maxVoxel.data[i] = maxVoxel.data[i] + transformation_epsilon_;
-		voxelDimension[i] = (maxVoxel.data[i] - minVoxel.data[i]) / resolution_ + 1;
+		target_grid.start[i] = minCorner[i] - transformation_epsilon_;
+		target_grid.dimension[i] = (maxCorner[i] + 2*transformation_epsilon_ - minCorner[i])/resolution_ + 1;
+		//minVoxel.data[i] = minVoxel.data[i] - transformation_epsilon_;
+		//maxVoxel.data[i] = maxVoxel.data[i] + transformation_epsilon_;
+		//voxelDimension[i] = (maxVoxel.data[i] - minVoxel.data[i]) / resolution_ + 1;
 	}
 
 #endif // !EPHOS_KERNEL_CLOUD_MEASURE
 	// now resize the grid while other compute operations may still be active
-	int cellNo = voxelDimension[0] * voxelDimension[1] * voxelDimension[2];
+	int cellNo = target_grid.dimension[0]*target_grid.dimension[1]*target_grid.dimension[2];//voxelDimension[0] * voxelDimension[1] * voxelDimension[2];
+// 	VoxelGridInfo gridInfo2 = {
+// 		pointNo, // cloudSize
+// 		cellNo, // gridSize
+// 		{ minVoxel.data[0], minVoxel.data[1], minVoxel.data[2] }, // min corner
+// 		{ voxelDimension[0], voxelDimension[1], voxelDimension[2] } // grid dimension
+// 	};
 	VoxelGridInfo gridInfo2 = {
 		pointNo, // cloudSize
 		cellNo, // gridSize
-		{ minVoxel.data[0], minVoxel.data[1], minVoxel.data[2] }, // min corner
-		{ maxVoxel.data[0], maxVoxel.data[1], maxVoxel.data[2] }, // max corner
-		{ voxelDimension[0], voxelDimension[1] } // grid dimension
+		{ (float)target_grid.start[0], (float)target_grid.start[1], (float)target_grid.start[2] }, // min corner
+		{ target_grid.dimension[0], target_grid.dimension[1], target_grid.dimension[2] } // grid dimension
 	};
 	// move updated grid info to device
 	computeEnv.cmdqueue.enqueueWriteBuffer(gridInfoBuffer, CL_FALSE,
 		0, sizeof(VoxelGridInfo), &gridInfo2);
-	prepare_compute_buffers(0, voxelDimension);
+	prepare_compute_buffers(0, target_grid.dimension);
 
 	// call the grid initialization kernel
 	initTargetCellsKernel.setArg(0, gridInfoBuffer);
@@ -765,7 +783,9 @@ void ndt_mapping::initCompute()
 	radiusSearchKernel.setArg(6, cl::Local(sizeof(int)));
 }
 void ndt_mapping::cleanupCompute() {
-	// nothing to do here
+	target_grid.dimension[0] = target_grid.dimension[1] = target_grid.dimension[2] = 0;
+	target_grid.start[0] = target_grid.start[1] = target_grid.start[2] = 0.0f;
+
 }
 void ndt_mapping::prepare_compute_buffers(int cloudSize, int* gridSize) {
 	// TODO: think about ways to increase sizes artificially as these increase with later test cases anyway

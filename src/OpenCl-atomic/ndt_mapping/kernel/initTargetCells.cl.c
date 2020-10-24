@@ -19,12 +19,14 @@ __kernel void initTargetCells(
 	if (iVoxel < gridInfo->gridSize) {
 		// initialize all members to standard values
 		Voxel voxel;
-		voxel.invCovariance = (VoxelCovariance){{
+		voxel.invCovariance = (Mat33){{
 			{ 0.0, 0.0, 1.0 },
 			{ 0.0, 1.0, 0.0 },
 			{ 1.0, 0.0, 0.0 }
 		}};
-		voxel.mean = (VoxelMean){{ 0.0f, 0.0f, 0.0f }};
+		voxel.mean[0] = 0.0;
+		voxel.mean[1] = 0.0;
+		voxel.mean[2] = 0.0;
 		voxel.pointListBegin = -1;
 #ifdef EPHOS_VOXEL_POINT_STORAGE
 		voxel.pointStorageLevel = 0;

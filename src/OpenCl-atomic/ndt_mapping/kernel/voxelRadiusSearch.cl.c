@@ -33,7 +33,7 @@ __kernel void radiusSearch(
 		*l_resultNo = 0;
 	}
 	barrier(CLK_LOCAL_MEM_FENCE);
-	int voxelBuffer[3*3*3];
+	int voxelBuffer[3*3*2];
 	int voxelNo = 0;
 	int iResult = -1;
 	if (iPoint < gridInfo->cloudSize) {
@@ -43,23 +43,23 @@ __kernel void radiusSearch(
 			for (float y = point.data[1] - RADIUS; y <= point.data[1] + RADIUS_FINAL; y += RESOLUTION) {
 				for (float x = point.data[0] - RADIUS; x <= point.data[0] + RADIUS_FINAL; x += RESOLUTION) {
 					// avoid accesses out of bounds
-					if ((x < gridInfo->minCorner.data[0]) ||
-						(x > gridInfo->maxCorner.data[0]) ||
-						(y < gridInfo->minCorner.data[1]) ||
-						(y > gridInfo->maxCorner.data[1]) ||
-						(z < gridInfo->minCorner.data[2]) ||
-						(z > gridInfo->maxCorner.data[2])) {
+					if ((x < gridInfo->minCorner[0]) ||
+						(x > gridInfo->minCorner[0] + gridInfo->gridDimension[0]) ||
+						(y < gridInfo->minCorner[1]) ||
+						(y > gridInfo->minCorner[1] + gridInfo->gridDimension[1]) ||
+						(z < gridInfo->minCorner[2]) ||
+						(z > gridInfo->minCorner[2] + gridInfo->gridDimension[2])) {
 						// skip
 					} else {
 						// determine the distance to the voxel mean
-						int iVoxel0 = (x - gridInfo->minCorner.data[0])*INV_RESOLUTION;
-						int iVoxel1 = (y - gridInfo->minCorner.data[1])*INV_RESOLUTION;
-						int iVoxel2 = (z - gridInfo->minCorner.data[2])*INV_RESOLUTION;
-						int iVoxel = iVoxel0 + gridInfo->gridDimension.data[0]*(iVoxel1 + iVoxel2*gridInfo->gridDimension.data[1]);
+						int iVoxel0 = (x - gridInfo->minCorner[0])*INV_RESOLUTION;
+						int iVoxel1 = (y - gridInfo->minCorner[1])*INV_RESOLUTION;
+						int iVoxel2 = (z - gridInfo->minCorner[2])*INV_RESOLUTION;
+						int iVoxel = iVoxel0 + gridInfo->gridDimension[0]*(iVoxel1 + iVoxel2*gridInfo->gridDimension[1]);
 						//int iVoxel =  linearizeCoord(x, y, z, minVoxel, voxelDimension_0, voxelDimension_1);
-						float dx = voxelGrid[iVoxel].mean.data[0] - point.data[0];
-						float dy = voxelGrid[iVoxel].mean.data[1] - point.data[1];
-						float dz = voxelGrid[iVoxel].mean.data[2] - point.data[2];
+						float dx = voxelGrid[iVoxel].mean[0] - point.data[0];
+						float dy = voxelGrid[iVoxel].mean[1] - point.data[1];
+						float dz = voxelGrid[iVoxel].mean[2] - point.data[2];
 						float dist = dx*dx + dy*dy + dz*dz;
 						// add near cells to the results
 						if (dist < RADIUS*RADIUS) {
