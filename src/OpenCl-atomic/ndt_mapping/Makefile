@@ -60,9 +60,11 @@ endif
 
 # other options
 ifdef TESTCASE_LIMIT
+$(info Limiting to $(TESTCASE_LIMIT) test cases)
 	CPPFLAGS+= -DEPHOS_TESTCASE_LIMIT=$(TESTCASE_LIMIT)
 endif
 ifdef ENABLE_DATAGEN
+$(info Enabled reference data generation)
 	CPPFLAGS+= -DEPHOS_DATAGEN
 endif
 

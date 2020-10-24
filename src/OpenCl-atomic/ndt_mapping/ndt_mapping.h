@@ -95,24 +95,25 @@ private:
 		Vec3 &x_trans, Mat33 &c_inv,
 		bool compute_hessian = true);
 
-	void computePointDerivatives (Vec3 &x, bool compute_hessian = true);
+	virtual void computePointDerivatives (Vec3 &x, bool compute_hessian = true);
 
-	void computeHessian (Mat66 &hessian, PointCloudSource &trans_cloud, Vec6 &);
+	virtual void computeHessian (Mat66 &hessian, PointCloud& trans_cloud, Vec6& );
 
 	void updateHessian (Mat66 &hessian, Vec3 &x_trans, Mat33 &c_inv);
 
 	double computeDerivatives (Vec6 &score_gradient,
 		Mat66 &hessian,
-		PointCloudSource &trans_cloud,
-		Vec6 &p,
-		bool compute_hessian = true );
+		PointCloud& trans_cloud,
+		Vec6& p,
+		bool compute_hessian=true);
 
 
 	void computeAngleDerivatives (Vec6 &p, bool compute_hessian = true);
 	/**
 	 * Performs point cloud specific voxel grid initialization.
 	 */
-	void initCompute();
+	virtual void initCompute();
+	virtual void cleanupCompute();
 
 	/**
 	 * Initializes compute buffers for the next iteration.

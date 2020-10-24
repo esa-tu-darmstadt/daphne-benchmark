@@ -122,9 +122,6 @@ inline bool comparePointClusters (const PointIndices &a, const PointIndices &b)
 	return (a.indices.size () < b.indices.size ());
 }
 
-/**
- * Computes euclidean clustering and sorts the resulting clusters.
- */
 void euclidean_clustering::extract(
 	const PlainPointCloud& plainPointCloud,
 	std::vector<PointIndices> &clusters, 

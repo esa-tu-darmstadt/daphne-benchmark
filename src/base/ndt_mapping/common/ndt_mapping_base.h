@@ -158,8 +158,7 @@ protected:
 // 						bool compute_hessian = true);
 //
 // 	void computePointDerivatives (Vec3 &x, bool compute_hessian = true);
-	virtual void computeHessian (Mat66 &hessian,
-		PointCloud& trans_cloud, Vec6 &) = 0;
+	virtual void computeHessian (Mat66 &hessian, PointCloud& trans_cloud, Vec6&) = 0;
 // 	void updateHessian (Mat66 &hessian, Vec3 &x_trans, Mat33 &c_inv);
 //
 	virtual double computeDerivatives(Vec6& score_gradient,

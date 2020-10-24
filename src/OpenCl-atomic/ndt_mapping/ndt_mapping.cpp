@@ -285,10 +285,9 @@ void ndt_mapping::computeHessian(
 	// TODO: test unused code here
 	memset(&(hessian.data[0][0]), 0, sizeof(double) * 6 * 6);
 	// move transformed cloud to device
-	int pointNo = trans_cloud.size();
-	size_t nbytes_cloud = sizeof(PointXYZI)*pointNo;
-	computeEnv.cmdqueue.enqueueWriteBuffer(pointCloudBuffer, CL_FALSE, 0, nbytes_cloud,
-		trans_cloud.data());
+	int pointNo = trans_cloud.size;
+	computeEnv.cmdqueue.enqueueWriteBuffer(pointCloudBuffer, CL_FALSE, 0,
+		sizeof(PointXYZI)*pointNo, trans_cloud.data);
 	int nearVoxelNo = 0;
 	computeEnv.cmdqueue.enqueueWriteBuffer(counterBuffer, CL_FALSE, 0, sizeof(int), &nearVoxelNo);
 	computeEnv.cmdqueue.enqueueWriteBuffer(gridInfoBuffer, CL_FALSE, 0, sizeof(int), &pointNo);
@@ -309,7 +308,7 @@ void ndt_mapping::computeHessian(
 	// process near voxels
 	for (int i = 0; i < nearVoxelNo; i++) {
 		int iPoint = storage_subvoxel[i].point;
-		PointXYZI& x_pt = input_cloud->at(iPoint);
+		PointXYZI& x_pt = input_cloud->data[iPoint];
 		Vec3 x = {
 			x_pt.data[0],
 			x_pt.data[1],
@@ -317,7 +316,7 @@ void ndt_mapping::computeHessian(
 		};
 		computePointDerivatives(x);
 		VoxelMean* mean = &storage_subvoxel[i].mean;
-		PointXYZI& x_trans_pt = trans_cloud.at(iPoint);
+		PointXYZI& x_trans_pt = trans_cloud.data[iPoint];
 		Vec3 x_trans = {
 			x_trans_pt.data[0] - mean->data[0],
 			x_trans_pt.data[1] - mean->data[1],
@@ -377,10 +376,10 @@ void ndt_mapping::updateHessian (Mat66 &hessian, Vec3 &x_trans, Mat33 &c_inv)
 }
 
 double ndt_mapping::computeDerivatives (
-	Vec6 &score_gradient,
-	Mat66 &hessian,
-	PointCloudSource &trans_cloud,
-	Vec6 &p,
+	Vec6& score_gradient,
+	Mat66& hessian,
+	PointCloud& trans_cloud,
+	Vec6& p,
 	bool compute_hessian)
 {
 	memset(&(score_gradient[0]), 0, sizeof(double) * 6 );
@@ -389,15 +388,15 @@ double ndt_mapping::computeDerivatives (
 	// Precompute Angular Derivatives (eq. 6.19 and 6.21)[Magnusson 2009]
 	computeAngleDerivatives (p);
 	// move transformed cloud to device
-	int pointNo = trans_cloud.size();
+	int pointNo = trans_cloud.size;
 #ifdef EPHOS_ZERO_COPY
 	PointXYZI* pointCloudStorage = (PointXYZI*)computeEnv.cmdqueue.enqueueMapBuffer(pointCloudBuffer,
 		CL_TRUE, CL_MAP_WRITE, 0, sizeof(PointXYZI)*pointNo);
-	std::memcpy(pointCloudStorage, trans_cloud.data(), sizeof(PointXYZI)*pointNo);
+	std::memcpy(pointCloudStorage, trans_cloud.data, sizeof(PointXYZI)*pointNo);
 	computeEnv.cmdqueue.enqueueUnmapMemObject(pointCloudBuffer, pointCloudStorage);
 #else
 	computeEnv.cmdqueue.enqueueWriteBuffer(pointCloudBuffer, CL_FALSE,
-		0, sizeof(PointXYZI)*pointNo, trans_cloud.data());
+		0, sizeof(PointXYZI)*pointNo, trans_cloud.data);
 #endif
 	int nearVoxelNo = 0;
 	computeEnv.cmdqueue.enqueueWriteBuffer(counterBuffer, CL_FALSE, 0, sizeof(int), &nearVoxelNo);
@@ -429,7 +428,7 @@ double ndt_mapping::computeDerivatives (
 	// process near voxels
 	for (int i = 0; i < nearVoxelNo; i++) {
 		int iPoint = subvoxelStorage[i].point;
-		PointXYZI& x_pt = input_cloud->at(iPoint);
+		PointXYZI& x_pt = input_cloud->data[iPoint];
 		Vec3 x = {
 			x_pt.data[0],
 			x_pt.data[1],
@@ -437,7 +436,7 @@ double ndt_mapping::computeDerivatives (
 		};
 		computePointDerivatives(x);
 		VoxelMean* mean = &subvoxelStorage[i].mean;
-		PointXYZI& x_trans_pt = trans_cloud.at(iPoint);
+		PointXYZI& x_trans_pt = trans_cloud.data[iPoint];
 		Vec3 x_trans = {
 			x_trans_pt.data[0] - mean->data[0],
 			x_trans_pt.data[1] - mean->data[1],
@@ -630,22 +629,23 @@ float ndt_mapping::unpack_minmaxf(int val) {
 void ndt_mapping::initCompute()
 {
 	// create the point cloud buffers
-	int pointNo = target_cloud->size();
+	int pointNo = target_cloud->size;
 	prepare_compute_buffers(pointNo, nullptr);
-	minVoxel = target_cloud->at(0);
-	maxVoxel = target_cloud->at(0);
+	PointXYZI minVoxel = target_cloud->data[0];
+	PointXYZI maxVoxel = target_cloud->data[0];
+	int voxelDimension[3];
 	// move point cloud to device
 #ifdef EPHOS_PINNED_MEMORY
 	computeEnv.cmdqueue.enqueueWriteBuffer(pointCloudBuffer, CL_FALSE,
-		0, sizeof(PointXYZI)*pointNo, target_cloud->data());
+		0, sizeof(PointXYZI)*pointNo, target_cloud->data);
 #elif defined(EPHOS_ZERO_COPY)
 	PointXYZI* pointCloudStorage = (PointXYZI*)computeEnv.cmdqueue.enqueueMapBuffer(pointCloudBuffer,
 		CL_TRUE, CL_MAP_WRITE_INVALIDATE_REGION, 0, sizeof(PointXYZI)*pointNo);
-	memcpy(pointCloudStorage, target_cloud->data(), sizeof(PointXYZI)*pointNo);
+	memcpy(pointCloudStorage, target_cloud->data, sizeof(PointXYZI)*pointNo);
 	computeEnv.cmdqueue.enqueueUnmapMemObject(pointCloudBuffer, pointCloudStorage);
 #else
 	computeEnv.cmdqueue.enqueueWriteBuffer(pointCloudBuffer, CL_FALSE,
-		0, sizeof(PointXYZI)*pointNo, target_cloud->data());
+		0, sizeof(PointXYZI)*pointNo, target_cloud->data);
 #endif
 
 	// measure the given cloud
@@ -690,10 +690,10 @@ void ndt_mapping::initCompute()
 	{
 		for (int elem = 0; elem < 3; elem++)
 		{
-			if ( target_cloud->at(i).data[elem] > maxVoxel.data[elem] )
-				maxVoxel.data[elem] = target_cloud->at(i).data[elem];
-			if ( target_cloud->at(i).data[elem] < minVoxel.data[elem] )
-				minVoxel.data[elem] = target_cloud->at(i).data[elem];
+			if ( target_cloud->data[i].data[elem] > maxVoxel.data[elem] )
+				maxVoxel.data[elem] = target_cloud->data[i].data[elem];
+			if ( target_cloud->data[i].data[elem] < minVoxel.data[elem] )
+				minVoxel.data[elem] = target_cloud->data[i].data[elem];
 		}
 	}
 	for (int i = 0; i < 3; i++) {
@@ -764,7 +764,9 @@ void ndt_mapping::initCompute()
 	radiusSearchKernel.setArg(5, cl::Local(sizeof(int)));
 	radiusSearchKernel.setArg(6, cl::Local(sizeof(int)));
 }
-
+void ndt_mapping::cleanupCompute() {
+	// nothing to do here
+}
 void ndt_mapping::prepare_compute_buffers(int cloudSize, int* gridSize) {
 	// TODO: think about ways to increase sizes artificially as these increase with later test cases anyway
 	// create buffers of satisfactory size
