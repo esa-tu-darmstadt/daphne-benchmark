@@ -100,6 +100,8 @@ protected:
 	 * Parses the next point cloud from the input stream.
 	 */
 	virtual void parsePointCloud(std::ifstream& input_file, PointCloud& pointcloud);
+
+	virtual void cleanupTestcases(int count);
 // 	/**
 // 	 * Parses the next camera extrinsic matrix.
 // 	 */

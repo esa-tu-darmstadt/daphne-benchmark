@@ -280,12 +280,6 @@ int points2image_base::read_next_testcases(int count)
 	distCoeff.resize(count);
 	imageSize.resize(count);
 	results.resize(count);
-	/*pointcloud = new PointCloud[count];
-	cameraExtrinsicMat = new Mat44[count];
-	cameraMat = new Mat33[count];
-	distCoeff = new Vec5[count];
-	imageSize = new ImageSize[count];
-	results = new PointsImage[count];*/
 
 	// iteratively read the data for the test cases
 	int i;
@@ -304,6 +298,21 @@ int points2image_base::read_next_testcases(int count)
 	}
 
 	return i;
+}
+void points2image_base::cleanupTestcases(int count) {
+	for (int i = 0; i < count; i++) {
+		delete[] results[i].intensity;
+		delete[] results[i].distance;
+		delete[] results[i].min_height;
+		delete[] results[i].max_height;
+		delete[] pointcloud[i].data;
+	}
+	results.clear();
+	cameraExtrinsicMat.clear();
+	cameraMat.clear();
+	distCoeff.clear();
+	imageSize.clear();
+	pointcloud.clear();
 }
 
 int points2image_base::read_number_testcases(std::ifstream& input_file)
@@ -413,18 +422,9 @@ void points2image_base::check_next_outputs(int count)
 		delete[] reference.distance;
 		delete[] reference.min_height;
 		delete[] reference.max_height;
-		delete[] results[i].intensity;
-		delete[] results[i].distance;
-		delete[] results[i].min_height;
-		delete[] results[i].max_height;
-		delete[] pointcloud[i].data;
+
 	}
-	results.clear();
-	cameraExtrinsicMat.clear();
-	cameraMat.clear();
-	distCoeff.clear();
-	imageSize.clear();
-	pointcloud.clear();
+
 }
 
 void points2image_base::run(int p) {
@@ -446,6 +446,7 @@ void points2image_base::run(int p) {
 		}
 		pause_timer();
 		check_next_outputs(count);
+		cleanupTestcases(count);
 	}
 	stop_timer();
 }

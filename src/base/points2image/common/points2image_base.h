@@ -62,6 +62,12 @@ protected:
 	*/
 	virtual int read_next_testcases(int count);
 	/**
+	 * Performs memory freeing operations
+	 * for the given number of test cases
+	 * count: number of testcases to perform cleanup for
+	 */
+	virtual void cleanupTestcases(int count);
+	/**
 	 * Compares the results from the algorithm with the reference data.
 	 * count: the number of testcases processed
 	 */
