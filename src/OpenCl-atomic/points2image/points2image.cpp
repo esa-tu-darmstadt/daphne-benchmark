@@ -95,24 +95,11 @@ void points2image::quit() {
 
 	if (maxCloudElementNo > 0) {
 		// buffer cleanup
-		//cl_int err = CL_SUCCESS;
-		// free device buffers
-		/*err = clReleaseMemObject(pointcloudBuffer);
-		err = clReleaseMemObject(counterBuffer);
-		err = clReleaseMemObject(pixelBuffer);*/
 		pointcloudBuffer = cl::Buffer();
 		counterBuffer = cl::Buffer();
 		pixelBuffer = cl::Buffer();
 #ifdef EPHOS_PINNED_MEMORY
 		// free host buffers and memory
-		/*err = clEnqueueUnmapMemObject(computeEnv.cmdqueue, pointcloudHostBuffer, pointcloudStorage,
-			0, nullptr, nullptr);
-		pointcloudStorage = nullptr;
-		err = clReleaseMemObject(pointcloudHostBuffer);
-		err = clEnqueueUnmapMemObject(computeEnv.cmdqueue, pixelHostBuffer, pixelStorage,
-			0, nullptr, nullptr);
-		pixelStorage = nullptr;
-		err = clReleaseMemObject(pixelHostBuffer);*/
 		computeEnv.cmdqueue.enqueueUnmapMemObject(pointcloudHostBuffer, pointcloudStorage);
 		pointcloudHostBuffer = cl::Buffer();
 		pointcloudStorage = nullptr;
@@ -122,10 +109,6 @@ void points2image::quit() {
 #endif // EPHOS_PINNED_MEMORY
 	}
 	// program cleanup
-	/*clReleaseKernel(transformKernel);
-	clReleaseProgram(computeProgram);
-	clReleaseCommandQueue(computeEnv.cmdqueue);
-	clReleaseContext(computeEnv.context);*/
 	transformKernel = cl::Kernel();
 	computeProgram = cl::Program();
 	computeEnv.cmdqueue = cl::CommandQueue();
@@ -133,37 +116,7 @@ void points2image::quit() {
 	computeEnv.context = cl::Context();
 }
 
-void  points2image::parsePointCloud(std::ifstream& input_file, PointCloud& pointcloud) {
-	try {
-		input_file.read((char*)&pointcloud.height, sizeof(int32_t));
-		input_file.read((char*)&pointcloud.width, sizeof(int32_t));
-		input_file.read((char*)&pointcloud.point_step, sizeof(uint32_t));
 
-		// TODO maybe start timer for this call
-		prepare_compute_buffers(pointcloud);
-
-		input_file.read((char*)pointcloud.data, pointcloud.height*pointcloud.width*pointcloud.point_step);
-    }  catch (std::ifstream::failure) {
-		throw std::ios_base::failure("Error reading the next point cloud.");
-    }
-}
-void points2image::cleanupTestcases(int count) {
-	for (int i = 0; i < count; i++) {
-		delete[] results[i].intensity;
-		delete[] results[i].distance;
-		delete[] results[i].min_height;
-		delete[] results[i].max_height;
-#ifndef EPHOS_PINNED_MEMORY
-		delete[] pointcloud[i].data;
-#endif
-	}
-	results.clear();
-	cameraExtrinsicMat.clear();
-	cameraMat.clear();
-	distCoeff.clear();
-	imageSize.clear();
-	pointcloud.clear();
-}
 
 PointsImage points2image::cloud2Image(
 	PointCloud& pointcloud,
@@ -194,21 +147,12 @@ PointsImage points2image::cloud2Image(
 	size_t cloudSize = pointNo*pointcloud.point_step*sizeof(float);
 	// write cloud input to buffer
 #ifdef EPHOS_ZERO_COPY
-	//clEnqueueMapBuffer(computeEnv.cmdqueue, pixelHostBuffer,
-//				CL_TRUE, CL_MAP_READ, 0, pixelSize, 0, nullptr, nullptr, &err);
-	/*float* pointcloudStorage = (float*)clEnqueueMapBuffer(computeEnv.cmdqueue, pointcloudBuffer,
-		CL_TRUE, CL_MAP_WRITE, 0, cloudSize, 0, nullptr, nullptr, &err);
-	std::memcpy(pointcloudStorage, pointcloud.data, cloudSize);
-	err = clEnqueueUnmapMemObject(computeEnv.cmdqueue, pointcloudBuffer, pointcloudStorage,
-		0, nullptr, nullptr);*/
-	float* pointcloudStorage = (float*)computeEnv.enqueueMapBuffer(pointcloudBuffer,
+	float* pointcloudStorage = (float*)computeEnv.cmdqueue.enqueueMapBuffer(pointcloudBuffer,
 		CL_TRUE, CL_MAP_WRITE, 0, cloudSize);
 	std::memcpy(pointcloudStorage, pointcloud.data, cloudSize);
 	computeEnv.cmdqueue.enqueueUnmapMemObject(pointcloudBuffer, pointcloudStorage);
 #else // !EPHOS_ZERO_COPY
 	// pointcloud.data is pinned memory in the case of page-locked memory operation
-	/*err = clEnqueueWriteBuffer(computeEnv.cmdqueue, pointcloudBuffer,
-		CL_FALSE, 0, cloudSize, pointcloud.data, 0, nullptr, nullptr);*/
 	computeEnv.cmdqueue.enqueueWriteBuffer(pointcloudBuffer, CL_FALSE,
 		0, cloudSize, pointcloud.data);
 #endif
@@ -238,16 +182,6 @@ PointsImage points2image::cloud2Image(
 		}
 	}
 	// set kernel parameters
-	/*err = clSetKernelArg (transformKernel, 0, sizeof(TransformInfo),       &transformInfo);
-	err = clSetKernelArg (transformKernel, 1, sizeof(cl_mem),    &pointcloudBuffer);
-	err = clSetKernelArg(transformKernel, 2, sizeof(cl_mem), &pixelBuffer);
-	#ifdef EPHOS_KERNEL_ATOMICS
-	err = clSetKernelArg (transformKernel, 3, sizeof(cl_mem), &counterBuffer);
-#ifdef EPHOS_KERNEL_LOCAL_ATOMICS
-	err = clSetKernelArg(transformKernel, 4, sizeof(int), nullptr);
-	err = clSetKernelArg(transformKernel, 5, sizeof(int), nullptr);
-#endif // EPHOS_KERNEL_LOCAL_ATOMICS
-#endif // EPHOS_KERNEL_ATOMICS*/
 	transformKernel.setArg(0, transformInfo);
 	transformKernel.setArg(1, pointcloudBuffer);
 	transformKernel.setArg(2, pixelBuffer);
@@ -261,8 +195,6 @@ PointsImage points2image::cloud2Image(
 
 	// initializing arriving point number
 	int zero = 0;
-	/*err = clEnqueueWriteBuffer(computeEnv.cmdqueue, counterBuffer, CL_FALSE,
-		0, sizeof(int), &zero, 0, nullptr, nullptr);*/
 	computeEnv.cmdqueue.enqueueWriteBuffer(counterBuffer, CL_FALSE,
 		0, sizeof(int), &zero);
 	// launch kernel on device
@@ -272,8 +204,6 @@ PointsImage points2image::cloud2Image(
 #else
 	size_t globalRange = (pointNo/localRange + 1)*localRange;
 #endif
-	/*err = clEnqueueNDRangeKernel(computeEnv.cmdqueue, transformKernel, 1,
-		nullptr,  &globalRange, &localRange, 0, nullptr, nullptr);*/
 	cl::NDRange callOffset(0);
 	cl::NDRange callLocal(localRange);
 	cl::NDRange callGlobal(globalRange);
@@ -283,8 +213,6 @@ PointsImage points2image::cloud2Image(
 #ifdef EPHOS_KERNEL_ATOMICS
 	int arrivingPixelNo;
 	// read arriving pixel number from buffer
-	//err = clEnqueueReadBuffer(computeEnv.cmdqueue, counterBuffer, CL_TRUE,
-	//	0, sizeof(int), &arrivingPixelNo, 0, nullptr, nullptr);
 	err = computeEnv.cmdqueue.enqueueReadBuffer(counterBuffer, CL_TRUE,
 		0, sizeof(int), &arrivingPixelNo);
 #else // !EPHOS_KERNEL_ATOMICS
@@ -292,17 +220,6 @@ PointsImage points2image::cloud2Image(
 #endif // !EPHOS_KERNEL_ATOMICS
 
 	// read arriving pixels
-/*#ifdef EPHOS_ZERO_COPY
-	PixelData* pixelStorage = (PixelData*)clEnqueueMapBuffer(computeEnv.cmdqueue,
-		pixelBuffer, CL_TRUE, CL_MAP_READ, 0, sizeof(PixelData)*arrivingPixelNo, 0, 0, nullptr, &err);
-#elif EPHOS_PINNED_MEMORY
-	err = clEnqueueReadBuffer(computeEnv.cmdqueue, pixelBuffer, CL_TRUE,
-		0, sizeof(PixelData)*arrivingPixelNo, pixelStorage, 0, nullptr, nullptr);
-#else // !EPHOS_ZERO_COPY && !EPHOS_PINNED_MEMORY
-	PixelData* pixelStorage = new PixelData[arrivingPixelNo];
-	err = clEnqueueReadBuffer(computeEnv.cmdqueue, pixelBuffer, CL_TRUE,
-		0, sizeof(PixelData)*arrivingPixelNo, pixelStorage, 0, nullptr, nullptr);
-#endif*/
 #ifdef EPHOS_ZERO_COPY
 	PixelData* pixelStorage = (PixelData*)computeEnv.cmdqueue.enqueueMapBuffer(pixelBuffer,
 		CL_TRUE, CL_MAP_READ, 0, sizeof(PixelData)*arrivingPixelNo);
@@ -364,21 +281,8 @@ void points2image::prepare_compute_buffers(PointCloud& pointcloud) {
 		cl_int err = CL_SUCCESS;
 		// free existing buffers
 		if (maxCloudElementNo > 0) {
-			// free device buffers
-			/*err = clReleaseMemObject(pointcloudBuffer);
-			err = clReleaseMemObject(counterBuffer);
-			err = clReleaseMemObject(pixelBuffer);*/
-
 #ifdef EPHOS_PINNED_MEMORY
 			// free host buffers and memory
-			/*err = clEnqueueUnmapMemObject(computeEnv.cmdqueue, pointcloudHostBuffer, pointcloudStorage,
-				0, nullptr, nullptr);
-			pointcloudStorage = nullptr;
-			err = clReleaseMemObject(pointcloudHostBuffer);
-			err = clEnqueueUnmapMemObject(computeEnv.cmdqueue, pixelHostBuffer, pixelStorage,
-				0, nullptr, nullptr);
-			pixelStorage = nullptr;
-			err = clReleaseMemObject(pixelHostBuffer);*/
 			computeEnv.cmdqueue.enqueueUnmapMemObject(pointcloudHostBuffer, pointcloudStorage);
 			pointcloudStorage = nullptr;
 			computeEnv.cmdqueue.enqueueUnmapMemObject(pixelHostBuffer, pixelStorage);
@@ -406,15 +310,6 @@ void points2image::prepare_compute_buffers(PointCloud& pointcloud) {
 		}
 #ifdef EPHOS_PINNED_MEMORY
 		{ // let opencl allocate host memory
-			//cl_mem_flags flags = CL_MEM_HOST_WRITE_ONLY | CL_MEM_ALLOC_HOST_PTR;
-			/*cl_mem_flags flags = CL_MEM_ALLOC_HOST_PTR | CL_MEM_HOST_WRITE_ONLY;
-			pointcloudHostBuffer = clCreateBuffer(computeEnv.context, flags, cloudSize, nullptr, &err);
-			flags = CL_MEM_ALLOC_HOST_PTR | CL_MEM_HOST_READ_ONLY;
-			pixelHostBuffer = clCreateBuffer(computeEnv.context, flags, pixelSize, nullptr, &err);
-			pointcloudStorage = (float*)clEnqueueMapBuffer(computeEnv.cmdqueue, pointcloudHostBuffer,
-				CL_TRUE, CL_MAP_WRITE, 0, cloudSize, 0, nullptr, nullptr, &err);
-			pixelStorage = (PixelData*)clEnqueueMapBuffer(computeEnv.cmdqueue, pixelHostBuffer,
-				CL_TRUE, CL_MAP_READ, 0, pixelSize, 0, nullptr, nullptr, &err);*/
 			cl_mem_flags flags = CL_MEM_ALLOC_HOST_PTR | CL_MEM_HOST_WRITE_ONLY;
 			pointcloudHostBuffer = cl::Buffer(computeEnv.context, flags, cloudSize);
 			flags = CL_MEM_ALLOC_HOST_PTR | CL_MEM_HOST_READ_ONLY;
