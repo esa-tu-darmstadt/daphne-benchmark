@@ -42,9 +42,11 @@ protected:
 		Vec5& distCoeff,
 		ImageSize& imageSize);
 
-	virtual void check_next_outputs(int count) override;
+	//virtual void check_next_outputs(int count) override;
 
 	virtual void parsePointCloud(std::ifstream& input_file, PointCloud& pointcloud) override;
+
+	virtual void cleanupTestcases(int count) override;
 };
 
 #endif // EPHOS_POINTS2IMAGE_H

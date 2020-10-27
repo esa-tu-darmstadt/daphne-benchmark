@@ -602,11 +602,11 @@ __global__ void initComputeStep2(VoxelGrid voxelGrid, int voxelNo)
 	// calculate the inverse covariance matrix
 	for (int row = 0; row < 3; row++) {
 		for (int col = 0; col < 3; col++) {
-			double ratio = (voxelGrid.data[iVoxel].numberPoints - 1.0)/voxelGrid.data[iVoxel].numberPoints;
+			double ratio = (voxelGrid.data[iVoxel].numberPoints - 1.0)/(double)voxelGrid.data[iVoxel].numberPoints;
 			double var = voxelGrid.data[iVoxel].mean[row]*voxelGrid.data[iVoxel].mean[col] +
 				(voxelGrid.data[iVoxel].invCovariance.data[row][col] -
-				 2*pointSum[row]*voxelGrid.data[iVoxel].mean[col])
-				/voxelGrid.data[iVoxel].numberPoints;
+				 2.0*pointSum[row]*voxelGrid.data[iVoxel].mean[col])
+				/(double)voxelGrid.data[iVoxel].numberPoints;
 
 			voxelGrid.data[iVoxel].invCovariance.data[row][col] = var*ratio;
 		}
