@@ -50,8 +50,10 @@
     - set to 1 to disable atomics on local data
   * OPENCL_TRANSFORMS_PER_WORK_ITEM - increases work load per work item while the number of work items decreases
     - set to 2 or more to enable this optimization
-  * OPENCL_TESTCASE_SPARSE - alternative, packed test data representation
-    - decreases load times, only enable if sparse test data is actually provided
+  * ENABLE_TESTDATA_LEGACY - alternative, packed test data representation
+    - compatibility switch for usage with an old test data format
+    - increases load times, only enable if legacy test data is actually provided
+
 
   Additional options for the euclidean_clustering benchmark:
   * OPENCL_DISTANCES_PER_PACKET - store more than one binary value in one memory location

@@ -24,12 +24,12 @@
 #include "common/datatypes_base.h"
 
 // maximum allowed deviation from reference
-#define MAX_TRANSLATION_EPS 0.001
-#define MAX_ROTATION_EPS 1.8
-#define MAX_EPS 2
+#define EPHOS_MAX_TRANSLATION_EPS 0.001
+#define EPHOS_MAX_ROTATION_EPS 1.8
+#define EPHOS_MAX_EPS 2
 
-#ifndef EPHOS_COMPUTE_THREAD_NO
-#define EPHOS_COMPUTE_THREAD_NO 512
+#ifndef EPHOS_KERNEL_BLOCK_SIZE
+#define EPHOS_KERNEL_BLOCK_SIZE 512
 #endif
 
 class ndt_mapping : public ndt_mapping_base {

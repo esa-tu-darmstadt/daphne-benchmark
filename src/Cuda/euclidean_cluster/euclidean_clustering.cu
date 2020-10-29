@@ -12,12 +12,6 @@
 
 #include "euclidean_clustering.h"
 
-// maximum allowed deviation from the reference data
-#define MAX_EPS 0.001
-// number of threads
-#define THREADS 512
-
-
 /**
  * Computes the pairwise distance indicators. Results are stored in a matrix.
  * An entry of that matrix indicates whether the distance of the two described points 
@@ -61,7 +55,7 @@ __global__ void computeInitRadiusSearch(const Point* __restrict__ pointcloud, in
  * cloudSize: number of elements in the cloud
  */
 __global__ void computeParallelRadiusSearch(
-	const int* __restrict__ seedQueue, int iQueueStart, int queueLengths,
+	const int* __restrict__ seedQueue, int iQueueStart, int queueLength,
 	bool* __restrict__ nearMap, const bool* __restrict__ nearMatrix, int cloudSize)
 {
 	int iSearchPoint = blockIdx.x * blockDim.x + threadIdx.x;
@@ -72,7 +66,7 @@ __global__ void computeParallelRadiusSearch(
 	int alignedCloudSize = cloudSize + (16-cloudSize%16);
 	bool found = false;
 	// search for the reference point
-	for (int iQueue = iQueueStart; iQueue < queueLengths; iQueue++)
+	for (int iQueue = iQueueStart; iQueue < queueLength; iQueue++)
 	{
 		if (iSearchPoint == seedQueue[iQueue])
 		{
@@ -110,8 +104,8 @@ void euclidean_clustering::extractEuclideanClusters(
 	// compute the pairwise distance matrix on the GPU
 	bool* nearMatrix = nullptr;
 	cudaMalloc(&nearMatrix, cloudSize*(cloudSize + 16)*sizeof(bool));
-	dim3 threaddim(THREADS);
-	dim3 blockdim((cloudSize + THREADS - 1)/THREADS);
+	dim3 threaddim(EPHOS_KERNEL_BLOCK_SIZE);
+	dim3 blockdim((cloudSize + EPHOS_KERNEL_BLOCK_SIZE - 1)/EPHOS_KERNEL_BLOCK_SIZE);
 	computeInitRadiusSearch<<<blockdim, threaddim>>>(
 		plainPointCloud.data, cloudSize, nearMatrix, tolerance*tolerance);
 	cudaDeviceSynchronize();
@@ -390,51 +384,7 @@ void euclidean_clustering::init() {
 void euclidean_clustering::quit() {
 	euclidean_clustering_base::quit();
 }
-/**
- * Helper function for point comparison
- */
-inline bool compareRGBPoints (const PointRGB &a, const PointRGB &b)
-{
-    if (a.x != b.x)
-		return (a.x < b.x);
-    else
-	if (a.y != b.y)
-	    return (a.y < b.y);
-	else
-	    return (a.z < b.z);
-}
 
-/**
- * Helper function for point comparison
- */
-inline bool comparePoints (const PointDouble &a, const PointDouble &b)
-{
-	if (a.x != b.x)
-		return (a.x < b.x);
-	else
-	if (a.y != b.y)
-		return (a.y < b.y);
-	else
-		return (a.z < b.z);
-}
-
-
-/**
- * Helper function for bounding box comparison
- */
-inline bool compareBBs (const Boundingbox &a, const Boundingbox &b)
-{
-	if (a.position.x != b.position.x)
-		return (a.position.x < b.position.x);
-	else
-	if (a.position.y != b.position.y)
-		return (a.position.y < b.position.y);
-	else
-		if (a.dimensions.x != b.dimensions.x)
-			return (a.dimensions.x < b.dimensions.x);
-		else
-			return (a.dimensions.y < b.dimensions.y);
-}
 
 // set kernel used by main
 euclidean_clustering a;

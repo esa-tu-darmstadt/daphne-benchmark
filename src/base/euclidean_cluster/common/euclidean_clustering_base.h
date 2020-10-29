@@ -23,7 +23,7 @@ const int _cluster_size_max = 100000;
 const bool _pose_estimation = true;
 
 // maximum allowed deviation from the reference data
-#define MAX_EPS 0.001
+#define EPHOS_MAX_EPS 0.001
 
 class euclidean_clustering_base : public benchmark {
 protected:

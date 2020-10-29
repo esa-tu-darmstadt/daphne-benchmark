@@ -3,18 +3,26 @@
 
 -include Makefile.deps
 
+NXX=nvcc
 ifdef DEBUG
-	CXXFLAGS+= -g
+	CXXFLAGS+= -g -G
 else
-	CXXFLAGS=-O3
+	CXXFLAGS+= -O3
 endif
 CXXFLAGS+= -std=c++11
 CPPFLAGS+= -I../../base/benchmark -I../../base/ndt_mapping
 
 # cuda compiler options
-NXX=nvcc
 CUDA_DEVICE_ARCH=compute_72
 NXXFLAGS+= -arch $(CUDA_DEVICE_ARCH)
+ifneq ($(CUDA_DEVICE_ARCH),compute_72)
+$(info Compiling for CUDA device architecture $(CUDA_DEVICE_ARCH))
+endif
+CUDA_BLOCK_SIZE=512
+NXXFLAGS+= -DEPHOS_KERNEL_BLOCK_SIZE=$(CUDA_BLOCK_SIZE)
+ifneq ($(CUDA_BLOCK_SIZE),512)
+$(info CUDA kernel block size set to $(CUDA_BLOCK_SIZE))
+endif
 
 # other options
 ifdef TESTCASE_LIMIT

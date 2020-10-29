@@ -5,9 +5,9 @@
 
 NXX=nvcc
 ifdef DEBUG
-	CXXFLAGS= -g
+	NXXFLAGS+= -g -G
 else
-	CXXFLAGS= -O3
+	NXXFLAGS+= -O3
 endif
 CXXFLAGS+= -std=c++11
 CPPFLAGS+= -I../../base/benchmark -I../../base/euclidean_cluster
@@ -15,7 +15,16 @@ CPPFLAGS+= -I../../base/benchmark -I../../base/euclidean_cluster
 # cuda specific options
 CUDA_DEVICE_ARCH=compute_62
 NXXFLAGS+= -arch $(CUDA_DEVICE_ARCH)
+ifneq ($(CUDA_DEVICE_ARCH),compute_62)
+$(info Compiling for CUDA device architecture $(CUDA_DEVICE_ARCH))
+endif
+CUDA_BLOCK_SIZE=512
+NXXFLAGS+= -DEPHOS_KERNEL_BLOCK_SIZE=$(CUDA_BLOCK_SIZE)
+ifneq ($(CUDA_BLOCK_SIZE),512)
+$(info CUDA kernel block size set to $(CUDA_BLOCK_SIZE))
+endif
 
+# algorithm options
 CLOUD_DISTANCES_PER_PACKET=8
 ifneq ($(CLOUD_DISTANCES_PER_PACKET),8)
 $(info Working with distance packets with $(CLOUD_DISTANCES_PER_PACKET) elements)

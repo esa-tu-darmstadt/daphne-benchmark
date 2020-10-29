@@ -132,7 +132,7 @@ void solve(Vec6& result, Mat66 A, Vec6& b)
 			}
 		if (max == 0.0) {
 			// singular matrix
-			A.data[j][j] = MAX_TRANSLATION_EPS;
+			A.data[j][j] = EPHOS_MAX_TRANSLATION_EPS;
 		}
 		// subtract lines to yield a triagonal matrix
 		for (int i = j+1; i < 6; i++)
@@ -973,7 +973,7 @@ void ndt_mapping_base::check_next_outputs(int count)
 				reference.final_transformation.data[h][3]);
 			if (delta > max_delta) {
 				max_delta = delta;
-				if (delta > MAX_TRANSLATION_EPS) {
+				if (delta > EPHOS_MAX_TRANSLATION_EPS) {
 					error_so_far = true;
 				}
 			}
@@ -998,7 +998,7 @@ void ndt_mapping_base::check_next_outputs(int count)
 			float delta = std::fabs(resPoint.data[w] - refPoint.data[w]);
 			if (delta > max_delta) {
 				max_delta = delta;
-				if (delta > MAX_EPS) {
+				if (delta > EPHOS_MAX_EPS) {
 					error_so_far = true;
 				}
 			}
@@ -1009,11 +1009,11 @@ void ndt_mapping_base::check_next_outputs(int count)
 			float delta = std::fabs(resPoint.data[w] - refPoint.data[w]);
 			if (delta > max_delta) {
 				max_delta = delta;
-				if (delta > MAX_ROTATION_EPS) {
+				if (delta > EPHOS_MAX_ROTATION_EPS) {
 					error_so_far = true;
 				}
 			}
-			if (delta > MAX_ROTATION_EPS) {
+			if (delta > EPHOS_MAX_ROTATION_EPS) {
 				sError << " mismatch vector[" << w << "]: ";
 				sError << refPoint.data[w] << " should be " << resPoint.data[w] << std::endl;
 				caseErrorNo += 1;

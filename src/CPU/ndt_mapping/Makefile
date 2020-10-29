@@ -6,7 +6,7 @@
 ifdef DEBUG
 	CXXFLAGS+= -g
 else
-	CXXFLAGS=-O3
+	CXXFLAGS+= -O3
 endif
 CXXFLAGS+= -std=c++11
 CPPFLAGS+= -I../../base/benchmark -I../../base/ndt_mapping
@@ -48,4 +48,4 @@ clean:
 Makefile.deps:
 	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -MM -MG \
 	../../base/benchmark/common/main.cpp ../../base/ndt_mapping/common/ndt_mapping_base.cpp \
-	ndt_mapping.cu > Makefile.deps
+	ndt_mapping.cpp > Makefile.deps

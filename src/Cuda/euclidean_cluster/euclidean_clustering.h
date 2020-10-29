@@ -20,6 +20,11 @@
 
 #include "common/euclidean_clustering_base.h"
 
+#ifndef EPHOS_KERNEL_BLOCK_SIZE
+#define EPHOS_KERNEL_BLOCK_SIZE 512
+#endif
+
+
 class euclidean_clustering : public euclidean_clustering_base {
 
 public:

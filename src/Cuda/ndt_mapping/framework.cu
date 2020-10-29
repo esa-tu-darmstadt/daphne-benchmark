@@ -22,6 +22,15 @@
 
 #include "common/benchmark.h"
 
+void ndt_mapping::init() {
+	std::cout << "init\n";
+	ndt_mapping_base::init();
+	std::cout << "done" << std::endl;
+}
+void ndt_mapping::quit() {
+	ndt_mapping_base::quit();
+}
+
 int ndt_mapping::read_next_testcases(int count)
 {
 	int i;
@@ -78,3 +87,7 @@ void  ndt_mapping::parseMaps(std::ifstream& input_file, PointCloud& pointcloud) 
 		throw std::ios_base::failure("Error reading filtered scan");
 	}
 }
+
+// create benchmark to execute
+ndt_mapping a;
+benchmark& myKernel = a;

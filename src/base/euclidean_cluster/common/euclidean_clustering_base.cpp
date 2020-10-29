@@ -859,7 +859,7 @@ void euclidean_clustering_base::check_next_outputs(int count)
 				float deltaY = std::abs(colorPointCloud[i].data[j].y - refPointCloud.data[j].y);
 				float deltaZ = std::abs(colorPointCloud[i].data[j].z - refPointCloud.data[j].z);
 				float delta = std::fmax(deltaX, std::fmax(deltaY, deltaZ));
-				if (delta > MAX_EPS) {
+				if (delta > EPHOS_MAX_EPS) {
 					caseErrorNo += 1;
 					sError << " deviating point " << j << ": (";
 					sError << colorPointCloud[i].data[j].x << " " << colorPointCloud[i].data[j].y;
@@ -883,7 +883,7 @@ void euclidean_clustering_base::check_next_outputs(int count)
 				float deltaS = std::fmax(deltaW, deltaH);
 				float deltaO = std::fmax(deltaOX, deltaOY);
 				float delta = 0;
-				if (deltaP > MAX_EPS) {
+				if (deltaP > EPHOS_MAX_EPS) {
 					delta = std::fmax(delta, deltaP);
 					sError << " deviating bounding box " << j << " position: (";
 					sError << clusterBoundingBoxes[i].boxes[j].position.x << " ";
@@ -891,7 +891,7 @@ void euclidean_clustering_base::check_next_outputs(int count)
 					sError << refBoundingBoxes.boxes[j].position.x << " ";
 					sError << refBoundingBoxes.boxes[j].position.y << ")" << std::endl;
 				}
-				if (deltaS > MAX_EPS) {
+				if (deltaS > EPHOS_MAX_EPS) {
 					delta = std::fmax(delta, deltaS);
 					sError << " deviating bounding box " << j << " size: (";
 					sError << clusterBoundingBoxes[i].boxes[j].dimensions.x << " ";
@@ -899,7 +899,7 @@ void euclidean_clustering_base::check_next_outputs(int count)
 					sError << refBoundingBoxes.boxes[j].dimensions.x << " ";
 					sError << refBoundingBoxes.boxes[j].dimensions.y << ")" << std::endl;
 				}
-				if (deltaO > MAX_EPS) {
+				if (deltaO > EPHOS_MAX_EPS) {
 					delta = std::fmax(delta, deltaO);
 					sError << " deviating bound box " << j << " orientation: (";
 					sError << clusterBoundingBoxes[i].boxes[j].orientation.x << " ";
@@ -907,7 +907,7 @@ void euclidean_clustering_base::check_next_outputs(int count)
 					sError << refBoundingBoxes.boxes[j].orientation.x << " ";
 					sError << refBoundingBoxes.boxes[j].orientation.y << ")" << std::endl;
 				}
-				if (delta > MAX_EPS) {
+				if (delta > EPHOS_MAX_EPS) {
 					caseErrorNo += 1;
 					if (delta > max_delta) {
 						max_delta = delta;
@@ -920,7 +920,7 @@ void euclidean_clustering_base::check_next_outputs(int count)
 				float deltaY = std::abs(clusterCentroids[i].points[j].y - refClusterCentroids.points[j].y);
 				float deltaZ = std::abs(clusterCentroids[i].points[j].z - refClusterCentroids.points[j].z);
 				float delta = std::fmax(deltaX, std::fmax(deltaY, deltaZ));
-				if (delta > MAX_EPS) {
+				if (delta > EPHOS_MAX_EPS) {
 					caseErrorNo += 1;
 					if (delta > max_delta) {
 						max_delta = delta;
@@ -986,7 +986,7 @@ bool euclidean_clustering_base::check_output()
 	// acts as complement to init()
 
 	std::cout << "max delta: " << max_delta << "\n";
-	if ((max_delta > MAX_EPS) || error_so_far)
+	if ((max_delta > EPHOS_MAX_EPS) || error_so_far)
 	{
 		return false;
 	} else

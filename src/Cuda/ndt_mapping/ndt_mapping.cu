@@ -2,7 +2,7 @@
  * Author:  Florian Stock, Technische Universität Darmstadt,
  * Embedded Systems & Applications Group 2018
  * Author:  Thilo Gabel, Technische Universität Darmstadt,
- * Embedded Systems & Applications Group 2019
+ * Embedded Systems & Applications Group 2019 - 2020
  * License: Apache 2.0 (see attached files)
  */
 
@@ -59,14 +59,7 @@ inline double auxilaryFunction_PsiMT (double a, double f_a, double f_0, double g
 
 
 
-void ndt_mapping::init() {
-	std::cout << "init\n";
-	ndt_mapping_base::init();
-	std::cout << "done" << std::endl;
-}
-void ndt_mapping::quit() {
-	ndt_mapping_base::quit();
-}
+
 
 int ndt_mapping::voxelRadiusSearch(VoxelGrid& grid, const PointXYZI& point,
 	double radius, std::vector<Voxel*>& indices) {
@@ -666,15 +659,15 @@ void ndt_mapping::initCompute()
 // 			0
 // 		};
 // 	}
-	dim3 computeThreadDim0(EPHOS_COMPUTE_THREAD_NO);
-	dim3 computeBlockDim0((cellNo + EPHOS_COMPUTE_THREAD_NO - 1)/EPHOS_COMPUTE_THREAD_NO);
+	dim3 computeThreadDim0(EPHOS_KERNEL_BLOCK_SIZE);
+	dim3 computeBlockDim0((cellNo + EPHOS_KERNEL_BLOCK_SIZE - 1)/EPHOS_KERNEL_BLOCK_SIZE);
 	initComputeStep0<<<computeBlockDim0, computeThreadDim0>>>(target_grid, cellNo);
-	cudaDeviceSynchronize();
+	//cudaDeviceSynchronize();
 	// assign the points to their respective voxel
-	dim3 computeThreadDim1(EPHOS_COMPUTE_THREAD_NO);
-	dim3 computeBlockDim1((pointNo + EPHOS_COMPUTE_THREAD_NO - 1)/EPHOS_COMPUTE_THREAD_NO);
+	dim3 computeThreadDim1(EPHOS_KERNEL_BLOCK_SIZE);
+	dim3 computeBlockDim1((pointNo + EPHOS_KERNEL_BLOCK_SIZE - 1)/EPHOS_KERNEL_BLOCK_SIZE);
 	initComputeStep1<<<computeBlockDim1, computeThreadDim1>>>(target_grid, *target_cloud);
-	cudaDeviceSynchronize();
+	//cudaDeviceSynchronize();
 
 	// up to this point host and device calculations seem to match (test)
 	// after step 2 we start to see deviations
@@ -736,6 +729,4 @@ void ndt_mapping::cleanupCompute() {
 	target_grid.data = nullptr;
 }
 
-// create benchmark to execute
-ndt_mapping a;
-benchmark& myKernel = a;
+

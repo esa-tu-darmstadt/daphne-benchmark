@@ -13,9 +13,6 @@
 
 #include "points2image.h"
 
-// number of GPU threads
-#define THREADS 256
-
 // image storage
 // expected image size 800x600 pixels with 4 components per pixel
 // __device__ __managed__ float result_buffer[800*600*5];
@@ -174,8 +171,8 @@ PointsImage points2image::cloud2Image(
 		pointcloud.point_step,
 		imageSize
 	};
-	dim3 computeThreadDim(THREADS);
-	dim3 computeBlockDim((pointNo + THREADS - 1)/THREADS);
+	dim3 computeThreadDim(EPHOS_KERNEL_BLOCK_SIZE);
+	dim3 computeBlockDim((pointNo + EPHOS_KERNEL_BLOCK_SIZE - 1)/EPHOS_KERNEL_BLOCK_SIZE);
 	TransformPixel* arrivingPixels;
 	int* arrivingPixelCountBuffer;
 	int arrivingPixelNo = 0;

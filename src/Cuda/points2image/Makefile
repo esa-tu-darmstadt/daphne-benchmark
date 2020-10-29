@@ -5,9 +5,9 @@
 
 NXX=nvcc
 ifdef DEBUG
-	NXXFLAGS= -g -G
+	NXXFLAGS+= -g -G
 else
-	NXXFLAGS= -O3
+	NXXFLAGS+= -O3
 endif
 CXXFLAGS+= -std=c++11
 CPPFLAGS+= -I../../base/benchmark -I../../base/points2image
@@ -15,6 +15,15 @@ CPPFLAGS+= -I../../base/benchmark -I../../base/points2image
 # cuda specific options
 CUDA_DEVICE_ARCH=compute_62
 NXXFLAGS+= -arch $(CUDA_DEVICE_ARCH)
+ifneq ($(CUDA_DEVICE_ARCH),compute_62)
+$(info Compiling for CUDA device architecture $(CUDA_DEVICE_ARCH))
+endif
+CUDA_BLOCK_SIZE=512
+NXXFLAGS+= -DEPHOS_KERNEL_BLOCK_SIZE=$(CUDA_BLOCK_SIZE)
+ifneq ($(CUDA_BLOCK_SIZE),512)
+$(info CUDA kernel block size set to $(CUDA_BLOCK_SIZE))
+endif
+
 
 # other settings
 ifdef TESTCASE_LIMIT

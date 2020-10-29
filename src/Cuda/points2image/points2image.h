@@ -17,6 +17,10 @@
 #include "datatypes.h"
 #include "common/points2image_base.h"
 
+#ifndef EPHOS_KERNEL_BLOCK_SIZE
+#define EPHOS_KERNEL_BLOCK_SIZE 256
+#endif
+
 
 class points2image : public points2image_base {
 public:

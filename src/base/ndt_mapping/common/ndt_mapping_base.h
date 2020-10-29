@@ -23,9 +23,9 @@
 #include "common/benchmark.h"
 
 // maximum allowed deviation from reference
-#define MAX_TRANSLATION_EPS 0.001
-#define MAX_ROTATION_EPS 1.8
-#define MAX_EPS 2
+#define EPHOS_MAX_TRANSLATION_EPS 0.001
+#define EPHOS_MAX_ROTATION_EPS 1.8
+#define EPHOS_MAX_EPS 2
 
 class ndt_mapping_base : public benchmark {
 protected:
