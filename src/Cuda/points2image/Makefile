@@ -33,7 +33,7 @@ endif
 
 all: benchmark checkdata
 
-benchmark: main.o points2image_base.o points2image.o
+benchmark: main.o points2image_base.o points2image.o framework.o
 	$(NXX) $^ -o $@ $(LDDFLAGS)
 
 %.o: %.cu
@@ -54,10 +54,10 @@ ifeq ($(wildcard ../../../data/p2i_output.dat),)
 endif
 
 clean:
-	rm -f benchmark points2image.o points2image_base.o main.o Makefile.deps
+	rm -f benchmark points2image.o framework.o points2image_base.o main.o Makefile.deps
 
 Makefile.deps:
 	$(CXX) $(CFLAGS) $(CPPFLAGS) $(CXXFLAGS) -MM -MG \
 	../../base/benchmark/common/main.cpp ../../base/points2image/common/points2image_base.cpp \
-	points2image.cu > Makefile.deps
+	points2image.cu framework.cu > Makefile.deps
 
