@@ -14,6 +14,7 @@
 #include <fstream>
 #include <string>
 
+#include "datatypes.h"
 #include "common/points2image_base.h"
 
 

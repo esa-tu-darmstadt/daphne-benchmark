@@ -25,6 +25,10 @@ typedef struct Vec5 {
   double data[5];
 } Vec5;
 
+typedef struct Vec2 {
+	double data[2];
+} Vec2;
+
 typedef struct Point2d {
   double x,y;
 } Point2d;

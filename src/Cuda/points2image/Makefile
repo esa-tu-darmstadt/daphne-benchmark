@@ -5,9 +5,9 @@
 
 NXX=nvcc
 ifdef DEBUG
-	CXXFLAGS= -g
+	NXXFLAGS= -g -G
 else
-	CXXFLAGS= -O3
+	NXXFLAGS= -O3
 endif
 CXXFLAGS+= -std=c++11
 CPPFLAGS+= -I../../base/benchmark -I../../base/points2image
