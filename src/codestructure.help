@@ -1,0 +1,27 @@
+Shared Framework Sources
+------------------------
+The benchmark source code is split into multiple files. The code in the 'base/benchmark/common' folder builds the base for the benchmark frameworks. The other folders inside 'base' lead to the shared framework of each benchmark which implements common functionality for the specific benchmark like data file access and result verification.
+The benchmark implementations in the CPU, Cuda, OpenCl, etc. can make use of the shared framework and only implement the relevant parts of the benchmarked algorithms. This aims for improved maintainability and reduced code duplication.
+
+Include Structure
+-----------------
+Include paths can be passed to the compiler in order to make headers of the shared framework available. It is intended to reference shared framework headers with a 'common/' prefix in include directives.
+For example 'CPU/points2image/Makefile' adds the include paths:
+../../base/benchmark
+../../base/points2image
+in order to expose the 'common' folders within these directories.
+In 'points2image.h' the shared framework headers are then included with
+#include "common/points2image_base.h"
+
+Shared Framework Compilation
+----------------------------
+Since the shared framework also consists of '.cpp' files additional compilation steps are required. In the case of 'CPU/points2image' two additional files are compiled:
+../../base/points2image/common/points2image_base.cpp
+../../base/benchmark/common/main.cpp
+Both compilation steps depend on the the include paths from above.
+
+Shared Framework Macross
+-----------------------
+All currently existing shared frameworks react to the 'EPHOS_TESTDATA_GEN' and 'EPHOS_TESTCASE_LIMIT' preprocessor macros.
+The points2image framework specifically also handles the macro 'EPHOS_TESTDATA_LEGACY'.
+Make sure to appropriately pass macros to the compiler in the compilation step (see existing Makefiles for examples)

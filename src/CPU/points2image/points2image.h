@@ -14,7 +14,6 @@
 #include <fstream>
 #include <string>
 
-#include "datatypes.h"
 #include "common/points2image_base.h"
 
 
@@ -44,4 +43,4 @@ protected:
 		ImageSize& imageSize);
 };
 
-#endif //EPHOS_KERNEL_H
+#endif // EPHOS_POINTS2IMAGE_H

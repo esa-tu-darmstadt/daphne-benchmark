@@ -89,7 +89,7 @@ void euclidean_clustering_base::quit() {
 		output_file.close();
 	} catch (std::ifstream::failure& e) {
 	}
-#ifdef EPHOS_TSETDATA_GEN
+#ifdef EPHOS_TESTDATA_GEN
 	try {
 		datagen_file.close();
 	} catch (std::ofstream::failure& e) {
