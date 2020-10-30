@@ -69,8 +69,6 @@ void  ndt_mapping::parseMaps(std::ifstream& input_file, PointCloud& pointcloud) 
 	int32_t cloudSize;
 	try {
 		input_file.read((char*)&cloudSize, sizeof(int32_t));
-		// TODO make sure to not create a memory leak here
-		//pointcloud.clear();
 		cudaMallocManaged(&pointcloud.data, sizeof(PointXYZI)*cloudSize);
 		pointcloud.size = cloudSize;
 		pointcloud.capacity = cloudSize;

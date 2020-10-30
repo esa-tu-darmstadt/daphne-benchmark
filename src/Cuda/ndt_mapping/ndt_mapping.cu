@@ -604,7 +604,6 @@ __global__ void initComputeStep2(VoxelGrid voxelGrid, int voxelNo)
 			voxelGrid.data[iVoxel].invCovariance.data[row][col] = var*ratio;
 		}
 	}
-	//TODO uncomment
 	invertMatrix(voxelGrid.data[iVoxel].invCovariance);
 }
 void ndt_mapping::initCompute()
