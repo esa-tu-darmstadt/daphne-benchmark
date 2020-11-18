@@ -16,10 +16,15 @@ ifdef TESTCASE_LIMIT
 $(info Testcase limit set to $(TESTCASE_LIMIT))
 	CPPFLAGS+= -DEPHOS_TESTCASE_LIMIT=$(TESTCASE_LIMIT)
 endif
-ifdef ENABLE_DATAGEN
+ifdef ENABLE_TESTDATA_GEN
 $(info Enabled result data generation)
-	CPPFLAGS+= -DEPHOS_DATAGEN
+	CPPFLAGS+= -DEPHOS_TESTDATA_GEN
 endif
+ifdef ENABLE_TESTDATA_LEGACY
+$(info Enabled legacy test data support)
+	CPPFLAGS+= -DEPHOS_TESTDATA_LEGACY
+endif
+
 all: benchmark checkdata
 
 benchmark: ndt_mapping.o ndt_mapping_base.o main.o

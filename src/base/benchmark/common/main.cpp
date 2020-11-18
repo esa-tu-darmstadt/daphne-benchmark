@@ -7,6 +7,7 @@
 #include <iostream>
 #include <string.h>
 #include <stdlib.h>
+
 #include "benchmark.h"
 
 extern benchmark& myKernel;
@@ -20,9 +21,11 @@ int main(int argc, char **argv) {
 	myKernel.quit();
 	double secondsElapsed = myKernel.get_runtime();
 	int testcaseNo = myKernel.get_testcase_no();
-	std::cout <<  "elapsed time: "<< secondsElapsed << " seconds";
-	std::cout <<  ", average time per testcase (#"<< testcaseNo << "): ";
-	std::cout << secondsElapsed/(double)testcaseNo << " seconds" << std::endl;
+	if (testcaseNo > 0) {
+		std::cout <<  "elapsed time: "<< secondsElapsed << " seconds";
+		std::cout <<  ", average time per testcase (#"<< testcaseNo << "): ";
+		std::cout << secondsElapsed/(double)testcaseNo << " seconds" << std::endl;
+	}
 
 	// read the desired output  and compare
 	if (myKernel.check_output()) {
@@ -32,5 +35,4 @@ int main(int argc, char **argv) {
 		std::cout << "error: wrong result\n";
 		return 1;
 	}
-	return 1;
 }

@@ -174,17 +174,17 @@ void ndt_mapping_base::init() {
 		std::cerr << "Error opening the results file" << std::endl;
 		exit(-3);
 	}
-#ifdef EPHOS_DATAGEN
+#ifdef EPHOS_TESTDATA_GEN
 	try {
 		datagen_file.open("../../../data/ndt_output_gen.dat", std::ios::binary);
 	} catch (std::ofstream::failure& e) {
 		std::cerr << "Error opening the datagen file" << std::endl;
 		exit(-3);
 	}
-#endif // EPHOS_DATAGEN
+#endif
 	// consume the number of testcases from the testcase file
 	try {
-		testcases = read_number_testcases(input_file);
+		testcases = read_testdata_signature(input_file, output_file);
 	} catch (std::ifstream::failure& e) {
 		std::cerr << e.what() << std::endl;
 		exit(-3);
@@ -213,7 +213,7 @@ void ndt_mapping_base::quit() {
 		output_file.close();
 	} catch (std::ifstream::failure& e) {
 	}
-#ifdef EPHOS_DATAGEN
+#ifdef EPHOS_TESTDATA_GEN
 	try {
 		datagen_file.close();
 	} catch (std::ofstream::failure& e) {
@@ -903,16 +903,74 @@ void ndt_mapping_base::writeIntermediateResults(std::ofstream& output_file, Call
 		throw std::ios_base::failure("Error writing voxel grid. ");
 	}
 }
-int ndt_mapping_base::read_number_testcases(std::ifstream& input_file)
+#ifdef EPHOS_TESTDATA_LEGACY
+int ndt_mapping_base::read_testdata_signature(std::ifstream& input_file, std::ifstream& output_file)
 {
-	int32_t caseNo;
+	int32_t number;
 	try {
-		input_file.read((char*)&caseNo, sizeof(int32_t));
+		input_file.read((char*)&number, sizeof(int32_t));
 	} catch (std::ifstream::failure) {
 		throw std::ios_base::failure("Error reading number of test cases");
 	}
-	return caseNo;
+	return number;
 }
+#else // EPHOS_TESTDATA_LEGACY
+int ndt_mapping_base::read_testdata_signature(std::ifstream& input_file, std::ifstream& output_file)
+{
+	int32_t number1, number2, zero, version1, version2;
+	try {
+		input_file.read((char*)&zero, sizeof(int32_t));
+		input_file.read((char*)&version1, sizeof(int32_t));
+		input_file.read((char*)&number1, sizeof(int32_t));
+	} catch (std::ifstream::failure&) {
+		throw std::ios_base::failure("Error reading the input data signature");
+	}
+	if (zero != 0x0) {
+		throw std::ios_base::failure(
+			"Misformatted input test data signature. You may be using legacy test data");
+	}
+	if (version1 != 0x1) {
+		throw std::ios_base::failure(
+			std::string(
+				"Misformatted input test data signature. "
+				"Expected test data version 1. "
+				"Instead got version ") + std::to_string(version1));
+	}
+	if (number1 < 0 || number1 > 10000) {
+		throw std::ios_base::failure(
+			std::string("Unreasonable number of test cases (") +
+			std::to_string(number1) +
+			std::string(") in input test data"));
+	}
+	try {
+		output_file.read((char*)&zero, sizeof(int32_t));
+		output_file.read((char*)&version2, sizeof(int32_t));
+		output_file.read((char*)&number2, sizeof(int32_t));
+	} catch (std::ifstream::failure) {
+		throw std::ios_base::failure("Error reading the output test data signature");
+	}
+	if (zero != 0x0) {
+		throw std::ios_base::failure(
+			"Misformatted output test data signature. You may be using legacy test data");
+	}
+	if (version2 != 0x1) {
+		throw std::ios_base::failure(
+			std::string(
+				"Misformatted output test data signature. "
+				"Expected test data version 1. "
+				"Instead got version ") +
+			std::to_string(version2));
+	}
+	if (number2 != number1) {
+		throw std::ios_base::failure(
+			std::string("Number of test cases in output test data (") +
+			std::to_string(number2) +
+			std::string(") does not match number of test cases input test data (") +
+			std::to_string(number1) + std::string(")"));
+	}
+	return number1;
+}
+#endif // !EPHOS_TESTDATA_LEGACY
 
 void ndt_mapping_base::run(int p) {
 	std::cout << "executing for " << testcases << " test cases" << std::endl;
@@ -946,9 +1004,12 @@ void ndt_mapping_base::check_next_outputs(int count)
 	{
 		try {
 			parseResult(output_file, reference);
+#ifndef EPHOS_TESTDATA_LEGACY
 			parseIntermediateResults(output_file, reference);
-#ifdef EPHOS_DATAGEN
+#endif
+#ifdef EPHOS_TESTDATA_GEN
 			writeResult(datagen_file, results[i]);
+			std::cout << "inter: " << results[i].intermediate_transformations.size() << std::endl;
 			writeIntermediateResults(datagen_file, results[i]);
 #endif
 		} catch (std::ios_base::failure& e) {

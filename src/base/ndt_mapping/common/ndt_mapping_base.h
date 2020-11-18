@@ -113,9 +113,12 @@ protected:
 	 */
 	virtual void parseInitGuess(std::ifstream& input_file, Matrix4f& initGuess);
 	/**
-	 * Reads the number of testcases in the data file
+	 * Reads the testdata signature from the given testdata streams.
+	 * input_file: input data stream
+	 * output_file: reference data stream
+	 * return: number of testcases
 	 */
-	virtual int read_number_testcases(std::ifstream& input_file);
+	virtual int read_testdata_signature(std::ifstream& input_file, std::ifstream& output_file);
 	/**
 	 * Reads the next testcases.
 	 * count: number of datasets to read

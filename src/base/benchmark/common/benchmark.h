@@ -71,7 +71,7 @@ protected:
 	 * Stops the benchmark timer.
 	 * Should be called when all test cases have been processed.
 	 */
-	double stop_timer() {
+	void stop_timer() {
 		pause_timer();
 	}
 	/**

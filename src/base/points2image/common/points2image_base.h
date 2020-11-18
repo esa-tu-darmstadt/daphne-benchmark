@@ -73,9 +73,18 @@ protected:
 	 */
 	virtual void check_next_outputs(int count);
 	/**
-	 * Reads the number of testcases in the data set.
+	 * Reads the version and size of the input and output streams.
+	 * input_file: input data stream
+	 * output_file: reference data stream
+	 * return: number of testcases
 	 */
-	virtual int read_number_testcases(std::ifstream& input_file);
+	virtual int read_testdata_signature(std::ifstream& input_file, std::ifstream& output_file);
+	/**
+	 * Writes version and size info to the given output stream.
+	 * datagen_file: stream to write to
+	 * testcaseNo: number of testcases to put into the signature
+	 */
+	virtual void write_testdata_signature(std::ofstream& datagen_file, int testcaseNo);
 	/**
 	 * Transforms the given point cloud and produces the result as a two dimensional image.
 	 * cloud: input point cloud
@@ -96,21 +105,33 @@ protected:
 	 */
 	virtual void parsePointCloud(std::ifstream& input_file, PointCloud& pointcloud);
 	/**
+	 * Outputs a point cloud to the given stream.
+	 */
+	virtual void writePointCloud(std::ofstream& output_file, PointCloud& pointcloud);
+	/**
 	 * Parses the next camera extrinsic matrix.
 	 */
 	virtual void parseCameraExtrinsicMat(std::ifstream& input_file, Mat44& cameraExtrinsicMat);
+
+	virtual void writeCameraExtrinsicMat(std::ofstream& output_file, Mat44& cameraExtrinsicMat);
 	/**
 	 * Parses the next camera matrix.
 	 */
 	virtual void parseCameraMat(std::ifstream& input_file, Mat33& cameraMat);
+
+	virtual void writeCameraMat(std::ofstream& output_file, Mat33& cameraMat);
 	/**
-	 * Parses the next distance coefficients.
+	 * Parses the next distortion coefficients.
 	 */
 	virtual void parseDistCoeff(std::ifstream& input_file, Vec5& distCoeff);
+
+	virtual void writeDistCoeff(std::ofstream& output_file, Vec5& distCoeff);
 	/**
 	 * Parses the next image sizes.
 	 */
 	virtual void parseImageSize(std::ifstream& input_file, ImageSize& imageSize);
+
+	virtual void writeImageSize(std::ofstream& input_file, ImageSize& imageSize);
 	/**
 	 * Parses the next reference image.
 	 */

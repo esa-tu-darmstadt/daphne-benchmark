@@ -22,6 +22,10 @@ ifdef TESTCASE_LIMIT
 $(info Limiting to $(TESTCASE_LIMIT) test cases)
 	CPPFLAGS+= -DEPHOS_TESTCASE_LIMIT=$(TESTCASE_LIMIT)
 endif
+ifdef ENABLE_TESTDATA_LEGACY
+$(info Enabled legacy test data support)
+	CPPFLAGS+= -DEPHOS_TESTDATA_LEGACY
+endif
 ifdef ENABLE_TESTDATA_GEN
 $(info Enabled result data generation)
 	CPPFLAGS+= -DEPHOS_TESTDATA_GEN

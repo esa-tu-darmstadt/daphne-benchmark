@@ -93,9 +93,12 @@ protected:
 		BoundingboxArray& clusterBoundingBoxes,
 		Centroid& clusterCentroids);
 	/**
-	 * Reads the number of testcases in the data set.
+	 * Reads the signature from the given testdata streams.
+	 * input_file: input data stream
+	 * output_file: reference data stream
+	 * return: number of testcases read
 	 */
-	virtual int read_number_testcases(std::ifstream& input_file);
+	virtual int read_testdata_signature(std::ifstream& input_file, std::ifstream& output_file);
 	/**
 	 * Reads the next testcase input data structures.
 	 * count: number of testcase datasets to read

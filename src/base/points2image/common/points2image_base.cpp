@@ -57,14 +57,21 @@ void points2image_base::init() {
  	}
 #endif
 	try {
-	// consume the total number of testcases
-		testcases = read_number_testcases(input_file);
+		// consume signature
+		testcases = read_testdata_signature(input_file, output_file);
 	} catch (std::ios_base::failure& e) {
-		std::cerr << e.what() << std::endl;
+		std::cout << e.what() << std::endl;
 		exit(-3);
 	}
 #ifdef EPHOS_TESTCASE_LIMIT
 	testcases = std::min(testcases, (uint32_t)EPHOS_TESTCASE_LIMIT);
+
+#endif
+#ifdef EPHOS_TESTDATA_GEN
+	// TODO disable
+	//datagen_file.write((char*)&testcases, sizeof(int32_t));
+#else
+
 #endif
 	// prepare the first iteration
 	error_so_far = false;
@@ -88,10 +95,12 @@ void points2image_base::quit() {
 
 	} catch (std::ofstream::failure& e) {
 	}
+#ifdef EPHOS_TESTDATA_GEN
 	try {
 		datagen_file.close();
 	} catch (std::ofstream::failure& e) {
 	}
+#endif
 }
 void  points2image_base::parsePointCloud(std::ifstream& input_file, PointCloud& pointcloud) {
 	try {
@@ -104,8 +113,19 @@ void  points2image_base::parsePointCloud(std::ifstream& input_file, PointCloud& 
 
 		input_file.read((char*)pointcloud.data, pointcloud.height*pointcloud.width*pointcloud.point_step);
     }  catch (std::ifstream::failure) {
-		throw std::ios_base::failure("Error reading the next point cloud.");
+		throw std::ios_base::failure("Error reading the next point cloud");
     }
+}
+void points2image_base::writePointCloud(std::ofstream& output_file, PointCloud& pointcloud) {
+	try {
+		output_file.write((char*)&pointcloud.height, sizeof(int32_t));
+		output_file.write((char*)&pointcloud.width, sizeof(int32_t));
+		output_file.write((char*)&pointcloud.point_step, sizeof(uint32_t));
+
+		output_file.write((char*)pointcloud.data, pointcloud.height*pointcloud.width*pointcloud.point_step);
+	} catch (std::ofstream::failure) {
+		throw std::ios_base::failure("Error writing the next point cloud");
+	}
 }
 
 void  points2image_base::parseCameraExtrinsicMat(std::ifstream& input_file, Mat44& cameraExtrinsicMat) {
@@ -114,17 +134,38 @@ void  points2image_base::parseCameraExtrinsicMat(std::ifstream& input_file, Mat4
 			for (int w = 0; w < 4; w++)
 				input_file.read((char*)&cameraExtrinsicMat.data[h][w],sizeof(double));
 	} catch (std::ifstream::failure) {
-		throw std::ios_base::failure("Error reading the next extrinsic matrix.");
+		throw std::ios_base::failure("Error reading the next extrinsic matrix");
 	}
 }
-
+void points2image_base::writeCameraExtrinsicMat(std::ofstream& output_file, Mat44& cameraExtrinsicMat) {
+	try {
+		for (int h= 0; h < 4; h++) {
+			for (int w = 0; w < 4; w++) {
+				output_file.write((char*)&cameraExtrinsicMat.data[h][w], sizeof(double));
+			}
+		}
+	} catch (std::ofstream::failure) {
+		throw std::ios_base::failure("Error writing the next extrinsic matrix");
+	}
+}
+void points2image_base::writeCameraMat(std::ofstream& output_file, Mat33& cameraMat) {
+	try {
+		for (int h = 0; h < 3; h++) {
+			for (int w = 0; w < 3; w++) {
+				output_file.write((char*)&cameraMat.data[h][w], sizeof(double));
+			}
+		}
+	} catch (std::ofstream::failure) {
+		throw std::ios_base::failure("Error writing the next camera matrix");
+	}
+}
 void points2image_base::parseCameraMat(std::ifstream& input_file, Mat33& cameraMat ) {
 	try {
 	for (int h = 0; h < 3; h++)
 		for (int w = 0; w < 3; w++)
 			input_file.read((char*)&cameraMat.data[h][w], sizeof(double));
 	} catch (std::ifstream::failure) {
-		throw std::ios_base::failure("Error reading the next camera matrix.");
+		throw std::ios_base::failure("Error reading the next camera matrix");
     }
 }
 
@@ -133,16 +174,32 @@ void  points2image_base::parseDistCoeff(std::ifstream& input_file, Vec5& distCoe
 		for (int w = 0; w < 5; w++)
 			input_file.read((char*)&distCoeff.data[w], sizeof(double));
 	} catch (std::ifstream::failure) {
-		throw std::ios_base::failure("Error reading the next set of distance coefficients.");
+		throw std::ios_base::failure("Error reading the next set of distortion coefficients");
 	}
 }
-
+void points2image_base::writeDistCoeff(std::ofstream& output_file, Vec5& distCoeff) {
+	try {
+		for (int w = 0; w < 5; w++) {
+			output_file.write((char*)&distCoeff.data[w], sizeof(double));
+		}
+	} catch (std::ofstream::failure) {
+		throw std::ios_base::failure("Error writing the next set of distortion coefficients");
+	}
+}
 void  points2image_base::parseImageSize(std::ifstream& input_file, ImageSize& imageSize) {
 	try {
 		input_file.read((char*)&imageSize.width, sizeof(int32_t));
 		input_file.read((char*)&imageSize.height, sizeof(int32_t));
 	} catch (std::ifstream::failure) {
-		throw std::ios_base::failure("Error reading the next image size.");
+		throw std::ios_base::failure("Error reading the next image size");
+	}
+}
+void points2image_base::writeImageSize(std::ofstream& output_file, ImageSize& imageSize) {
+	try {
+		output_file.write((char*)&imageSize.width, sizeof(int32_t));
+		output_file.write((char*)&imageSize.height, sizeof(int32_t));
+	} catch (std::ofstream::failure) {
+		throw std::ios_base::failure("Error writing the next image size");
 	}
 }
 
@@ -182,7 +239,7 @@ void points2image_base::parsePointsImage(std::ifstream& output_file, PointsImage
 			image.max_height[i] = maxHeight;
 		}
 	} catch (std::ios_base::failure) {
-		throw std::ios_base::failure("Error reading the next reference image.");
+		throw std::ios_base::failure("Error reading the next reference image");
 	}
 }
 #else // !EPHOS_TESTDATA_LEGACY
@@ -224,7 +281,7 @@ void points2image_base::parsePointsImage(std::ifstream& output_file, PointsImage
 			image.max_height[iPixel] = pixel.max_height;
 		}
 	} catch (std::ios_base::failure &e) {
-		throw std::ios_base::failure("Error reading the next reference image.");
+		throw std::ios_base::failure("Error reading the next reference image");
 	}
 }
 #endif // !EPHOS_TESTDATA_LEGACY
@@ -265,7 +322,7 @@ void points2image_base::writePointsImage(std::ofstream& output_file, PointsImage
 		output_file.write((char*)&elementNo, sizeof(int32_t));
 		output_file.write((char*)sparseImage.data(), sizeof(FullPixelData)*elementNo);
 	} catch (std::ios_base::failure) {
-		throw std::ios_base::failure("Error writing the next reference image.");
+		throw std::ios_base::failure("Error writing the next reference image");
 	}
 }
 
@@ -314,18 +371,86 @@ void points2image_base::cleanupTestcases(int count) {
 	imageSize.clear();
 	pointcloud.clear();
 }
-
-int points2image_base::read_number_testcases(std::ifstream& input_file)
-{
+#ifdef EPHOS_TESTDATA_LEGACY
+int points2image_base::read_testdata_signature(std::ifstream& input_file, std::ifstream& output_file) {
 	// reads the number of testcases in the data stream
 	int32_t number;
 	try {
-		input_file.read((char*)&(number), sizeof(int32_t));
+		input_file.read((char*)&number, sizeof(int32_t));
 	} catch (std::ifstream::failure) {
-		throw std::ios_base::failure("Error reading the number of testcases.");
+		throw std::ios_base::failure("Error reading the test data signature");
 	}
 
 	return number;
+}
+#else // EPHOS_TESTDATA_LEGACY
+int points2image_base::read_testdata_signature(std::ifstream& input_file, std::ifstream& output_file) {
+	// reads the number of testcases in the data stream
+	int32_t number1, number2, version1, version2, zero;
+	try {
+		input_file.read((char*)&zero, sizeof(int32_t));
+		input_file.read((char*)&version1, sizeof(int32_t));
+		input_file.read((char*)&number1, sizeof(int32_t));
+	} catch (std::ifstream::failure) {
+		throw std::ios_base::failure("Error reading the input test data signature");
+	}
+	if (zero != 0x0) {
+		throw std::ios_base::failure(
+			"Misformatted input test data signature. You may be using legacy test data");
+	}
+	if (version1 != 0x1) {
+		throw std::ios_base::failure(
+			std::string(
+				"Misformatted input test data signature. "
+				"Expected test data version 1. "
+				"Instead got version ") + std::to_string(version1));
+	}
+	if (number1 < 0 || number1 > 10000) {
+		throw std::ios_base::failure(
+			std::string("Unreasonable number of test cases (") +
+			std::to_string(number1) +
+			std::string(") in input test data"));
+	}
+	try {
+		output_file.read((char*)&zero, sizeof(int32_t));
+		output_file.read((char*)&version2, sizeof(int32_t));
+		output_file.read((char*)&number2, sizeof(int32_t));
+	} catch (std::ifstream::failure) {
+		throw std::ios_base::failure("Error reading the output test data signature");
+	}
+	if (zero != 0x0) {
+		throw std::ios_base::failure(
+			"Misformatted output test data signature. You may be using legacy test data");
+	}
+	if (version2 != 0x1) {
+		throw std::ios_base::failure(
+			std::string(
+				"Misformatted output test data signature. "
+				"Expected test data version 1. "
+				"Instead got version ") +
+			std::to_string(version2));
+	}
+	if (number2 != number1) {
+		throw std::ios_base::failure(
+			std::string("Number of test cases in output test data (") +
+			std::to_string(number2) +
+			std::string(") does not match number of test cases input test data (") +
+			std::to_string(number1) + std::string(")"));
+	}
+
+	return number1;
+}
+#endif // !EPHOS_TESTDATA_LEGACY
+void points2image_base::write_testdata_signature(std::ofstream& datagen_file, int testcaseNo) {
+	int zero = 0x0;
+	int version = 0x1;
+	try {
+		datagen_file.write((char*)&zero, sizeof(int32_t));
+		datagen_file.write((char*)&version, sizeof(int32_t));
+		datagen_file.write((char*)&testcaseNo, sizeof(int32_t));
+	} catch (std::ofstream::failure& e) {
+		throw std::ios_base::failure("Error writing the output test data signature");
+	}
 }
 void points2image_base::check_next_outputs(int count)
 {
@@ -339,7 +464,13 @@ void points2image_base::check_next_outputs(int count)
 		try {
 			parsePointsImage(output_file, reference);
 #ifdef EPHOS_TESTDATA_GEN
-			writePointsImage(datagen_file, &reference);
+			// TODO switch
+// 			writePointCloud(datagen_file, pointcloud[i]);
+// 			writeCameraExtrinsicMat(datagen_file, cameraExtrinsicMat[i]);
+// 			writeCameraMat(datagen_file, cameraMat[i]);
+// 			writeDistCoeff(datagen_file, distCoeff[i]);
+// 			writeImageSize(datagen_file, imageSize[i]);
+			writePointsImage(datagen_file, reference);
 #endif
 		} catch (std::ios_base::failure& e) {
 			std::cerr << e.what() << std::endl;
@@ -361,7 +492,7 @@ void points2image_base::check_next_outputs(int count)
 		{
 			error_so_far = true;
 			caseErrorNo += 1;
-			sError << " deviating vertical intervall: [" << results[i].min_y << " ";
+			sError << " deviating vertical interval: [" << results[i].min_y << " ";
 			sError << results[i].max_y << "] should be [";
 			sError << reference.min_y << " " << reference.max_y << "]" << std::endl;
 		}
