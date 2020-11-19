@@ -267,7 +267,7 @@ void ndt_mapping::updateHessian (Mat66 &hessian, Vec3 &x_trans, Mat33 &c_inv)
 			for (int col = 0; col < 3; col++)
 			cov_dxd_pi[row] += c_inv.data[row][col] * point_gradient_.data[col][i];
 		}
-		
+
 	for (int j = 0; j < 6; j++)
 	{
 		// Update hessian, Equation 6.13 [Magnusson 2009]
@@ -406,21 +406,21 @@ void ndt_mapping::computeAngleDerivatives (Vec6 &p, bool compute_hessian)
 		h_ang_a3_[0] =  (-sx * sz + cx * sy * cz);
 		h_ang_a3_[1] = (-cx * sy * sz - sx * cz);
 		h_ang_a3_[2] = (-cx * cy);
-		
+
 		h_ang_b2_[0] = (cx * cy * cz);
 		h_ang_b2_[1] = (-cx * cy * sz);
 		h_ang_b2_[2] = (cx * sy);
 		h_ang_b3_[0] = (sx * cy * cz);
 		h_ang_b3_[1] = (-sx * cy * sz);
 		h_ang_b3_[2] = (sx * sy);
-		
+
 		h_ang_c2_[0] = (-sx * cz - cx * sy * sz);
 		h_ang_c2_[1] = (sx * sz - cx * sy * cz);
 		h_ang_c2_[2] = 0;
 		h_ang_c3_[0] = (cx * cz - sx * sy * sz);
 		h_ang_c3_[1] = (-sx * sy * cz - cx * sz);
 		h_ang_c3_[2] = 0;
-		
+
 		h_ang_d1_[0] = (-cy * cz);
 		h_ang_d1_[1] = (cy * sz);
 		h_ang_d1_[2] = (sy);
@@ -430,7 +430,7 @@ void ndt_mapping::computeAngleDerivatives (Vec6 &p, bool compute_hessian)
 		h_ang_d3_[0] = (cx * sy * cz);
 		h_ang_d3_[1] = (-cx * sy * sz);
 		h_ang_d3_[2] = (-cx * cy);
-		
+
 		h_ang_e1_[0] = (sy * sz);
 		h_ang_e1_[1] = (sy * cz);
 		h_ang_e1_[2] = 0;
@@ -440,7 +440,7 @@ void ndt_mapping::computeAngleDerivatives (Vec6 &p, bool compute_hessian)
 		h_ang_e3_[0] = (cx * cy * sz);
 		h_ang_e3_[1] = (cx * cy * cz);
 		h_ang_e3_[2] = 0;
-		
+
 		h_ang_f1_[0] = (-cy * cz);
 		h_ang_f1_[1] = (cy * sz);
 		h_ang_f1_[2] = 0;
@@ -514,28 +514,20 @@ void ndt_mapping::initCompute()
 	maxVoxel.data[1] = max2 + 0.01f;
 	maxVoxel.data[2] = max3 + 0.01f;
 
-	target_grid.dimension[0] = (max1 + 2*trans_eps_ - min1)/resolution_ + 1;
-	target_grid.dimension[1] = (max2 + 2*trans_eps_ - min2)/resolution_ + 1;
-	target_grid.dimension[2] = (max3 + 2*trans_eps_- min3)/resolution_ + 1;
-	target_grid.start[0] = min1 - trans_eps_;
-	target_grid.start[1] = min2 - trans_eps_;
-	target_grid.start[2] = min3 - trans_eps_;
+	target_grid.dimension[0] = (max1 + 0.02f - min1)/resolution_ + 1;
+	target_grid.dimension[1] = (max2 + 0.02f - min2)/resolution_ + 1;
+	target_grid.dimension[2] = (max3 + 0.02f - min3)/resolution_ + 1;
+	target_grid.start[0] = min1 - 0.01f;
+	target_grid.start[1] = min2 - 0.01f;
+	target_grid.start[2] = min3 - 0.01f;
 
 
 	// span over point cloud
-// 	for (int i = 0; i < 3; i++) {
-// 		//voxelDimension[i] = (maxVoxel.data[i] - minVoxel.data[i])/resolution_ + 1;
-// 		target_grid.dimension[i] = (maxVoxel.data[i] - minVoxel.data[i])/resolution_ + 1;
-// 		target_grid.start[i] = minVoxel.data[i];
-// 	}
-
 	// initialize the voxel grid
 	//// spans over the point cloud
-	//target_grid.clear();
-	int cellNo = target_grid.dimension[0]*target_grid.dimension[1]*target_grid.dimension[2];//voxelDimension[0]*voxelDimension[1]*voxelDimension[2];
+	int cellNo = target_grid.dimension[0]*target_grid.dimension[1]*target_grid.dimension[2];
 	target_grid.data = new Voxel[cellNo];
-	//target_grid.resize(cellNo);
-	#pragma omp parallel for
+ 	#pragma omp parallel for
 	for (int i = 0; i < cellNo; i++)
 	{
 		target_grid.data[i] = (Voxel){
