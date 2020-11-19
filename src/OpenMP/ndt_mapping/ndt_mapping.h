@@ -37,29 +37,26 @@ private:
 	int voxelRadiusSearch(VoxelGrid& grid, const PointXYZI& point,
 		double radius, std::vector<Voxel*>& indices);
 
-	double updateDerivatives (Vec6 &score_gradient,
-						Mat66 &hessian,
-						Vec3 &x_trans, Mat33 &c_inv,
-						bool compute_hessian = true);
+	double updateDerivatives(Vec6& score_gradient,
+		Mat66& hessian,
+		Vec3& x_trans, Mat33& c_inv,
+		bool compute_hessian=true);
 
-	void computePointDerivatives (Vec3 &x, bool compute_hessian = true);
-	void computeHessian (Mat66 &hessian,
-				PointCloudSource &trans_cloud, Vec6 &);
-	void updateHessian (Mat66 &hessian, Vec3 &x_trans, Mat33 &c_inv);
+	void computePointDerivatives(Vec3 &x, bool compute_hessian = true);
+	void computeHessian(Mat66& hessian, PointCloud& trans_cloud, Vec6&);
+	void updateHessian(Mat66& hessian, Vec3& x_trans, Mat33& c_inv);
 
-	double computeDerivatives (Vec6 &score_gradient,
-						Mat66 &hessian,
-						PointCloudSource &trans_cloud,
-						Vec6 &p,
-						bool compute_hessian = true );
+	double computeDerivatives(Vec6& score_gradient,
+		Mat66& hessian,
+		PointCloud& trans_cloud,
+		Vec6& p,
+		bool compute_hessian=true);
 
 
-	void computeAngleDerivatives (Vec6 &p, bool compute_hessian = true);
+	void computeAngleDerivatives(Vec6& p, bool compute_hessian=true);
 
-	/**
-	 * Performs point cloud specific voxel grid initialization.
-	 */
-	void initCompute();
+	virtual void initCompute();
+	virtual void cleanupCompute();
 
 };
 
