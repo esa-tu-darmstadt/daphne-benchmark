@@ -78,9 +78,9 @@ The benchmarks have been developed for a large number of platforms in mind. Howe
 
 The test-data (input and reference output data) is available in four different sizes:
 
-* Full (~4.6GB): https://hessenbox.tu-darmstadt.de/getlink/fiJUFuNr4NHzo7Mmg8opPbn7/daphne-data-full
+* Full (~4.6GB): https://hessenbox.tu-darmstadt.de/getlink/fiLRpW1WMphF9EmUrF387uVe/daphne-data-full.zip
 
-* Medium (~1.2GB): https://hessenbox.tu-darmstadt.de/getlink/fiNBiGrqB3mH964QEJNEbNiC/daphne-data-medium
+* Medium (~1.2GB): https://hessenbox.tu-darmstadt.de/getlink/fi3b5Vr7WjZYdNsyE5QgT6iY/daphne-data-medium.zip
 
 * Small (~80MB): https://hessenbox.tu-darmstadt.de/getlink/fiPw58RBQnBP9k8MaMv3rRoF/daphne-data-small.zip
 
