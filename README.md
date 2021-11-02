@@ -82,9 +82,10 @@ The test-data (input and reference output data) is available in four different s
 
 * Medium (~1.2GB): https://hessenbox.tu-darmstadt.de/getlink/fiNBiGrqB3mH964QEJNEbNiC/daphne-data-medium
 
-* Small (~80MB): https://hessenbox.tu-darmstadt.de/getlink/fiEc6XdBxPKx9vUstKQwXRGU/daphne-data-small
+* Small (~80MB): https://hessenbox.tu-darmstadt.de/getlink/fiPw58RBQnBP9k8MaMv3rRoF/daphne-data-small.zip
 
-* Minimal (~12MB): https://hessenbox.tu-darmstadt.de/getlink/fiEzcNF864HPfrEt1oXrnq9L/daphne-data-minimal
+* Minimal (~12MB): https://hessenbox.tu-darmstadt.de/getlink/fiGzJN75zGzv7KwshWgKGYGd/daphne-data-minimal.zip
+
 
 To use the data, just unpack the contained archive. Each archive contains input- and output data for all three benchmarks.
 
