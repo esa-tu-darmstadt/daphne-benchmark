@@ -78,7 +78,7 @@ The benchmarks have been developed for a large number of platforms in mind. Howe
 
 The test-data (input and reference output data) is available in four different sizes:
 
-* Full (~4.6GB): https://seafile.esa.informatik.tu-darmstadt.de/f/be551c78266e4c078107/?dl=1
+* Full (~4.6GB): https://seafile.esa.informatik.tu-darmstadt.de/f/c64b4d16a2f541ca83ee/?dl=1
 
 * Medium (~1.2GB): https://seafile.esa.informatik.tu-darmstadt.de/f/b41dfd110d7c483ab124/?dl=1
 
